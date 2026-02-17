@@ -6,11 +6,18 @@ const pino = require('pino');
 const nodemailer = require('nodemailer');
 const qrcodeImg = require('qrcode');
 
-// --- YOUR CONFIGURATION ---
+// --- CONFIGURATION ---
 const ADMIN_JID = '2721870306@s.whatsapp.net';
 const EMAIL_USER = 'garethrn@gmail.com';
 const EMAIL_PASS = 'cxxs awqa nnpa iylu'; 
-const CSV_FILE = './products.csv';
+
+// Paths aligned for Railway Volume mounted at /app/storage
+const STORAGE_DIR = './storage';
+const CSV_FILE = `${STORAGE_DIR}/products.csv`;
+const AUTH_DIR = `${STORAGE_DIR}/auth_info`;
+
+// Create storage folder if missing
+if (!fs.existsSync(STORAGE_DIR)) fs.mkdirSync(STORAGE_DIR, { recursive: true });
 
 const transporter = nodemailer.createTransport({
     service: 'gmail',
@@ -22,7 +29,9 @@ let userCarts = {};
 
 function loadProducts() {
     const results = [];
-    if (!fs.existsSync(CSV_FILE)) fs.writeFileSync(CSV_FILE, 'ID,Name,Price\n1,Demo Item,10.00');
+    if (!fs.existsSync(CSV_FILE)) {
+        fs.writeFileSync(CSV_FILE, 'ID,Name,Price\n1,Demo Item,10.00');
+    }
     fs.createReadStream(CSV_FILE).pipe(csv()).on('data', (d) => results.push(d)).on('end', () => {
         products = results;
         console.log('✅ Inventory Loaded');
@@ -31,13 +40,11 @@ function loadProducts() {
 loadProducts();
 
 async function startBot() {
-    // Railway Volume should be mounted to /app to save 'auth_info' folder
-    const { state, saveCreds } = await useMultiFileAuthState('auth_info');
+    const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
     
     const sock = makeWASocket({
         auth: state,
-        logger: pino({ level: 'silent' }),
-        printQRInTerminal: true
+        logger: pino({ level: 'silent' }) // This removes the messy logs
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -46,23 +53,30 @@ async function startBot() {
         const { connection, lastDisconnect, qr } = update;
         
         if (qr) {
-            console.log('⚠️ QR Code generated. Sending to email...');
-            const path = './bot-qr.png';
+            console.log('⚠️ NEW QR CODE RECEIVED. Sending to email...');
+            const path = `${STORAGE_DIR}/bot-qr.png`;
             await qrcodeImg.toFile(path, qr);
-            transporter.sendMail({
+            
+            const mailOptions = {
                 from: EMAIL_USER,
                 to: EMAIL_USER,
                 subject: 'WhatsApp Bot Login',
-                text: 'Scan the attached QR code.',
+                text: 'A new login is required. Please scan the attached QR code with your WhatsApp Business app.',
                 attachments: [{ filename: 'bot-qr.png', path: path }]
+            };
+
+            transporter.sendMail(mailOptions, (err, info) => {
+                if (err) console.log('❌ Email failed:', err.message);
+                else console.log('✉️ Email sent successfully!');
             });
         }
         
         if (connection === 'close') {
             const shouldReconnect = (lastDisconnect.error instanceof Boom) ? lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut : true;
+            console.log('🔄 Connection closed. Reconnecting:', shouldReconnect);
             if (shouldReconnect) startBot();
         } else if (connection === 'open') {
-            console.log('🚀 Bot Connected!');
+            console.log('🚀 BOT IS CONNECTED AND LIVE!');
         }
     });
 
@@ -73,7 +87,7 @@ async function startBot() {
         const jid = msg.key.remoteJid;
         const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").toLowerCase().trim();
 
-        // 1. ADMIN: CSV Update (Check if admin sends a document)
+        // Admin: Update CSV
         if (jid === ADMIN_JID && msg.message.documentMessage) {
             const doc = msg.message.documentMessage;
             if (doc.fileName.endsWith('.csv')) {
@@ -84,42 +98,33 @@ async function startBot() {
             }
         }
 
-        // 2. USER: Menu
+        // User Commands
         if (text === 'hello' || text === 'menu') {
             let menu = "*Our Catalog:*\n\n";
             products.forEach(p => menu += `*ID ${p.ID}*: ${p.Name} - $${p.Price}\n`);
-            menu += "\nReply: *Buy [ID] [Qty]*\nExample: *Buy 1 5*";
+            menu += "\nReply: *Buy [ID] [Qty]*";
             await sock.sendMessage(jid, { text: menu });
-        }
-
-        // 3. USER: Add to Cart
-        else if (text.startsWith('buy ')) {
+        } else if (text.startsWith('buy ')) {
             const parts = text.split(' ');
             const id = parts[1];
             const qty = parseInt(parts[2]) || 1;
             const product = products.find(p => p.ID === id);
-            
             if (product) {
                 if (!userCarts[jid]) userCarts[jid] = [];
                 userCarts[jid].push({ ...product, qty });
-                await sock.sendMessage(jid, { text: `✅ Added ${qty} x ${product.Name} to cart.\nReply *Checkout* to finish.` });
+                await sock.sendMessage(jid, { text: `✅ Added ${qty} x ${product.Name}.\nReply *Checkout* to finish.` });
             }
-        }
-
-        // 4. USER: Checkout
-        else if (text === 'checkout') {
+        } else if (text === 'checkout') {
             const cart = userCarts[jid];
-            if (!cart || cart.length === 0) return sock.sendMessage(jid, { text: "Your cart is empty." });
-            
+            if (!cart || cart.length === 0) return sock.sendMessage(jid, { text: "Cart empty." });
             let total = 0;
-            let summary = "*Order Review:*\n------------------\n";
+            let summary = "*Order Review:*\n";
             cart.forEach(item => {
                 const sub = parseFloat(item.Price) * item.qty;
                 total += sub;
-                summary += `${item.Name} (x${item.qty}): $${sub.toFixed(2)}\n`;
+                summary += `- ${item.Name} (x${item.qty}): $${sub.toFixed(2)}\n`;
             });
-            summary += `------------------\n*Total: $${total.toFixed(2)}*`;
-            
+            summary += `\n*Total: $${total.toFixed(2)}*`;
             await sock.sendMessage(jid, { text: summary });
             delete userCarts[jid];
         }
