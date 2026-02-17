@@ -6,9 +6,9 @@ const csv = require('csv-parser');
 const nodemailer = require('nodemailer');
 
 // --- CONFIGURATION ---
-const ADMIN_NUMBER = '27123456789@c.us'; // Replace with your number (country code + number)
-const EMAIL_USER = 'your-email@gmail.com';
-const EMAIL_PASS = 'your-app-password'; // 16-character Google App Password
+const ADMIN_NUMBER = '2721870306@c.us'; // Replace with your number (country code + number)
+const EMAIL_USER = 'garethrn@gmail.com';
+const EMAIL_PASS = 'cxxs awqa nnpa iylu'; // 16-character Google App Password
 const CSV_FILE = './products.csv';
 
 const transporter = nodemailer.createTransport({
