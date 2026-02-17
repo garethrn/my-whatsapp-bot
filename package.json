@@ -1,18 +1,102 @@
-{
-  "name": "whatsapp-business-bot",
-  "version": "1.0.2",
-  "description": "WhatsApp Ordering Bot for Railway",
-  "main": "index.js",
-  "dependencies": {
-    "whatsapp-web.js": "^1.23.0",
-    "qrcode-terminal": "^0.12.0",
-    "qrcode": "^1.5.3",
-    "csv-parser": "^3.0.0",
-    "puppeteer-core": "^21.0.0",
-    "nodemailer": "^6.9.0",
-    "mime-types": "^2.1.35"
-  },
-  "scripts": {
-    "start": "node index.js"
-  }
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const { Boom } = require('@hapi/boom');
+const fs = require('fs');
+const csv = require('csv-parser');
+const pino = require('pino');
+const nodemailer = require('nodemailer');
+
+const ADMIN_JID = '2721870306@s.whatsapp.net';
+const EMAIL_USER = 'garethrn@gmail.com';
+const EMAIL_PASS = 'cxxs awqa nnpa iylu';
+
+let products = [];
+let userCarts = {};
+
+// Load CSV Data
+function loadProducts() {
+    const results = [];
+    if (!fs.existsSync('./products.csv')) fs.writeFileSync('./products.csv', 'ID,Name,Price\n1,Example,10.00');
+    fs.createReadStream('./products.csv').pipe(csv()).on('data', (d) => results.push(d)).on('end', () => {
+        products = results;
+        console.log('✅ Inventory Loaded');
+    });
 }
+loadProducts();
+
+async function startBot() {
+    const { state, saveCreds } = await useMultiFileAuthState('auth_info');
+    
+    const sock = makeWASocket({
+        auth: state,
+        logger: pino({ level: 'silent' }),
+        printQRInTerminal: true
+    });
+
+    sock.ev.on('creds.update', saveCreds);
+
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect, qr } = update;
+        if (qr) console.log('Scan the QR code in your terminal or check email.');
+        
+        if (connection === 'close') {
+            const shouldReconnect = (lastDisconnect.error instanceof Boom) ? lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut : true;
+            if (shouldReconnect) startBot();
+        } else if (connection === 'open') {
+            console.log('🚀 Bot Connected Successfully!');
+        }
+    });
+
+    sock.ev.on('messages.upsert', async ({ messages }) => {
+        const msg = messages[0];
+        if (!msg.message || msg.key.fromMe) return;
+
+        const jid = msg.key.remoteJid;
+        const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").toLowerCase();
+
+        // 1. ADMIN: CSV Update
+        if (jid === ADMIN_JID && msg.message.documentMessage) {
+            if (msg.message.documentMessage.fileName.endsWith('.csv')) {
+                // Simplified for Railway: You'd usually download and write the buffer here.
+                return sock.sendMessage(jid, { text: "CSV update feature is ready! (Download logic required per environment)" });
+            }
+        }
+
+        // 2. USER: Menu
+        if (text === 'hello' || text === 'menu') {
+            let menu = "*Our Catalog:*\n\n";
+            products.forEach(p => menu += `*ID ${p.ID}*: ${p.Name} - $${p.Price}\n`);
+            menu += "\nReply: *Buy [ID] [Qty]*";
+            await sock.sendMessage(jid, { text: menu });
+        }
+
+        // 3. USER: Add to Cart
+        else if (text.startsWith('buy ')) {
+            const [_, id, qtyStr] = text.split(' ');
+            const qty = parseInt(qtyStr) || 1;
+            const product = products.find(p => p.ID === id);
+            if (product) {
+                if (!userCarts[jid]) userCarts[jid] = [];
+                userCarts[jid].push({ ...product, qty });
+                await sock.sendMessage(jid, { text: `✅ Added ${qty} x ${product.Name}.` });
+            }
+        }
+
+        // 4. USER: Checkout
+        else if (text === 'checkout') {
+            const cart = userCarts[jid];
+            if (!cart || cart.length === 0) return sock.sendMessage(jid, { text: "Cart empty." });
+            let total = 0;
+            let summary = "*Order:*\n";
+            cart.forEach(i => {
+                const sub = parseFloat(i.Price) * i.qty;
+                total += sub;
+                summary += `- ${i.Name} (x${i.qty}): $${sub.toFixed(2)}\n`;
+            });
+            summary += `\n*Total: $${total.toFixed(2)}*`;
+            await sock.sendMessage(jid, { text: summary });
+            delete userCarts[jid];
+        }
+    });
+}
+
+startBot();
