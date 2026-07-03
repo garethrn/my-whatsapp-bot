@@ -24,9 +24,9 @@ This guide is for a complete beginner. Follow it step by step and you will have 
 
 ## Files that matter
 
-- `/home/runner/work/my-whatsapp-bot/my-whatsapp-bot/index.js` - the bot code
-- `/home/runner/work/my-whatsapp-bot/my-whatsapp-bot/products.csv` - your product list
-- `/home/runner/work/my-whatsapp-bot/my-whatsapp-bot/storage/` - created automatically for login files and QR images
+- `./index.js` - the bot code
+- `./products.csv` - your product list
+- `./storage/` - created automatically for login files and QR images
 
 ## Before you start
 
@@ -62,7 +62,7 @@ If not:
 3. Open a terminal inside:
 
 ```bash
-cd /home/runner/work/my-whatsapp-bot/my-whatsapp-bot
+cd /path/to/your/project
 ```
 
 ## Step 3: Install the bot packages
@@ -114,14 +114,14 @@ Example:
 ### Mac or Linux
 
 ```bash
-cd /home/runner/work/my-whatsapp-bot/my-whatsapp-bot
+cd /path/to/your/project
 ADMIN_JID="27123456789@s.whatsapp.net" EMAIL_USER="you@gmail.com" EMAIL_PASS="your-app-password" npm start
 ```
 
 ### Windows PowerShell
 
 ```powershell
-cd /home/runner/work/my-whatsapp-bot/my-whatsapp-bot
+cd C:\path\to\your\project
 $env:ADMIN_JID="27123456789@s.whatsapp.net"
 $env:EMAIL_USER="you@gmail.com"
 $env:EMAIL_PASS="your-app-password"
@@ -162,7 +162,7 @@ Expected result:
 
 Open:
 
-`/home/runner/work/my-whatsapp-bot/my-whatsapp-bot/products.csv`
+`./products.csv`
 
 Format:
 
@@ -252,7 +252,7 @@ You forgot to set one of these:
 
 Check:
 
-`/home/runner/work/my-whatsapp-bot/my-whatsapp-bot/products.csv`
+`./products.csv`
 
 ### Railway deploy fails
 
