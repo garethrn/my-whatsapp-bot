@@ -1,4 +1,17 @@
-ID,Name,Price
-1,Coffee Beans 500g,15.00
-2,Coffee Filters,5.50
-3,Espresso Machine,299.00
+ID,Category,Name,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvailable,PolePrice,InstallationFee
+1,Banners,Vinyl Banner,sqm,180.00,,150.00,250.00,no,,0.00
+2,Banners,Pull-Up Banner (2m),fixed,,850.00,850.00,0.00,no,,0.00
+3,Banners,Mesh Banner,sqm,200.00,,200.00,0.00,no,,0.00
+4,Signs,Aluminium Composite Sign,sqm,350.00,,300.00,350.00,yes,120.00,450.00
+5,Signs,Corflute Sign,sqm,220.00,,200.00,350.00,yes,80.00,350.00
+6,Signs,Pavement / A-Frame Sign,fixed,,650.00,650.00,0.00,no,,0.00
+7,Stickers,Cut Vinyl Stickers,sqm,280.00,,120.00,0.00,no,,0.00
+8,Stickers,Printed Vinyl Stickers,sqm,320.00,,150.00,0.00,no,,0.00
+9,Stickers,Frosted Window Vinyl,sqm,350.00,,150.00,0.00,no,,0.00
+10,Clothing,Custom T-Shirt (Print),fixed,,85.00,85.00,0.00,no,,0.00
+11,Clothing,Custom Hoodie (Print),fixed,,150.00,150.00,0.00,no,,0.00
+12,Print,Business Cards (100),fixed,,250.00,250.00,0.00,no,,0.00
+13,Print,A5 Flyers (100),fixed,,350.00,350.00,0.00,no,,0.00
+14,Print,A4 Poster,fixed,,25.00,25.00,0.00,no,,0.00
+15,Vehicle Branding,Full Vehicle Wrap,sqm,450.00,,500.00,500.00,no,,0.00
+16,Vehicle Branding,Car Decal / Door Sticker,sqm,380.00,,300.00,0.00,no,,0.00
