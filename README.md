@@ -147,16 +147,23 @@ If the QR code email does not arrive:
 
 Send these messages to the connected WhatsApp bot:
 
-- `hello`
-- `menu`
-- `buy 1 2`
-- `checkout`
+- `hello` or `menu` — shows product categories
+- `products Signs` — lists all Sign products with pricing details
+- `buy 4` — starts ordering an Aluminium Composite Sign (asks for dimensions)
+- `1200x600` — provides length × breadth in mm; bot calculates price
+- `yes` / `no` — answers pole and installation prompts
+- `cart` — shows current cart with totals
+- `checkout` — shows full order summary
+- `clear` — empties the cart
+- `cancel` — exits any in-progress order flow
 
 Expected result:
 
-- `hello` or `menu` shows products from `products.csv`
-- `buy 1 2` adds 2 of product ID 1
-- `checkout` shows the order summary and total
+- `hello` or `menu` shows the 6 product categories
+- sqm-priced products ask for dimensions in mm, then calculate a price in Rands (with a minimum price floor)
+- products with a mandatory design/layout fee have it added automatically
+- Sign products with poles offer a per-pole add-on; Signs with installation offer an installation add-on
+- `checkout` shows a line-by-line breakdown (material, design fee, poles, installation) and a grand total in Rands
 
 ## Step 9: Edit your products
 
@@ -164,20 +171,28 @@ Open:
 
 `./products.csv`
 
-Format:
+The CSV has 11 columns:
 
 ```csv
-ID,Name,Price
-1,Coffee Beans 500g,15.00
-2,Coffee Filters,5.50
-3,Espresso Machine,299.00
+ID,Category,Name,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvailable,PolePrice,InstallationFee
 ```
 
-Rules:
+| Column | Description |
+|---|---|
+| `ID` | Unique numeric ID |
+| `Category` | Product category (e.g. `Banners`, `Signs`, `Stickers`) |
+| `Name` | Display name |
+| `PriceType` | `sqm` (per square metre) or `fixed` |
+| `PricePerSqm` | Price per m² in Rands — used when `PriceType=sqm` |
+| `FixedPrice` | Fixed price in Rands — used when `PriceType=fixed` |
+| `MinPrice` | Minimum charge in Rands (applies to sqm products) |
+| `DesignFee` | Mandatory design/layout fee in Rands (`0.00` if none) |
+| `PolesAvailable` | `yes` or `no` — whether pole add-ons are offered |
+| `PolePrice` | Price per pole in Rands (leave blank if `PolesAvailable=no`) |
+| `InstallationFee` | Installation fee in Rands (`0.00` if none) |
 
-- keep the first line exactly as `ID,Name,Price`
-- every product needs a unique ID
-- price should be a number
+**sqm pricing:** when a client provides length and breadth in mm the bot calculates  
+`price = (length_mm ÷ 1000) × (breadth_mm ÷ 1000) × PricePerSqm`, then applies `MinPrice` as a floor.
 
 You can also send a new CSV file to the bot from the admin WhatsApp account to replace the catalog.
 

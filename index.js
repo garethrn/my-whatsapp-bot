@@ -93,7 +93,7 @@ function calcSqmPrice(product, lengthMm, breadthMm) {
 
 // Parse dimensions in various formats: 1200x600, 1200X600, 1200 600, 1200,600, 1200*600
 function parseDimensions(text) {
-    const match = text.match(/(\d+(?:\.\d+)?)\s*[xX,*\s]\s*(\d+(?:\.\d+)?)/);
+    const match = text.match(/(\d+(?:\.\d+)?)\s*[xX,*]?\s*(\d+(?:\.\d+)?)/);
     if (match) {
         return { length: parseFloat(match[1]), breadth: parseFloat(match[2]) };
     }
@@ -186,7 +186,7 @@ async function startBot() {
             const sqm = (dims.length / 1000) * (dims.breadth / 1000);
 
             let reply = `📐 *${product.Name}*\n`;
-            reply += `Size: ${dims.length}mm × ${dims.breadth}mm (${sqm.toFixed(4)} m²)\n`;
+            reply += `Size: ${dims.length}mm × ${dims.breadth}mm (${sqm.toFixed(2)} m²)\n`;
             reply += `Material: R${sqmPrice.toFixed(2)}\n`;
             if (designFee > 0) reply += `Design/Layout Fee: R${designFee.toFixed(2)}\n`;
 
@@ -315,7 +315,8 @@ async function startBot() {
                     if (p.PolesAvailable === 'yes') reply += `  🪧 Poles: R${parseFloat(p.PolePrice).toFixed(2)}/pole\n`;
                     if (parseFloat(p.InstallationFee) > 0) reply += `  🔧 Installation: R${parseFloat(p.InstallationFee).toFixed(2)}\n`;
                 } else {
-                    reply += `*ID ${p.ID}*: ${p.Name} — R${parseFloat(p.FixedPrice).toFixed(2)}\n`;
+                    const fixedPrice = parseFloat(p.FixedPrice) || 0;
+                    reply += `*ID ${p.ID}*: ${p.Name} — R${fixedPrice.toFixed(2)}\n`;
                 }
                 reply += '\n';
             });
