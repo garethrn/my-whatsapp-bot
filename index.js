@@ -11,18 +11,29 @@ const pino = require('pino');
 const nodemailer = require('nodemailer');
 const qrcodeImg = require('qrcode');
 const path = require('path');
-const express = require('express'); // Added for Health Check
+const express = require('express');
 
 // --- YOUR CONFIGURATION ---
-const ADMIN_JID = '2721870306@s.whatsapp.net';
-const EMAIL_USER = 'garethrn@gmail.com';
-const EMAIL_PASS = 'cxxs awqa nnpa iylu'; 
+const ADMIN_JID = process.env.ADMIN_JID;
+const EMAIL_USER = process.env.EMAIL_USER;
+const EMAIL_PASS = process.env.EMAIL_PASS;
 
 const STORAGE_DIR = path.join(__dirname, 'storage');
-const CSV_FILE = path.join(STORAGE_DIR, 'products.csv');
+const CSV_FILE = path.join(__dirname, 'products.csv');
 const AUTH_DIR = path.join(STORAGE_DIR, 'auth_info');
 
 if (!fs.existsSync(STORAGE_DIR)) fs.mkdirSync(STORAGE_DIR, { recursive: true });
+
+const missingConfig = [
+    ['ADMIN_JID', ADMIN_JID],
+    ['EMAIL_USER', EMAIL_USER],
+    ['EMAIL_PASS', EMAIL_PASS]
+].filter(([, value]) => !value).map(([key]) => key);
+
+if (missingConfig.length > 0) {
+    console.error(`❌ Missing required environment variables: ${missingConfig.join(', ')}`);
+    process.exit(1);
+}
 
 const transporter = nodemailer.createTransport({
     service: 'gmail',
