@@ -93,7 +93,7 @@ function calcSqmPrice(product, lengthMm, breadthMm) {
 
 // Parse dimensions in various formats: 1200x600, 1200X600, 1200 600, 1200,600, 1200*600
 function parseDimensions(text) {
-    const match = text.match(/(\d+(?:\.\d+)?)\s*[xX,*]?\s*(\d+(?:\.\d+)?)/);
+    const match = text.match(/(\d+(?:\.\d+)?)\s*[xX,*]\s*(\d+(?:\.\d+)?)/);
     if (match) {
         return { length: parseFloat(match[1]), breadth: parseFloat(match[2]) };
     }

@@ -196,7 +196,7 @@ ID,Category,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,PriceType,Price
 | `InstallationFee` | Installation fee in Rands (`0.00` if none) |
 
 **sqm pricing:** when a client provides length and breadth in mm the bot calculates  
-`price = (length_mm ÷ 1000) × (breadth_mm ÷ 1000) × PricePerSqm`, then applies `MinPrice` as a floor.
+`price = (length_mm / 1000) × (breadth_mm / 1000) × PricePerSqm`, then applies `MinPrice` as a floor.
 
 You can also send a new CSV file to the bot from the admin WhatsApp account to replace the catalog.
 
