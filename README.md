@@ -171,10 +171,10 @@ Open:
 
 `./products.csv`
 
-The CSV has 11 columns:
+The CSV has 15 columns:
 
 ```csv
-ID,Category,Name,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvailable,PolePrice,InstallationFee
+ID,Category,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvailable,PolePrice,InstallationFee
 ```
 
 | Column | Description |
@@ -182,6 +182,10 @@ ID,Category,Name,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvaila
 | `ID` | Unique numeric ID |
 | `Category` | Product category (e.g. `Banners`, `Signs`, `Stickers`) |
 | `Name` | Display name |
+| `Size` | Product size or dimensional note (e.g. `A5`, `600x900mm`, `Custom`) |
+| `Finish` | Product finish (e.g. `Matt`, `Gloss`, `Frosted`) |
+| `SingleOrDoubleSided` | `Single` or `Double` |
+| `UnitsPerProduct` | Number of units included in one priced product (e.g. `100` for cards/flyers) |
 | `PriceType` | `sqm` (per square metre) or `fixed` |
 | `PricePerSqm` | Price per m² in Rands — used when `PriceType=sqm` |
 | `FixedPrice` | Fixed price in Rands — used when `PriceType=fixed` |

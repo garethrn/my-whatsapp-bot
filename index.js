@@ -44,25 +44,25 @@ let products = [];
 let userCarts = {};
 let userStates = {};
 
-// CSV columns: ID,Category,Name,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvailable,PolePrice,InstallationFee
+// CSV columns: ID,Category,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvailable,PolePrice,InstallationFee
 const DEFAULT_CSV = [
-    'ID,Category,Name,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvailable,PolePrice,InstallationFee',
-    '1,Banners,Vinyl Banner,sqm,180.00,,150.00,250.00,no,,0.00',
-    '2,Banners,Pull-Up Banner (2m),fixed,,850.00,850.00,0.00,no,,0.00',
-    '3,Banners,Mesh Banner,sqm,200.00,,200.00,0.00,no,,0.00',
-    '4,Signs,Aluminium Composite Sign,sqm,350.00,,300.00,350.00,yes,120.00,450.00',
-    '5,Signs,Corflute Sign,sqm,220.00,,200.00,350.00,yes,80.00,350.00',
-    '6,Signs,Pavement / A-Frame Sign,fixed,,650.00,650.00,0.00,no,,0.00',
-    '7,Stickers,Cut Vinyl Stickers,sqm,280.00,,120.00,0.00,no,,0.00',
-    '8,Stickers,Printed Vinyl Stickers,sqm,320.00,,150.00,0.00,no,,0.00',
-    '9,Stickers,Frosted Window Vinyl,sqm,350.00,,150.00,0.00,no,,0.00',
-    '10,Clothing,Custom T-Shirt (Print),fixed,,85.00,85.00,0.00,no,,0.00',
-    '11,Clothing,Custom Hoodie (Print),fixed,,150.00,150.00,0.00,no,,0.00',
-    '12,Print,Business Cards (100),fixed,,250.00,250.00,0.00,no,,0.00',
-    '13,Print,A5 Flyers (100),fixed,,350.00,350.00,0.00,no,,0.00',
-    '14,Print,A4 Poster,fixed,,25.00,25.00,0.00,no,,0.00',
-    '15,Vehicle Branding,Full Vehicle Wrap,sqm,450.00,,500.00,500.00,no,,0.00',
-    '16,Vehicle Branding,Car Decal / Door Sticker,sqm,380.00,,300.00,0.00,no,,0.00'
+    'ID,Category,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvailable,PolePrice,InstallationFee',
+    '1,Banners,Vinyl Banner,Custom,Matt,Single,1,sqm,180.00,,150.00,250.00,no,,0.00',
+    '2,Banners,Pull-Up Banner (2m),850x2000mm,Satin,Single,1,fixed,,850.00,850.00,0.00,no,,0.00',
+    '3,Banners,Mesh Banner,Custom,Matt,Single,1,sqm,200.00,,200.00,0.00,no,,0.00',
+    '4,Signs,Aluminium Composite Sign,Custom,Gloss,Single,1,sqm,350.00,,300.00,350.00,yes,120.00,450.00',
+    '5,Signs,Corflute Sign,Custom,Matt,Single,1,sqm,220.00,,200.00,350.00,yes,80.00,350.00',
+    '6,Signs,Pavement / A-Frame Sign,600x900mm,Gloss,Double,1,fixed,,650.00,650.00,0.00,no,,0.00',
+    '7,Stickers,Cut Vinyl Stickers,Custom,Matt,Single,1,sqm,280.00,,120.00,0.00,no,,0.00',
+    '8,Stickers,Printed Vinyl Stickers,Custom,Gloss,Single,1,sqm,320.00,,150.00,0.00,no,,0.00',
+    '9,Stickers,Frosted Window Vinyl,Custom,Frosted,Single,1,sqm,350.00,,150.00,0.00,no,,0.00',
+    '10,Clothing,Custom T-Shirt (Print),S-XXL,Standard,Single,1,fixed,,85.00,85.00,0.00,no,,0.00',
+    '11,Clothing,Custom Hoodie (Print),S-XXL,Standard,Single,1,fixed,,150.00,150.00,0.00,no,,0.00',
+    '12,Print,Business Cards (100),90x50mm,Matt/Gloss,Double,100,fixed,,250.00,250.00,0.00,no,,0.00',
+    '13,Print,A5 Flyers (100),A5,Gloss,Double,100,fixed,,350.00,350.00,0.00,no,,0.00',
+    '14,Print,A4 Poster,A4,Gloss,Single,1,fixed,,25.00,25.00,0.00,no,,0.00',
+    '15,Vehicle Branding,Full Vehicle Wrap,Custom,Gloss,Single,1,sqm,450.00,,500.00,500.00,no,,0.00',
+    '16,Vehicle Branding,Car Decal / Door Sticker,Custom,Gloss,Single,1,sqm,380.00,,300.00,0.00,no,,0.00'
 ].join('\n');
 
 function loadProducts() {
@@ -310,6 +310,10 @@ async function startBot() {
             catProducts.forEach(p => {
                 if (p.PriceType === 'sqm') {
                     reply += `*ID ${p.ID}*: ${p.Name}\n`;
+                    if (p.Size) reply += `  📏 Size: ${p.Size}\n`;
+                    if (p.Finish) reply += `  ✨ Finish: ${p.Finish}\n`;
+                    if (p.SingleOrDoubleSided) reply += `  ↔️ Sides: ${p.SingleOrDoubleSided}\n`;
+                    if (p.UnitsPerProduct) reply += `  📦 Units per product: ${p.UnitsPerProduct}\n`;
                     reply += `  📐 R${parseFloat(p.PricePerSqm).toFixed(2)}/m² (min R${parseFloat(p.MinPrice).toFixed(2)})\n`;
                     if (parseFloat(p.DesignFee) > 0) reply += `  🎨 Design fee: R${parseFloat(p.DesignFee).toFixed(2)}\n`;
                     if (p.PolesAvailable === 'yes') reply += `  🪧 Poles: R${parseFloat(p.PolePrice).toFixed(2)}/pole\n`;
@@ -317,6 +321,10 @@ async function startBot() {
                 } else {
                     const fixedPrice = parseFloat(p.FixedPrice) || 0;
                     reply += `*ID ${p.ID}*: ${p.Name} — R${fixedPrice.toFixed(2)}\n`;
+                    if (p.Size) reply += `  📏 Size: ${p.Size}\n`;
+                    if (p.Finish) reply += `  ✨ Finish: ${p.Finish}\n`;
+                    if (p.SingleOrDoubleSided) reply += `  ↔️ Sides: ${p.SingleOrDoubleSided}\n`;
+                    if (p.UnitsPerProduct) reply += `  📦 Units per product: ${p.UnitsPerProduct}\n`;
                 }
                 reply += '\n';
             });
