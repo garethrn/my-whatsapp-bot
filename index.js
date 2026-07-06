@@ -91,7 +91,7 @@ function calcSqmPrice(product, lengthMm, breadthMm) {
     return Math.max(price, parseFloat(product.MinPrice || 0));
 }
 
-// Parse dimensions in various formats: 1200x600, 1200X600, 1200 600, 1200,600, 1200*600
+// Parse dimensions with explicit separators: 1200x600, 1200X600, 1200,600, 1200*600
 function parseDimensions(text) {
     const match = text.match(/(\d+(?:\.\d+)?)\s*[xX,*]\s*(\d+(?:\.\d+)?)/);
     if (match) {
@@ -177,7 +177,7 @@ async function startBot() {
             const dims = parseDimensions(rawText);
             if (!dims) {
                 return sock.sendMessage(jid, {
-                    text: "❓ I couldn't read those dimensions.\nPlease send *length x breadth in mm* (e.g. _1200x600_)\n\nType *cancel* to go back."
+                    text: "❓ I couldn't read those dimensions.\nPlease send *length x breadth in mm* (e.g. _1200x600_).\nAccepted separators: x, X, comma, *\n\nType *cancel* to go back."
                 });
             }
             const product = userState.pendingProduct;
@@ -343,7 +343,7 @@ async function startBot() {
             if (product.PriceType === 'sqm') {
                 userStates[jid] = { step: 'awaiting_dimensions', pendingProduct: product };
                 return sock.sendMessage(jid, {
-                    text: `📐 *${product.Name}*\nPlease send the *length x breadth in mm*\ne.g. _1200x600_\n\nType *cancel* to go back.`
+                    text: `📐 *${product.Name}*\nPlease send the *length x breadth in mm*\ne.g. _1200x600_\nAccepted separators: x, X, comma, *\n\nType *cancel* to go back.`
                 });
             }
             // Fixed price product

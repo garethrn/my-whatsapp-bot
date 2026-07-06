@@ -197,6 +197,7 @@ ID,Category,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,PriceType,Price
 
 **sqm pricing:** when a client provides length and breadth in mm the bot calculates  
 `price = (length_mm / 1000) × (breadth_mm / 1000) × PricePerSqm`, then applies `MinPrice` as a floor.
+`MinPrice` is an absolute minimum, even for very small dimensions.
 
 You can also send a new CSV file to the bot from the admin WhatsApp account to replace the catalog.
 
@@ -283,8 +284,10 @@ Check that:
 
 ## Quick command list
 
-- `hello` or `menu` - show products
-- `buy 1 2` - buy 2 of product 1
+- `hello` or `menu` - show product categories
+- `products Signs` - show products in a category
+- `buy 1 2` - buy 2 of a **fixed-price** product (ID 1 example)
+- `buy 4` - start an **sqm-priced** product flow (bot asks for dimensions)
 - `checkout` - show total and clear the cart
 
 That is the full beginner setup.
