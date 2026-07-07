@@ -25,6 +25,9 @@ const LEARNED_RESPONSES_FILE = path.join(STORAGE_DIR, 'learned_responses.json');
 const LEARNING_LEADS_FILE = path.join(STORAGE_DIR, 'learning_leads.json');
 const MAX_HISTORY = 10;
 const MAX_LEARNING_LEADS = 200;
+const MM_PER_METER = 1000;
+const MAX_DIMENSION_MM = 50000;
+const LEARNING_MATCH_THRESHOLD = 0.45;
 const ARTWORK_DISCLAIMER = [
     'Artwork Disclaimer',
     '',
@@ -40,16 +43,29 @@ const FRUSTRATION_KEYWORDS = ['frustrated', 'angry', 'upset', 'annoyed', 'not he
 
 if (!fs.existsSync(STORAGE_DIR)) fs.mkdirSync(STORAGE_DIR, { recursive: true });
 
-const missingConfig = [
-    ['ADMIN_JID', ADMIN_JID],
-    ['EMAIL_USER', EMAIL_USER],
-    ['EMAIL_PASS', EMAIL_PASS]
-].filter(([, value]) => !value).map(([key]) => key);
+function validateConfig() {
+    const missingConfig = [
+        ['ADMIN_JID', ADMIN_JID],
+        ['EMAIL_USER', EMAIL_USER],
+        ['EMAIL_PASS', EMAIL_PASS]
+    ].filter(([, value]) => !value).map(([key]) => key);
 
-if (missingConfig.length > 0) {
-    console.error(`❌ Missing required environment variables: ${missingConfig.join(', ')}`);
-    process.exit(1);
+    if (missingConfig.length > 0) {
+        console.error(`❌ Missing required environment variables: ${missingConfig.join(', ')}`);
+        process.exit(1);
+    }
+
+    if (!ADMIN_JID.endsWith('@s.whatsapp.net')) {
+        console.error('❌ ADMIN_JID must end with @s.whatsapp.net');
+        process.exit(1);
+    }
+
+    if (EMAIL_PASS.length < 12) {
+        console.warn('⚠️ EMAIL_PASS looks short. Use a strong Gmail app password.');
+    }
 }
+
+validateConfig();
 
 const transporter = nodemailer.createTransport({
     service: 'gmail',
@@ -118,15 +134,20 @@ function getCategories() {
     return [...new Set(products.map((p) => p.Category))];
 }
 
+function toNumber(value, fallback = 0) {
+    const parsed = parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 function formatCurrency(value) {
-    return `R${(parseFloat(value) || 0).toFixed(2)}`;
+    return `R${toNumber(value).toFixed(2)}`;
 }
 
 // Calculate sqm price from mm dimensions, applying the minimum price floor
 function calcSqmPrice(product, lengthMm, heightMm) {
-    const sqm = (lengthMm / 1000) * (heightMm / 1000);
-    const price = sqm * parseFloat(product.PricePerSqm || 0);
-    return Math.max(price, parseFloat(product.MinPrice || 0));
+    const sqm = (lengthMm / MM_PER_METER) * (heightMm / MM_PER_METER);
+    const price = sqm * toNumber(product.PricePerSqm);
+    return Math.max(price, toNumber(product.MinPrice));
 }
 
 // Parse dimensions such as 1200x600, 1200mm x 600mm, length 1200 height 600
@@ -140,7 +161,7 @@ function parseDimensions(text) {
 
     if (!Number.isFinite(length) || !Number.isFinite(height)) return null;
     if (length <= 0 || height <= 0) return { error: 'non_positive' };
-    if (length > 50000 || height > 50000) return { error: 'too_large', length, height };
+    if (length > MAX_DIMENSION_MM || height > MAX_DIMENSION_MM) return { error: 'too_large', length, height };
 
     return { length, height };
 }
@@ -261,7 +282,7 @@ function findLearnedResponse(text) {
         }
     }
 
-    if (bestScore >= 0.45) {
+    if (bestScore >= LEARNING_MATCH_THRESHOLD) {
         return bestMatch;
     }
 
@@ -539,8 +560,8 @@ async function startBot() {
 
             const product = userState.pendingProduct;
             const sqmPrice = calcSqmPrice(product, dims.length, dims.height);
-            const designFee = parseFloat(product.DesignFee || 0);
-            const sqm = (dims.length / 1000) * (dims.height / 1000);
+            const designFee = toNumber(product.DesignFee);
+            const sqm = (dims.length / MM_PER_METER) * (dims.height / MM_PER_METER);
 
             let reply = `📐 *${product.Name}*\n`;
             reply += `Length: ${dims.length}mm\n`;
@@ -565,7 +586,7 @@ async function startBot() {
                 reply += `\nWould you like to add *poles*?\nPrice per pole: ${formatCurrency(product.PolePrice)}\nReply *yes* or *no*.`;
                 return sock.sendMessage(jid, { text: reply });
             }
-            if (parseFloat(product.InstallationFee) > 0) {
+            if (toNumber(product.InstallationFee) > 0) {
                 userStates[jid] = { step: 'awaiting_installation', pendingProduct: product, pendingItem };
                 reply += `\nWould you like *installation*? ${formatCurrency(product.InstallationFee)}\nReply *yes* or *no*.`;
                 return sock.sendMessage(jid, { text: reply });
@@ -589,7 +610,7 @@ async function startBot() {
                 });
             }
             if (text === 'no') {
-                const instFee = parseFloat(userState.pendingProduct.InstallationFee || 0);
+                const instFee = toNumber(userState.pendingProduct.InstallationFee);
                 if (instFee > 0) {
                     userStates[jid] = { ...userState, step: 'awaiting_installation' };
                     return sock.sendMessage(jid, {
@@ -614,10 +635,10 @@ async function startBot() {
             if (Number.isNaN(count) || count < 1) {
                 return sock.sendMessage(jid, { text: 'Please enter a valid number of poles (for example _2_).' });
             }
-            const polePrice = parseFloat(userState.pendingProduct.PolePrice || 0);
+            const polePrice = toNumber(userState.pendingProduct.PolePrice);
             const polesCost = count * polePrice;
             const updatedItem = { ...userState.pendingItem, polesCost, poles: count };
-            const instFee = parseFloat(userState.pendingProduct.InstallationFee || 0);
+            const instFee = toNumber(userState.pendingProduct.InstallationFee);
 
             if (instFee > 0) {
                 userStates[jid] = { ...userState, step: 'awaiting_installation', pendingItem: updatedItem };
@@ -639,7 +660,7 @@ async function startBot() {
         if (userState.step === 'awaiting_installation') {
             if (text === 'yes' || text === 'no') {
                 const item = userState.pendingItem;
-                item.installationFee = text === 'yes' ? parseFloat(userState.pendingProduct.InstallationFee || 0) : 0;
+                item.installationFee = text === 'yes' ? toNumber(userState.pendingProduct.InstallationFee) : 0;
                 item.total = item.sqmPrice + item.designFee + item.polesCost + item.installationFee;
                 if (!userCarts[jid]) userCarts[jid] = [];
                 userCarts[jid].push(item);
@@ -693,9 +714,9 @@ async function startBot() {
                     if (p.SingleOrDoubleSided) reply += `  ↔️ Sides: ${p.SingleOrDoubleSided}\n`;
                     if (p.UnitsPerProduct) reply += `  📦 Units per product: ${p.UnitsPerProduct}\n`;
                     reply += `  📐 ${formatCurrency(p.PricePerSqm)}/m² (min ${formatCurrency(p.MinPrice)})\n`;
-                    if (parseFloat(p.DesignFee) > 0) reply += `  🎨 Design fee: ${formatCurrency(p.DesignFee)}\n`;
+                    if (toNumber(p.DesignFee) > 0) reply += `  🎨 Design fee: ${formatCurrency(p.DesignFee)}\n`;
                     if (p.PolesAvailable === 'yes') reply += `  🪧 Poles: ${formatCurrency(p.PolePrice)}/pole\n`;
-                    if (parseFloat(p.InstallationFee) > 0) reply += `  🔧 Installation: ${formatCurrency(p.InstallationFee)}\n`;
+                    if (toNumber(p.InstallationFee) > 0) reply += `  🔧 Installation: ${formatCurrency(p.InstallationFee)}\n`;
                 } else {
                     reply += `*ID ${p.ID}*: ${p.Name} — ${formatCurrency(p.FixedPrice)}\n`;
                     if (p.Size) reply += `  📏 Size: ${p.Size}\n`;
@@ -728,7 +749,7 @@ async function startBot() {
                 });
             }
 
-            const price = parseFloat(product.FixedPrice || 0);
+            const price = toNumber(product.FixedPrice);
             const qty = parseInt(parts[2] || '1', 10);
             if (Number.isNaN(qty) || qty < 1) {
                 return sock.sendMessage(jid, { text: 'Please enter a valid quantity, for example _buy 12 2_.' });

@@ -41,10 +41,10 @@ This is not a full AI model training pipeline. It is a practical, controlled way
 
 ## Files that matter
 
-- `/home/runner/work/my-whatsapp-bot/my-whatsapp-bot/index.js` - the bot code
-- `/home/runner/work/my-whatsapp-bot/my-whatsapp-bot/products.csv` - your product list
-- `/home/runner/work/my-whatsapp-bot/my-whatsapp-bot/storage/` - created automatically for login files, learning data, and QR images
-- `/home/runner/work/my-whatsapp-bot/my-whatsapp-bot/nixpacks.toml` - Railway/Nixpacks start configuration
+- `./index.js` - the bot code
+- `./products.csv` - your product list
+- `./storage/` - created automatically for login files, learning data, and QR images
+- `./nixpacks.toml` - Railway/Nixpacks start configuration
 
 ## Before you start
 
@@ -198,7 +198,7 @@ Expected result:
 
 Open:
 
-`/home/runner/work/my-whatsapp-bot/my-whatsapp-bot/products.csv`
+`./products.csv`
 
 The CSV has 15 columns:
 
@@ -351,7 +351,7 @@ You forgot to set one of these:
 
 Check:
 
-`/home/runner/work/my-whatsapp-bot/my-whatsapp-bot/products.csv`
+`./products.csv`
 
 ### Bot loses its session or learned replies on Railway
 
