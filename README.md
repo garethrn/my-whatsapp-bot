@@ -1,14 +1,31 @@
-# WhatsApp Bot Dummy Guide
+# WhatsApp Bot Setup Guide
 
-This guide is for a complete beginner. Follow it step by step and you will have the bot running on your computer or on a cloud host.
+This guide is for a beginner. Follow it step by step to run the bot on your computer or on a cloud host.
 
-## What this bot does
+## What the bot does now
 
-- Shows a product menu when someone sends `hello` or `menu`
-- Lets people buy items with `buy <product id> <quantity>`
-- Shows the basket total with `checkout`
-- Lets the admin send a new `products.csv` file to the bot on WhatsApp to update the catalog
-- Sends the WhatsApp login QR code to your Gmail address
+- Shows a product menu when someone sends `hello`, `hi`, or `menu`
+- Lets customers browse categories with `products [category]`
+- Lets customers order fixed-price products with `buy [ID] [qty]`
+- Lets customers price square-metre items by sending **length × height in mm**
+- Adds design, pole, and installation costs where needed
+- Shows a cart and checkout summary
+- Shows the **Artwork Disclaimer** before final confirmation
+- Lets a customer ask for a **human takeover** at any time
+- Stores unanswered messages so the bot can be improved over time
+- Lets the admin teach the bot new replies with a simple learning command
+- Lets the admin send a new `products.csv` file to the bot on WhatsApp
+- Emails the WhatsApp login QR code to your Gmail address
+
+## What “learning” means in this bot
+
+This bot now has a lightweight learning layer:
+
+- it records unanswered customer messages as **learning leads**
+- the admin can teach a reusable reply with `teach question => response`
+- the bot tries to match similar future messages to those taught replies
+
+This is not a full AI model training pipeline. It is a practical, controlled way to make the bot smarter without letting it give random answers.
 
 ## Programs and websites you will use
 
@@ -18,15 +35,16 @@ This guide is for a complete beginner. Follow it step by step and you will have 
    https://github.com
 3. **Gmail** - to receive the QR code email  
    https://mail.google.com
-4. **Railway** - optional cloud hosting  
+4. **Railway** - recommended cloud hosting  
    https://railway.app
 5. **WhatsApp on your phone** - to scan the QR code
 
 ## Files that matter
 
-- `./index.js` - the bot code
-- `./products.csv` - your product list
-- `./storage/` - created automatically for login files and QR images
+- `/home/runner/work/my-whatsapp-bot/my-whatsapp-bot/index.js` - the bot code
+- `/home/runner/work/my-whatsapp-bot/my-whatsapp-bot/products.csv` - your product list
+- `/home/runner/work/my-whatsapp-bot/my-whatsapp-bot/storage/` - created automatically for login files, learning data, and QR images
+- `/home/runner/work/my-whatsapp-bot/my-whatsapp-bot/nixpacks.toml` - Railway/Nixpacks start configuration
 
 ## Before you start
 
@@ -51,15 +69,9 @@ npm -v
 
 If both commands show version numbers, you are ready.
 
-## Step 2: Get the project onto your computer
+## Step 2: Open the project folder
 
-If you already have the files, skip this step.
-
-If not:
-
-1. Put the project in a GitHub repository
-2. Download it or clone it to your computer
-3. Open a terminal inside:
+If you already have the files, open a terminal inside the project:
 
 ```bash
 cd /path/to/your/project
@@ -72,8 +84,6 @@ Inside the project folder, run:
 ```bash
 npm install
 ```
-
-This installs all required packages.
 
 ## Step 4: Prepare Gmail for QR code emails
 
@@ -143,33 +153,52 @@ If the QR code email does not arrive:
 - make sure the Gmail app password is correct
 - restart the bot
 
-## Step 8: Test the bot
+## Step 8: Test the customer flow
 
 Send these messages to the connected WhatsApp bot:
 
 - `hello` or `menu` — shows product categories
-- `products Signs` — lists all Sign products with pricing details
-- `buy 4` — starts ordering an Aluminium Composite Sign (asks for dimensions)
-- `1200x600` — provides length × breadth in mm; bot calculates price
+- `products Signs` — lists Sign products
+- `buy 4` — starts an sqm quote flow
+- `1200 x 600 mm` — sends length and height in mm
 - `yes` / `no` — answers pole and installation prompts
-- `cart` — shows current cart with totals
-- `checkout` — shows full order summary
+- `cart` — shows the basket
+- `checkout` — shows the order summary and artwork disclaimer
+- `confirm` — confirms checkout and sends the order to admin review
+- `human` — requests a real person to take over
+- `help` — shows guidance
 - `clear` — empties the cart
-- `cancel` — exits any in-progress order flow
+- `cancel` — exits the current step
 
 Expected result:
 
-- `hello` or `menu` shows the 6 product categories
-- sqm-priced products ask for dimensions in mm, then calculate a price in Rands (with a minimum price floor)
-- products with a mandatory design/layout fee have it added automatically
-- Sign products with poles offer a per-pole add-on; Signs with installation offer an installation add-on
-- `checkout` shows a line-by-line breakdown (material, design fee, poles, installation) and a grand total in Rands
+- the bot responds with clear next steps
+- square-metre products ask for **length × height in mm** and return a price
+- design, poles, and installation are added correctly when applicable
+- `checkout` shows totals and the artwork disclaimer
+- `human` pauses the bot so a person can take over
 
-## Step 9: Edit your products
+## Step 9: Test the admin controls
+
+From the admin WhatsApp account, test these commands:
+
+- send a new CSV file — updates products
+- `teach do you install signs => Yes, we can quote for installation where available.`
+- `leads` — shows the most common unanswered customer messages
+- `handovers` — shows customers currently waiting for a human
+- `resume 27123456789@s.whatsapp.net` — gives that customer back to the bot
+
+Expected result:
+
+- taught replies should be reused when customers ask similar questions
+- unanswered customer wording should appear in `leads`
+- customers who ask for `human` should stop getting automated replies until resumed
+
+## Step 10: Edit your products
 
 Open:
 
-`./products.csv`
+`/home/runner/work/my-whatsapp-bot/my-whatsapp-bot/products.csv`
 
 The CSV has 15 columns:
 
@@ -180,28 +209,41 @@ ID,Category,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,PriceType,Price
 | Column | Description |
 |---|---|
 | `ID` | Unique numeric ID |
-| `Category` | Product category (e.g. `Banners`, `Signs`, `Stickers`) |
+| `Category` | Product category (for example `Banners`, `Signs`, `Stickers`) |
 | `Name` | Display name |
-| `Size` | Product size or dimensional note (e.g. `A5`, `600x900mm`, `Custom`) |
-| `Finish` | Product finish (e.g. `Matt`, `Gloss`, `Frosted`) |
+| `Size` | Product size or note (for example `A5`, `600x900mm`, `Custom`) |
+| `Finish` | Product finish |
 | `SingleOrDoubleSided` | `Single` or `Double` |
-| `UnitsPerProduct` | Number of units included in one priced product (e.g. `100` for cards/flyers) |
+| `UnitsPerProduct` | Units included in one priced product |
 | `PriceType` | `sqm` (per square metre) or `fixed` |
-| `PricePerSqm` | Price per m² in Rands — used when `PriceType=sqm` |
-| `FixedPrice` | Fixed price in Rands — used when `PriceType=fixed` |
-| `MinPrice` | Minimum charge in Rands (applies to sqm products) |
-| `DesignFee` | Mandatory design/layout fee in Rands (`0.00` if none) |
-| `PolesAvailable` | `yes` or `no` — whether pole add-ons are offered |
-| `PolePrice` | Price per pole in Rands (leave blank if `PolesAvailable=no`) |
-| `InstallationFee` | Installation fee in Rands (`0.00` if none) |
+| `PricePerSqm` | Price per m² in Rands |
+| `FixedPrice` | Fixed price in Rands |
+| `MinPrice` | Minimum charge in Rands for sqm products |
+| `DesignFee` | Mandatory design/layout fee in Rands |
+| `PolesAvailable` | `yes` or `no` |
+| `PolePrice` | Price per pole in Rands |
+| `InstallationFee` | Installation fee in Rands |
 
-**sqm pricing:** when a client provides length and breadth in mm the bot calculates  
-`price = (length_mm / 1000) × (breadth_mm / 1000) × PricePerSqm`, then applies `MinPrice` as a floor.
-`MinPrice` is an absolute minimum, even for very small dimensions.
+**sqm pricing:** when a client provides length and height in mm, the bot calculates:
 
-You can also send a new CSV file to the bot from the admin WhatsApp account to replace the catalog.
+`price = (length_mm / 1000) × (height_mm / 1000) × PricePerSqm`
 
-## How to deploy on Railway
+Then it applies `MinPrice` as the minimum charge.
+
+## Artwork Disclaimer used at checkout
+
+The bot now shows this disclaimer before final confirmation:
+
+**Artwork Disclaimer**
+
+- Duzi Signs is not responsible for any errors in artwork, whether designed by us or supplied by the customer.
+- Colours may vary due to different screens, software, materials, and printing processes.
+- If you require an exact colour match, please request a sample print before production. Sample prints must be viewed and approved in person. Please note that requesting a sample will delay your order.
+- Once artwork has been approved and printing has started, no reprints or refunds will be given for approved colours, layout, spelling, or design.
+- AI-generated artwork cannot always be edited, recreated, or printed in high quality, especially for large-format printing.
+- Customer-supplied artwork can only be edited if an editable file is provided.
+
+## How to deploy on a cloud system (Railway)
 
 Use Railway if you want the bot online all the time.
 
@@ -217,7 +259,7 @@ Make sure your latest code is in your GitHub repository.
 4. Choose **Deploy from GitHub repo**
 5. Select your bot repository
 
-### Step 3: Add Railway environment variables
+### Step 3: Add environment variables
 
 In Railway, add these variables:
 
@@ -225,32 +267,69 @@ In Railway, add these variables:
 - `EMAIL_USER`
 - `EMAIL_PASS`
 
-Use the same values you used locally.
+### Step 4: Add persistent storage
 
-### Step 4: Deploy
+This is important.
 
-Railway will install dependencies and run:
+The bot stores these items in `/storage`:
+
+- WhatsApp login session files
+- QR image files
+- learned replies
+- unanswered learning leads
+
+On Railway, add a persistent volume and mount it so the bot can keep that data between restarts and deploys. If you do not use persistent storage, the bot may need to be linked again and may lose its learned responses.
+
+### Step 5: Deploy
+
+Railway installs dependencies and starts the bot with:
 
 ```bash
 node index.js
 ```
 
-The app already listens on the `PORT` Railway provides, so no extra port setup is needed.
-
-### Step 5: Link WhatsApp
+### Step 6: Link WhatsApp
 
 After deploy:
 
 1. Open Railway logs
 2. Wait for the bot to start
-3. Check your Gmail for the QR code
+3. Check Gmail for the QR code
 4. Scan it in WhatsApp on your phone
 
-### Step 6: Keep it running
+### Step 7: Confirm it is healthy
 
-Once linked, Railway keeps the bot online as long as the service is running.
+Check:
 
-If WhatsApp logs out, the bot will ask for a new QR code again.
+- Railway shows the service as running
+- the root URL returns `Bot is running!`
+- the bot responds to `menu`
+- the bot can price an sqm item
+- the bot can hand over to a human
+- the admin receives checkout and handover alerts
+
+## How to keep customers from getting frustrated
+
+To reduce frustration:
+
+- keep `products.csv` clean and accurate
+- teach common questions with the `teach` command
+- review `leads` regularly and add new taught replies
+- use `human` handover quickly when a customer sounds upset or needs a special answer
+- test sqm pricing flows after every catalog change
+- keep Railway storage persistent so sessions and learned replies do not disappear
+
+## Future PayFast payment feature
+
+PayFast is not yet connected in this version.
+
+A good later phase is:
+
+1. create an order reference at checkout
+2. generate a PayFast payment link
+3. send that payment link on WhatsApp
+4. confirm payment status before production starts
+5. notify admin when payment succeeds or fails
 
 ## Common problems
 
@@ -272,7 +351,11 @@ You forgot to set one of these:
 
 Check:
 
-`./products.csv`
+`/home/runner/work/my-whatsapp-bot/my-whatsapp-bot/products.csv`
+
+### Bot loses its session or learned replies on Railway
+
+You probably did not attach persistent storage to the `/storage` folder.
 
 ### Railway deploy fails
 
@@ -284,10 +367,26 @@ Check that:
 
 ## Quick command list
 
-- `hello` or `menu` - show product categories
-- `products Signs` - show products in a category
-- `buy 1 2` - buy 2 of a **fixed-price** product (ID 1 example)
-- `buy 4` - start an **sqm-priced** product flow (bot asks for dimensions)
-- `checkout` - show total and clear the cart
+### Customer commands
 
-That is the full beginner setup.
+- `menu`
+- `products Signs`
+- `buy 4`
+- `1200 x 600 mm`
+- `cart`
+- `checkout`
+- `confirm`
+- `human`
+- `help`
+- `clear`
+- `cancel`
+
+### Admin commands
+
+- send CSV file
+- `teach question => response`
+- `leads`
+- `handovers`
+- `resume customer_jid`
+
+That is the full setup and operating guide.
