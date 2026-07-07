@@ -35,7 +35,7 @@ This is not a full AI model training pipeline. It is a practical, controlled way
    https://github.com
 3. **Gmail** - to receive the QR code email  
    https://mail.google.com
-4. **Railway** - recommended cloud hosting because this repo already includes a working start command and it is simple to add persistent storage  
+4. **Railway** - recommended cloud hosting because this repo already includes a working start command and it's straightforward to add persistent storage  
    https://railway.app
 5. **WhatsApp on your phone** - to scan the QR code
 
@@ -278,7 +278,7 @@ The bot stores these items in `/storage`:
 - learned replies
 - unanswered learning leads
 
-On Railway, add a persistent volume and mount it to **`/app/storage`** so the bot can keep that data between restarts and deploys. Railway/Nixpacks normally runs this app from `/app`, which is why `./storage` maps to `/app/storage` there. If you do not use persistent storage, the bot may need to be linked again and may lose its learned responses.
+On Railway, add a persistent volume and mount it to **`/app/storage`**. This keeps the bot data between restarts and deploys. Railway/Nixpacks normally runs this app from `/app`, which is why `./storage` maps to `/app/storage` there. If you do not use persistent storage, the bot may need to be linked again and may lose its learned responses.
 
 ### Step 5: Deploy
 

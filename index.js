@@ -14,9 +14,9 @@ const path = require('path');
 const express = require('express');
 
 // --- YOUR CONFIGURATION ---
-const ADMIN_JID = process.env.ADMIN_JID || '';
-const EMAIL_USER = process.env.EMAIL_USER || '';
-const EMAIL_PASS = process.env.EMAIL_PASS || '';
+const ADMIN_JID = process.env.ADMIN_JID;
+const EMAIL_USER = process.env.EMAIL_USER;
+const EMAIL_PASS = process.env.EMAIL_PASS;
 
 const STORAGE_DIR = path.join(__dirname, 'storage');
 const CSV_FILE = path.join(__dirname, 'products.csv');
@@ -25,13 +25,17 @@ const LEARNED_RESPONSES_FILE = path.join(STORAGE_DIR, 'learned_responses.json');
 const LEARNING_LEADS_FILE = path.join(STORAGE_DIR, 'learning_leads.json');
 const MAX_HISTORY = 10;
 const MAX_LEARNING_LEADS = 200;
+const BUSINESS_NAME = 'Duzi Signs';
 const MM_PER_METER = 1000;
+// Guardrail for obviously invalid custom sizes (50m in mm).
 const MAX_DIMENSION_MM = 50000;
+// Minimum similarity score (0-1) for a stored learned reply to be reused.
 const LEARNING_MATCH_THRESHOLD = 0.45;
+const DIMENSION_FORMAT_EXAMPLE = '1200 x 600 mm';
 const ARTWORK_DISCLAIMER = [
     'Artwork Disclaimer',
     '',
-    '• Duzi Signs is not responsible for any errors in artwork, whether designed by us or supplied by the customer.',
+    `• ${BUSINESS_NAME} is not responsible for any errors in artwork, whether designed by us or supplied by the customer.`,
     '• Colours may vary due to different screens, software, materials, and printing processes.',
     '• If you require an exact colour match, please request a sample print before production. Sample prints must be viewed and approved in person. Please note that requesting a sample will delay your order.',
     '• Once artwork has been approved and printing has started, no reprints or refunds will be given for approved colours, layout, spelling, or design.',
@@ -91,7 +95,6 @@ function saveJsonFile(filePath, value) {
     fs.writeFileSync(filePath, JSON.stringify(value, null, 2));
 }
 
-// CSV columns: ID,Category,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvailable,PolePrice,InstallationFee
 const DEFAULT_CSV = [
     'ID,Category,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvailable,PolePrice,InstallationFee',
     '1,Banners,Vinyl Banner,Custom,Matt,Single,1,sqm,180.00,,150.00,250.00,no,,0.00',
@@ -307,7 +310,9 @@ function recordLearningLead(jid, message) {
         });
     }
 
-    learningLeads = learningLeads.slice(0, MAX_LEARNING_LEADS);
+    learningLeads = learningLeads
+        .sort((a, b) => b.count - a.count)
+        .slice(0, MAX_LEARNING_LEADS);
     saveJsonFile(LEARNING_LEADS_FILE, learningLeads);
 }
 
@@ -371,7 +376,7 @@ async function activateHumanHandover(sock, jid, reason) {
 
     await sock.sendMessage(ADMIN_JID, { text: adminNotice });
     await sock.sendMessage(jid, {
-        text: '🤝 A Duzi Signs team member has been asked to take over. We will stop the automated replies for now so that a human can assist you properly.'
+        text: `🤝 A ${BUSINESS_NAME} team member has been asked to take over. We will stop the automated replies for now so that a human can assist you properly.`
     });
 }
 
@@ -503,7 +508,7 @@ async function startBot() {
         }
 
         if (jid === ADMIN_JID && text.startsWith('resume ')) {
-            const targetJid = toWhatsAppJid(rawText.slice(7));
+            const targetJid = toWhatsAppJid(rawText.slice('resume '.length));
             if (!targetJid) {
                 return sock.sendMessage(jid, { text: 'Use *resume 27123456789* or *resume 27123456789@s.whatsapp.net*.' });
             }
@@ -547,22 +552,22 @@ async function startBot() {
             const dims = parseDimensions(rawText);
             if (!dims) {
                 return sock.sendMessage(jid, {
-                    text: '❓ I could not read a valid size from that message.\nPlease send *length x height in mm* (for example _1200 x 600 mm_).\n\nType *cancel* to go back or *human* if you want a person to help.'
+                    text: `❓ I could not read a valid size from that message.\nPlease send *length x height in mm* (for example _${DIMENSION_FORMAT_EXAMPLE}_).\n\nType *cancel* to go back or *human* if you want a person to help.`
                 });
             }
             if (dims.error === 'non_positive') {
                 return sock.sendMessage(jid, {
-                    text: '⚠️ Please use positive measurements only. Send the *length x height in mm* again, for example _1200 x 600 mm_.'
+                    text: `⚠️ Please use positive measurements only. Send the *length x height in mm* again, for example _${DIMENSION_FORMAT_EXAMPLE}_.`
                 });
             }
             if (dims.error === 'invalid_count') {
                 return sock.sendMessage(jid, {
-                    text: '⚠️ Please send only *two* measurements: *length x height in mm*. Example: _1200 x 600 mm_.'
+                    text: `⚠️ Please send only *two* measurements: *length x height in mm*. Example: _${DIMENSION_FORMAT_EXAMPLE}_.`
                 });
             }
             if (dims.error === 'too_large') {
                 return sock.sendMessage(jid, {
-                    text: `⚠️ Those dimensions exceed our maximum of ${MAX_DIMENSION_MM}mm. Please send the *length x height in mm* again, for example _1200 x 600 mm_.`
+                    text: `⚠️ Those dimensions exceed our maximum of ${MAX_DIMENSION_MM}mm. Please send the *length x height in mm* again, for example _${DIMENSION_FORMAT_EXAMPLE}_.`
                 });
             }
 
@@ -693,7 +698,7 @@ async function startBot() {
                 delete userCarts[jid];
                 userStates[jid] = { step: 'idle' };
                 return sock.sendMessage(jid, {
-                    text: '✅ Thank you. Your quote/request has been sent to Duzi Signs for follow-up. A team member will contact you if anything needs clarification.'
+                    text: `✅ Thank you. Your quote/request has been sent to ${BUSINESS_NAME} for follow-up. A team member will contact you if anything needs clarification.`
                 });
             }
 
@@ -753,7 +758,7 @@ async function startBot() {
             if (product.PriceType === 'sqm') {
                 userStates[jid] = { step: 'awaiting_dimensions', pendingProduct: product };
                 return sock.sendMessage(jid, {
-                    text: `📐 *${product.Name}*\nPlease send the *length x height in mm*\nfor example _1200 x 600 mm_.\n\nType *cancel* to go back or *human* for a team member.`
+                    text: `📐 *${product.Name}*\nPlease send the *length x height in mm*\nfor example _${DIMENSION_FORMAT_EXAMPLE}_.\n\nType *cancel* to go back or *human* for a team member.`
                 });
             }
 
@@ -811,7 +816,7 @@ async function startBot() {
 
         recordLearningLead(jid, rawText);
         return sock.sendMessage(jid, {
-            text: 'I want to make this easy for you. Send *menu* to browse, *products [category]* to see items, *buy [ID]* to order, or *human* if you would like a Duzi Signs team member to take over.'
+            text: `I want to make this easy for you. Send *menu* to browse, *products [category]* to see items, *buy [ID]* to order, or *human* if you would like a ${BUSINESS_NAME} team member to take over.`
         });
     });
 }
