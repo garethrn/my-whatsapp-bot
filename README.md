@@ -294,8 +294,15 @@ After deploy:
 
 1. Open Railway logs
 2. Wait for the bot to start
-3. Check Gmail for the QR code
+3. If the logs show `WhatsApp status: awaiting_qr`, check Gmail for the QR code
 4. Scan it in WhatsApp on your phone
+
+Useful log meanings:
+
+- `WhatsApp status: initializing` — the bot is starting the WhatsApp client
+- `WhatsApp status: awaiting_qr` — a QR code was generated and emailed
+- `WhatsApp status: connected` — WhatsApp linked successfully
+- `WhatsApp status: reconnecting` — the bot hit an error or disconnect and will retry
 
 ### Step 7: Confirm it is healthy
 
@@ -303,6 +310,7 @@ Check:
 
 - Railway shows the service as running
 - the root URL returns `Bot is running!`
+- `/health` returns JSON with the current WhatsApp status
 - the bot responds to `menu`
 - the bot can price an sqm item
 - the bot can hand over to a human

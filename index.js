@@ -44,8 +44,37 @@ const ARTWORK_DISCLAIMER = [
 ].join('\n');
 const HUMAN_KEYWORDS = ['human', 'person', 'agent', 'consultant', 'staff', 'help me', 'call me', 'speak to someone', 'speak to a human', 'handover'];
 const FRUSTRATION_KEYWORDS = ['frustrated', 'angry', 'upset', 'annoyed', 'not helping', 'complaint', 'terrible', 'useless', 'confused', 'speak to manager'];
+const DEFAULT_RESTART_DELAY_MS = 5000;
+
+const whatsappRuntime = {
+    phase: 'booting',
+    lastUpdatedAt: new Date().toISOString(),
+    lastError: null
+};
+let botRestartTimer = null;
 
 if (!fs.existsSync(STORAGE_DIR)) fs.mkdirSync(STORAGE_DIR, { recursive: true });
+
+function setWhatsAppPhase(phase, lastError = null) {
+    whatsappRuntime.phase = phase;
+    whatsappRuntime.lastUpdatedAt = new Date().toISOString();
+    whatsappRuntime.lastError = lastError ? String(lastError.message || lastError) : null;
+    console.log(`ℹ️ WhatsApp status: ${phase}`);
+    if (whatsappRuntime.lastError) {
+        console.error('⚠️ WhatsApp status detail:', whatsappRuntime.lastError);
+    }
+}
+
+function scheduleBotRestart(reason, delayMs = DEFAULT_RESTART_DELAY_MS) {
+    if (botRestartTimer) return;
+
+    setWhatsAppPhase('reconnecting', reason);
+    console.log(`🔁 Restarting WhatsApp Engine in ${Math.round(delayMs / 1000)}s...`);
+    botRestartTimer = setTimeout(() => {
+        botRestartTimer = null;
+        startBot();
+    }, delayMs);
+}
 
 function validateConfig() {
     const missingConfig = [
@@ -395,437 +424,477 @@ async function submitOrderForReview(sock, jid, cart) {
 
 async function startBot() {
     console.log('🔄 Initializing WhatsApp Engine...');
-    const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+    setWhatsAppPhase('initializing');
 
-    const sock = makeWASocket({
-        auth: state,
-        logger: pino({ level: 'error' }),
-        browser: ['Mac OS', 'Chrome', '1.0.0']
-    });
+    try {
+        const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
 
-    sock.ev.on('creds.update', saveCreds);
+        const sock = makeWASocket({
+            auth: state,
+            logger: pino({ level: 'error' }),
+            browser: ['Mac OS', 'Chrome', '1.0.0']
+        });
 
-    sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect, qr } = update;
+        sock.ev.on('creds.update', saveCreds);
 
-        if (qr) {
-            console.log('⚠️ QR Code generated. Sending to email...');
-            const qrPath = path.join(STORAGE_DIR, 'bot-qr.png');
-            await qrcodeImg.toFile(qrPath, qr);
+        sock.ev.on('connection.update', async (update) => {
+            try {
+                const { connection, lastDisconnect, qr } = update;
 
-            transporter.sendMail({
-                from: EMAIL_USER,
-                to: EMAIL_USER,
-                subject: 'WhatsApp Bot Login',
-                text: 'Scan the attached QR code.',
-                attachments: [{ filename: 'bot-qr.png', path: qrPath }]
-            });
-        }
+                if (qr) {
+                    setWhatsAppPhase('awaiting_qr');
+                    console.log('⚠️ QR Code generated. Sending to email...');
+                    const qrPath = path.join(STORAGE_DIR, 'bot-qr.png');
+                    await qrcodeImg.toFile(qrPath, qr);
 
-        if (connection === 'close') {
-            const statusCode = (lastDisconnect.error instanceof Boom) ? lastDisconnect.error.output.statusCode : 0;
-            if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
-                if (fs.existsSync(AUTH_DIR)) fs.rmSync(AUTH_DIR, { recursive: true, force: true });
-                startBot();
-            } else {
-                setTimeout(startBot, 5000);
+                    await transporter.sendMail({
+                        from: EMAIL_USER,
+                        to: EMAIL_USER,
+                        subject: 'WhatsApp Bot Login',
+                        text: 'Scan the attached QR code.',
+                        attachments: [{ filename: 'bot-qr.png', path: qrPath }]
+                    });
+                    console.log(`📧 QR code email sent to ${EMAIL_USER}`);
+                }
+
+                if (connection === 'close') {
+                    const disconnectError = lastDisconnect?.error;
+                    const statusCode = (disconnectError instanceof Boom) ? disconnectError.output.statusCode : 0;
+                    const errorMessage = disconnectError?.message || `Disconnect status ${statusCode || 'unknown'}`;
+                    if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
+                        setWhatsAppPhase('logged_out', errorMessage);
+                        if (fs.existsSync(AUTH_DIR)) fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+                        scheduleBotRestart(errorMessage, 1000);
+                    } else {
+                        scheduleBotRestart(errorMessage);
+                    }
+                } else if (connection === 'open') {
+                    setWhatsAppPhase('connected');
+                    console.log('🚀 BOT IS CONNECTED AND LIVE!');
+                }
+            } catch (error) {
+                console.error('❌ Error while handling WhatsApp connection update:', error);
+                scheduleBotRestart(error);
             }
-        } else if (connection === 'open') {
-            console.log('🚀 BOT IS CONNECTED AND LIVE!');
-        }
-    });
+        });
 
-    sock.ev.on('messages.upsert', async ({ messages }) => {
-        const msg = messages[0];
-        if (!msg.message || msg.key.fromMe) return;
+        sock.ev.on('messages.upsert', async ({ messages }) => {
+            try {
+                const msg = messages[0];
+                if (!msg.message || msg.key.fromMe) return;
 
-        const jid = msg.key.remoteJid;
-        const rawText = (msg.message.conversation || msg.message.extendedTextMessage?.text || '').trim();
-        const text = rawText.toLowerCase();
+                const jid = msg.key.remoteJid;
+                const rawText = (msg.message.conversation || msg.message.extendedTextMessage?.text || '').trim();
+                const text = rawText.toLowerCase();
 
-        if (!rawText && !msg.message.documentMessage) return;
-        if (rawText) rememberConversation(jid, rawText);
+                if (!rawText && !msg.message.documentMessage) return;
+                if (rawText) rememberConversation(jid, rawText);
 
-        // Admin: upload new CSV via document message
-        if (jid === ADMIN_JID && msg.message.documentMessage) {
-            const doc = msg.message.documentMessage;
-            if (doc.fileName.endsWith('.csv')) {
-                const buffer = await downloadMediaMessage(msg, 'buffer', {});
-                fs.writeFileSync(CSV_FILE, buffer);
-                loadProducts();
-                return sock.sendMessage(jid, { text: '📦 Products updated!' });
-            }
-        }
+                // Admin: upload new CSV via document message
+                if (jid === ADMIN_JID && msg.message.documentMessage) {
+                    const doc = msg.message.documentMessage;
+                    if (doc.fileName.endsWith('.csv')) {
+                        const buffer = await downloadMediaMessage(msg, 'buffer', {});
+                        fs.writeFileSync(CSV_FILE, buffer);
+                        loadProducts();
+                        return sock.sendMessage(jid, { text: '📦 Products updated!' });
+                    }
+                }
 
-        if (jid === ADMIN_JID && text.startsWith('teach ')) {
-            const payload = rawText.slice(6);
-            const [question, answer] = payload.split(/\s*=>\s*/);
-            if (!question || !answer) {
-                return sock.sendMessage(jid, { text: 'Use *teach question => response*. Example: *teach do you deliver => Yes, we deliver nationwide.*' });
-            }
+                if (jid === ADMIN_JID && text.startsWith('teach ')) {
+                    const payload = rawText.slice(6);
+                    const [question, answer] = payload.split(/\s*=>\s*/);
+                    if (!question || !answer) {
+                        return sock.sendMessage(jid, { text: 'Use *teach question => response*. Example: *teach do you deliver => Yes, we deliver nationwide.*' });
+                    }
 
-            const normalizedQuestion = normalizeText(question);
-            const existing = learnedResponses.find((entry) => normalizeText(entry.question) === normalizedQuestion);
-            if (existing) {
-                existing.question = question.trim();
-                existing.response = answer.trim();
-                existing.updatedAt = new Date().toISOString();
-            } else {
-                learnedResponses.push({
-                    question: question.trim(),
-                    response: answer.trim(),
-                    createdAt: new Date().toISOString()
-                });
-            }
+                    const normalizedQuestion = normalizeText(question);
+                    const existing = learnedResponses.find((entry) => normalizeText(entry.question) === normalizedQuestion);
+                    if (existing) {
+                        existing.question = question.trim();
+                        existing.response = answer.trim();
+                        existing.updatedAt = new Date().toISOString();
+                    } else {
+                        learnedResponses.push({
+                            question: question.trim(),
+                            response: answer.trim(),
+                            createdAt: new Date().toISOString()
+                        });
+                    }
 
-            saveJsonFile(LEARNED_RESPONSES_FILE, learnedResponses);
-            return sock.sendMessage(jid, { text: `🧠 Learned reply saved for: *${question.trim()}*` });
-        }
+                    saveJsonFile(LEARNED_RESPONSES_FILE, learnedResponses);
+                    return sock.sendMessage(jid, { text: `🧠 Learned reply saved for: *${question.trim()}*` });
+                }
 
-        if (jid === ADMIN_JID && text === 'leads') {
-            if (learningLeads.length === 0) {
-                return sock.sendMessage(jid, { text: 'No learning leads captured yet.' });
-            }
+                if (jid === ADMIN_JID && text === 'leads') {
+                    if (learningLeads.length === 0) {
+                        return sock.sendMessage(jid, { text: 'No learning leads captured yet.' });
+                    }
 
-            const topLeads = [...learningLeads]
-                .sort((a, b) => b.count - a.count)
-                .slice(0, 10)
-                .map((lead, index) => `${index + 1}. ${lead.example} (${lead.count} time(s))`)
-                .join('\n');
-            return sock.sendMessage(jid, { text: `*Top unanswered messages:*\n\n${topLeads}` });
-        }
+                    const topLeads = [...learningLeads]
+                        .sort((a, b) => b.count - a.count)
+                        .slice(0, 10)
+                        .map((lead, index) => `${index + 1}. ${lead.example} (${lead.count} time(s))`)
+                        .join('\n');
+                    return sock.sendMessage(jid, { text: `*Top unanswered messages:*\n\n${topLeads}` });
+                }
 
-        if (jid === ADMIN_JID && text === 'handovers') {
-            const activeHandovers = Object.entries(handoverSessions).filter(([, session]) => session.active);
-            if (activeHandovers.length === 0) {
-                return sock.sendMessage(jid, { text: 'There are no active human handovers right now.' });
-            }
+                if (jid === ADMIN_JID && text === 'handovers') {
+                    const activeHandovers = Object.entries(handoverSessions).filter(([, session]) => session.active);
+                    if (activeHandovers.length === 0) {
+                        return sock.sendMessage(jid, { text: 'There are no active human handovers right now.' });
+                    }
 
-            const handoverList = activeHandovers
-                .map(([customerJid, session], index) => `${index + 1}. ${customerJid} — ${session.reason}`)
-                .join('\n');
-            return sock.sendMessage(jid, { text: `*Active handovers:*\n\n${handoverList}` });
-        }
+                    const handoverList = activeHandovers
+                        .map(([customerJid, session], index) => `${index + 1}. ${customerJid} — ${session.reason}`)
+                        .join('\n');
+                    return sock.sendMessage(jid, { text: `*Active handovers:*\n\n${handoverList}` });
+                }
 
-        if (jid === ADMIN_JID && text.startsWith('resume ')) {
-            const targetJid = toWhatsAppJid(rawText.slice('resume '.length));
-            if (!targetJid) {
-                return sock.sendMessage(jid, { text: 'Use *resume 27123456789* or *resume 27123456789@s.whatsapp.net*.' });
-            }
-            if (!handoverSessions[targetJid]?.active) {
-                return sock.sendMessage(jid, { text: `No active handover found for *${targetJid}*.` });
-            }
+                if (jid === ADMIN_JID && text.startsWith('resume ')) {
+                    const targetJid = toWhatsAppJid(rawText.slice('resume '.length));
+                    if (!targetJid) {
+                        return sock.sendMessage(jid, { text: 'Use *resume 27123456789* or *resume 27123456789@s.whatsapp.net*.' });
+                    }
+                    if (!handoverSessions[targetJid]?.active) {
+                        return sock.sendMessage(jid, { text: `No active handover found for *${targetJid}*.` });
+                    }
 
-            delete handoverSessions[targetJid];
-            await sock.sendMessage(targetJid, { text: '✅ A team member has finished helping. I can assist you again now — send *menu* or *cart* when you are ready.' });
-            return sock.sendMessage(jid, { text: `Bot control restored for *${targetJid}*.` });
-        }
+                    delete handoverSessions[targetJid];
+                    await sock.sendMessage(targetJid, { text: '✅ A team member has finished helping. I can assist you again now — send *menu* or *cart* when you are ready.' });
+                    return sock.sendMessage(jid, { text: `Bot control restored for *${targetJid}*.` });
+                }
 
-        if (handoverSessions[jid]?.active && jid !== ADMIN_JID) {
-            return;
-        }
+                if (handoverSessions[jid]?.active && jid !== ADMIN_JID) {
+                    return;
+                }
 
-        if (jid !== ADMIN_JID && rawText && (isHumanRequest(text) || isFrustratedMessage(text))) {
-            await activateHumanHandover(sock, jid, rawText);
-            return;
-        }
+                if (jid !== ADMIN_JID && rawText && (isHumanRequest(text) || isFrustratedMessage(text))) {
+                    await activateHumanHandover(sock, jid, rawText);
+                    return;
+                }
 
-        const userState = userStates[jid] || { step: 'idle' };
+                const userState = userStates[jid] || { step: 'idle' };
 
-        // Cancel / escape from any mid-flow state
-        if (text === 'cancel' || text === 'menu' || text === 'hello' || text === 'hi') {
-            if (userState.step !== 'idle') {
-                userStates[jid] = { step: 'idle' };
-            }
-            if (text === 'cancel') {
-                return sock.sendMessage(jid, { text: '❌ Cancelled. Type *menu* to start over.' });
-            }
-            return sock.sendMessage(jid, { text: buildMenuText() });
-        }
+                // Cancel / escape from any mid-flow state
+                if (text === 'cancel' || text === 'menu' || text === 'hello' || text === 'hi') {
+                    if (userState.step !== 'idle') {
+                        userStates[jid] = { step: 'idle' };
+                    }
+                    if (text === 'cancel') {
+                        return sock.sendMessage(jid, { text: '❌ Cancelled. Type *menu* to start over.' });
+                    }
+                    return sock.sendMessage(jid, { text: buildMenuText() });
+                }
 
-        if (text === 'help') {
-            return sock.sendMessage(jid, { text: buildHelpText() });
-        }
+                if (text === 'help') {
+                    return sock.sendMessage(jid, { text: buildHelpText() });
+                }
 
-        // ── State: awaiting_dimensions ──────────────────────────────────────
-        if (userState.step === 'awaiting_dimensions') {
-            const dims = parseDimensions(rawText);
-            if (!dims) {
-                return sock.sendMessage(jid, {
-                    text: `❓ I could not read a valid size from that message.\nPlease send *length x height in mm* (for example _${DIMENSION_FORMAT_EXAMPLE}_).\n\nType *cancel* to go back or *human* if you want a person to help.`
-                });
-            }
-            if (dims.error === 'non_positive') {
-                return sock.sendMessage(jid, {
-                    text: `⚠️ Please use positive measurements only. Send the *length x height in mm* again, for example _${DIMENSION_FORMAT_EXAMPLE}_.`
-                });
-            }
-            if (dims.error === 'invalid_count') {
-                return sock.sendMessage(jid, {
-                    text: `⚠️ Please send only *two* measurements: *length x height in mm*. Example: _${DIMENSION_FORMAT_EXAMPLE}_.`
-                });
-            }
-            if (dims.error === 'too_large') {
-                return sock.sendMessage(jid, {
-                    text: `⚠️ Those dimensions exceed our maximum of ${MAX_DIMENSION_MM}mm. Please send the *length x height in mm* again, for example _${DIMENSION_FORMAT_EXAMPLE}_.`
-                });
-            }
+                // ── State: awaiting_dimensions ──────────────────────────────────────
+                if (userState.step === 'awaiting_dimensions') {
+                    const dims = parseDimensions(rawText);
+                    if (!dims) {
+                        return sock.sendMessage(jid, {
+                            text: `❓ I could not read a valid size from that message.\nPlease send *length x height in mm* (for example _${DIMENSION_FORMAT_EXAMPLE}_).\n\nType *cancel* to go back or *human* if you want a person to help.`
+                        });
+                    }
+                    if (dims.error === 'non_positive') {
+                        return sock.sendMessage(jid, {
+                            text: `⚠️ Please use positive measurements only. Send the *length x height in mm* again, for example _${DIMENSION_FORMAT_EXAMPLE}_.`
+                        });
+                    }
+                    if (dims.error === 'invalid_count') {
+                        return sock.sendMessage(jid, {
+                            text: `⚠️ Please send only *two* measurements: *length x height in mm*. Example: _${DIMENSION_FORMAT_EXAMPLE}_.`
+                        });
+                    }
+                    if (dims.error === 'too_large') {
+                        return sock.sendMessage(jid, {
+                            text: `⚠️ Those dimensions exceed our maximum of ${MAX_DIMENSION_MM}mm. Please send the *length x height in mm* again, for example _${DIMENSION_FORMAT_EXAMPLE}_.`
+                        });
+                    }
 
-            const product = userState.pendingProduct;
-            const sqmPrice = calcSqmPrice(product, dims.length, dims.height);
-            const designFee = toNumber(product.DesignFee);
-            const sqm = (dims.length / MM_PER_METER) * (dims.height / MM_PER_METER);
+                    const product = userState.pendingProduct;
+                    const sqmPrice = calcSqmPrice(product, dims.length, dims.height);
+                    const designFee = toNumber(product.DesignFee);
+                    const sqm = (dims.length / MM_PER_METER) * (dims.height / MM_PER_METER);
 
-            let reply = `📐 *${product.Name}*\n`;
-            reply += `Length: ${dims.length}mm\n`;
-            reply += `Height: ${dims.height}mm\n`;
-            reply += `Area: ${sqm.toFixed(2)} m²\n`;
-            reply += `Material: ${formatCurrency(sqmPrice)}\n`;
-            if (designFee > 0) reply += `Design/Layout Fee: ${formatCurrency(designFee)}\n`;
+                    let reply = `📐 *${product.Name}*\n`;
+                    reply += `Length: ${dims.length}mm\n`;
+                    reply += `Height: ${dims.height}mm\n`;
+                    reply += `Area: ${sqm.toFixed(2)} m²\n`;
+                    reply += `Material: ${formatCurrency(sqmPrice)}\n`;
+                    if (designFee > 0) reply += `Design/Layout Fee: ${formatCurrency(designFee)}\n`;
 
-            const pendingItem = {
-                name: product.Name,
-                dimensions: `${dims.length}×${dims.height}mm`,
-                sqmPrice,
-                designFee,
-                polesCost: 0,
-                poles: 0,
-                installationFee: 0,
-                qty: 1
-            };
+                    const pendingItem = {
+                        name: product.Name,
+                        dimensions: `${dims.length}×${dims.height}mm`,
+                        sqmPrice,
+                        designFee,
+                        polesCost: 0,
+                        poles: 0,
+                        installationFee: 0,
+                        qty: 1
+                    };
 
-            if (product.PolesAvailable === 'yes') {
-                userStates[jid] = { step: 'awaiting_poles', pendingProduct: product, pendingItem };
-                reply += `\nWould you like to add *poles*?\nPrice per pole: ${formatCurrency(product.PolePrice)}\nReply *yes* or *no*.`;
-                return sock.sendMessage(jid, { text: reply });
-            }
-            if (toNumber(product.InstallationFee) > 0) {
-                userStates[jid] = { step: 'awaiting_installation', pendingProduct: product, pendingItem };
-                reply += `\nWould you like *installation*? ${formatCurrency(product.InstallationFee)}\nReply *yes* or *no*.`;
-                return sock.sendMessage(jid, { text: reply });
-            }
+                    if (product.PolesAvailable === 'yes') {
+                        userStates[jid] = { step: 'awaiting_poles', pendingProduct: product, pendingItem };
+                        reply += `\nWould you like to add *poles*?\nPrice per pole: ${formatCurrency(product.PolePrice)}\nReply *yes* or *no*.`;
+                        return sock.sendMessage(jid, { text: reply });
+                    }
+                    if (toNumber(product.InstallationFee) > 0) {
+                        userStates[jid] = { step: 'awaiting_installation', pendingProduct: product, pendingItem };
+                        reply += `\nWould you like *installation*? ${formatCurrency(product.InstallationFee)}\nReply *yes* or *no*.`;
+                        return sock.sendMessage(jid, { text: reply });
+                    }
 
-            const total = sqmPrice + designFee;
-            pendingItem.total = total;
-            if (!userCarts[jid]) userCarts[jid] = [];
-            userCarts[jid].push(pendingItem);
-            userStates[jid] = { step: 'idle' };
-            reply += `\n*Total: ${formatCurrency(total)}*\n✅ Added to cart! Type *cart* to view it or *checkout* when you are ready.`;
-            return sock.sendMessage(jid, { text: reply });
-        }
+                    const total = sqmPrice + designFee;
+                    pendingItem.total = total;
+                    if (!userCarts[jid]) userCarts[jid] = [];
+                    userCarts[jid].push(pendingItem);
+                    userStates[jid] = { step: 'idle' };
+                    reply += `\n*Total: ${formatCurrency(total)}*\n✅ Added to cart! Type *cart* to view it or *checkout* when you are ready.`;
+                    return sock.sendMessage(jid, { text: reply });
+                }
 
-        // ── State: awaiting_poles ───────────────────────────────────────────
-        if (userState.step === 'awaiting_poles') {
-            if (text === 'yes') {
-                userStates[jid] = { ...userState, step: 'awaiting_pole_count' };
-                return sock.sendMessage(jid, {
-                    text: `How many poles do you need?\nPrice per pole: ${formatCurrency(userState.pendingProduct.PolePrice)}\n\nType *cancel* to go back.`
-                });
-            }
-            if (text === 'no') {
-                const instFee = toNumber(userState.pendingProduct.InstallationFee);
-                if (instFee > 0) {
-                    userStates[jid] = { ...userState, step: 'awaiting_installation' };
+                // ── State: awaiting_poles ───────────────────────────────────────────
+                if (userState.step === 'awaiting_poles') {
+                    if (text === 'yes') {
+                        userStates[jid] = { ...userState, step: 'awaiting_pole_count' };
+                        return sock.sendMessage(jid, {
+                            text: `How many poles do you need?\nPrice per pole: ${formatCurrency(userState.pendingProduct.PolePrice)}\n\nType *cancel* to go back.`
+                        });
+                    }
+                    if (text === 'no') {
+                        const instFee = toNumber(userState.pendingProduct.InstallationFee);
+                        if (instFee > 0) {
+                            userStates[jid] = { ...userState, step: 'awaiting_installation' };
+                            return sock.sendMessage(jid, {
+                                text: `Would you like *installation*? ${formatCurrency(instFee)}\nReply *yes* or *no*.`
+                            });
+                        }
+                        const item = userState.pendingItem;
+                        item.total = item.sqmPrice + item.designFee;
+                        if (!userCarts[jid]) userCarts[jid] = [];
+                        userCarts[jid].push(item);
+                        userStates[jid] = { step: 'idle' };
+                        return sock.sendMessage(jid, {
+                            text: `✅ Added to cart! *Total: ${formatCurrency(item.total)}*\nType *cart* to view it or *checkout* to order.`
+                        });
+                    }
+                    return sock.sendMessage(jid, { text: 'Please reply *yes* or *no*.' });
+                }
+
+                // ── State: awaiting_pole_count ──────────────────────────────────────
+                if (userState.step === 'awaiting_pole_count') {
+                    const count = parseInt(text, 10);
+                    if (Number.isNaN(count) || count < 1) {
+                        return sock.sendMessage(jid, { text: 'Please enter a valid number of poles (for example _2_).' });
+                    }
+                    const polePrice = toNumber(userState.pendingProduct.PolePrice);
+                    const polesCost = count * polePrice;
+                    const updatedItem = { ...userState.pendingItem, polesCost, poles: count };
+                    const instFee = toNumber(userState.pendingProduct.InstallationFee);
+
+                    if (instFee > 0) {
+                        userStates[jid] = { ...userState, step: 'awaiting_installation', pendingItem: updatedItem };
+                        return sock.sendMessage(jid, {
+                            text: `${count} pole(s) added: ${formatCurrency(polesCost)}\n\nWould you like *installation*? ${formatCurrency(instFee)}\nReply *yes* or *no*.`
+                        });
+                    }
+                    const total = updatedItem.sqmPrice + updatedItem.designFee + polesCost;
+                    updatedItem.total = total;
+                    if (!userCarts[jid]) userCarts[jid] = [];
+                    userCarts[jid].push(updatedItem);
+                    userStates[jid] = { step: 'idle' };
                     return sock.sendMessage(jid, {
-                        text: `Would you like *installation*? ${formatCurrency(instFee)}\nReply *yes* or *no*.`
+                        text: `✅ Added to cart! *Total: ${formatCurrency(total)}*\nType *cart* to view it or *checkout* to order.`
                     });
                 }
-                const item = userState.pendingItem;
-                item.total = item.sqmPrice + item.designFee;
-                if (!userCarts[jid]) userCarts[jid] = [];
-                userCarts[jid].push(item);
-                userStates[jid] = { step: 'idle' };
-                return sock.sendMessage(jid, {
-                    text: `✅ Added to cart! *Total: ${formatCurrency(item.total)}*\nType *cart* to view it or *checkout* to order.`
-                });
-            }
-            return sock.sendMessage(jid, { text: 'Please reply *yes* or *no*.' });
-        }
 
-        // ── State: awaiting_pole_count ──────────────────────────────────────
-        if (userState.step === 'awaiting_pole_count') {
-            const count = parseInt(text, 10);
-            if (Number.isNaN(count) || count < 1) {
-                return sock.sendMessage(jid, { text: 'Please enter a valid number of poles (for example _2_).' });
-            }
-            const polePrice = toNumber(userState.pendingProduct.PolePrice);
-            const polesCost = count * polePrice;
-            const updatedItem = { ...userState.pendingItem, polesCost, poles: count };
-            const instFee = toNumber(userState.pendingProduct.InstallationFee);
+                // ── State: awaiting_installation ────────────────────────────────────
+                if (userState.step === 'awaiting_installation') {
+                    if (text === 'yes' || text === 'no') {
+                        const item = userState.pendingItem;
+                        item.installationFee = text === 'yes' ? toNumber(userState.pendingProduct.InstallationFee) : 0;
+                        item.total = item.sqmPrice + item.designFee + item.polesCost + item.installationFee;
+                        if (!userCarts[jid]) userCarts[jid] = [];
+                        userCarts[jid].push(item);
+                        userStates[jid] = { step: 'idle' };
+                        return sock.sendMessage(jid, {
+                            text: `✅ Added to cart! *Total: ${formatCurrency(item.total)}*\nType *cart* to view it or *checkout* to order.`
+                        });
+                    }
+                    return sock.sendMessage(jid, { text: 'Please reply *yes* or *no*.' });
+                }
 
-            if (instFee > 0) {
-                userStates[jid] = { ...userState, step: 'awaiting_installation', pendingItem: updatedItem };
-                return sock.sendMessage(jid, {
-                    text: `${count} pole(s) added: ${formatCurrency(polesCost)}\n\nWould you like *installation*? ${formatCurrency(instFee)}\nReply *yes* or *no*.`
-                });
-            }
-            const total = updatedItem.sqmPrice + updatedItem.designFee + polesCost;
-            updatedItem.total = total;
-            if (!userCarts[jid]) userCarts[jid] = [];
-            userCarts[jid].push(updatedItem);
-            userStates[jid] = { step: 'idle' };
-            return sock.sendMessage(jid, {
-                text: `✅ Added to cart! *Total: ${formatCurrency(total)}*\nType *cart* to view it or *checkout* to order.`
-            });
-        }
+                // ── State: awaiting_checkout_confirmation ───────────────────────────
+                if (userState.step === 'awaiting_checkout_confirmation') {
+                    if (['confirm', 'yes', 'submit', 'place order'].includes(text)) {
+                        const cart = userState.pendingCart || userCarts[jid] || [];
+                        if (cart.length === 0) {
+                            userStates[jid] = { step: 'idle' };
+                            return sock.sendMessage(jid, { text: '🛒 Your cart is empty.' });
+                        }
 
-        // ── State: awaiting_installation ────────────────────────────────────
-        if (userState.step === 'awaiting_installation') {
-            if (text === 'yes' || text === 'no') {
-                const item = userState.pendingItem;
-                item.installationFee = text === 'yes' ? toNumber(userState.pendingProduct.InstallationFee) : 0;
-                item.total = item.sqmPrice + item.designFee + item.polesCost + item.installationFee;
-                if (!userCarts[jid]) userCarts[jid] = [];
-                userCarts[jid].push(item);
-                userStates[jid] = { step: 'idle' };
-                return sock.sendMessage(jid, {
-                    text: `✅ Added to cart! *Total: ${formatCurrency(item.total)}*\nType *cart* to view it or *checkout* to order.`
-                });
-            }
-            return sock.sendMessage(jid, { text: 'Please reply *yes* or *no*.' });
-        }
+                        await submitOrderForReview(sock, jid, cart);
+                        delete userCarts[jid];
+                        userStates[jid] = { step: 'idle' };
+                        return sock.sendMessage(jid, {
+                            text: `✅ Thank you. Your quote/request has been sent to ${BUSINESS_NAME} for follow-up. A team member will contact you if anything needs clarification.`
+                        });
+                    }
 
-        // ── State: awaiting_checkout_confirmation ───────────────────────────
-        if (userState.step === 'awaiting_checkout_confirmation') {
-            if (['confirm', 'yes', 'submit', 'place order'].includes(text)) {
-                const cart = userState.pendingCart || userCarts[jid] || [];
-                if (cart.length === 0) {
+                    return sock.sendMessage(jid, {
+                        text: 'Please reply *confirm* to accept the artwork disclaimer and submit your order, or send *human* if you want a person to assist.'
+                    });
+                }
+
+                // ── Main menu / category browsing ───────────────────────────────────
+                if (text === 'products') {
+                    return sock.sendMessage(jid, { text: 'Please send *products [category]*, for example _products Signs_.' });
+                }
+
+                if (text.startsWith('products ')) {
+                    const catName = rawText.substring(9).trim();
+                    const catProducts = products.filter((p) => p.Category.toLowerCase() === catName.toLowerCase());
+                    if (catProducts.length === 0) {
+                        return sock.sendMessage(jid, { text: `❓ Category "${catName}" not found. Type *menu* to see categories.` });
+                    }
+
+                    let reply = `*${catName} Products:*\n\n`;
+                    catProducts.forEach((p) => {
+                        if (p.PriceType === 'sqm') {
+                            reply += `*ID ${p.ID}*: ${p.Name}\n`;
+                            if (p.Size) reply += `  📏 Size: ${p.Size}\n`;
+                            if (p.Finish) reply += `  ✨ Finish: ${p.Finish}\n`;
+                            if (p.SingleOrDoubleSided) reply += `  ↔️ Sides: ${p.SingleOrDoubleSided}\n`;
+                            if (p.UnitsPerProduct) reply += `  📦 Units per product: ${p.UnitsPerProduct}\n`;
+                            reply += `  📐 ${formatCurrency(p.PricePerSqm)}/m² (min ${formatCurrency(p.MinPrice)})\n`;
+                            if (toNumber(p.DesignFee) > 0) reply += `  🎨 Design fee: ${formatCurrency(p.DesignFee)}\n`;
+                            if (p.PolesAvailable === 'yes') reply += `  🪧 Poles: ${formatCurrency(p.PolePrice)}/pole\n`;
+                            if (toNumber(p.InstallationFee) > 0) reply += `  🔧 Installation: ${formatCurrency(p.InstallationFee)}\n`;
+                        } else {
+                            reply += `*ID ${p.ID}*: ${p.Name} — ${formatCurrency(p.FixedPrice)}\n`;
+                            if (p.Size) reply += `  📏 Size: ${p.Size}\n`;
+                            if (p.Finish) reply += `  ✨ Finish: ${p.Finish}\n`;
+                            if (p.SingleOrDoubleSided) reply += `  ↔️ Sides: ${p.SingleOrDoubleSided}\n`;
+                            if (p.UnitsPerProduct) reply += `  📦 Units per product: ${p.UnitsPerProduct}\n`;
+                        }
+                        reply += '\n';
+                    });
+                    reply += `Type *buy [ID]* to order.\ne.g. _buy ${catProducts[0].ID}_`;
+                    return sock.sendMessage(jid, { text: reply });
+                }
+
+                // ── Buy command ─────────────────────────────────────────────────────
+                if (text === 'buy') {
+                    return sock.sendMessage(jid, { text: 'Please send *buy [ID]*, for example _buy 4_.' });
+                }
+
+                if (text.startsWith('buy ')) {
+                    const parts = text.split(/\s+/);
+                    const id = parts[1];
+                    const product = products.find((p) => p.ID === id);
+                    if (!product) {
+                        return sock.sendMessage(jid, { text: `❓ Product ID *${id}* not found. Type *menu* to browse.` });
+                    }
+                    if (product.PriceType === 'sqm') {
+                        userStates[jid] = { step: 'awaiting_dimensions', pendingProduct: product };
+                        return sock.sendMessage(jid, {
+                            text: `📐 *${product.Name}*\nPlease send the *length x height in mm*\nfor example _${DIMENSION_FORMAT_EXAMPLE}_.\n\nType *cancel* to go back or *human* for a team member.`
+                        });
+                    }
+
+                    const price = toNumber(product.FixedPrice);
+                    const qty = parseInt(parts[2] || '1', 10);
+                    if (Number.isNaN(qty) || qty < 1) {
+                        return sock.sendMessage(jid, { text: 'Please enter a valid quantity, for example _buy 12 2_.' });
+                    }
+                    if (!userCarts[jid]) userCarts[jid] = [];
+                    userCarts[jid].push({
+                        name: product.Name,
+                        sqmPrice: price,
+                        designFee: 0,
+                        polesCost: 0,
+                        poles: 0,
+                        installationFee: 0,
+                        total: price * qty,
+                        qty
+                    });
+                    return sock.sendMessage(jid, {
+                        text: `✅ Added ${qty} × *${product.Name}* @ ${formatCurrency(price)} each.\nType *cart* to view it or *checkout* when you are ready.`
+                    });
+                }
+
+                // ── Cart ────────────────────────────────────────────────────────────
+                if (text === 'cart') {
+                    const cart = userCarts[jid];
+                    if (!cart || cart.length === 0) return sock.sendMessage(jid, { text: '🛒 Your cart is empty.' });
+                    return sock.sendMessage(jid, { text: buildCartText(cart) });
+                }
+
+                // ── Clear cart ──────────────────────────────────────────────────────
+                if (text === 'clear') {
+                    delete userCarts[jid];
                     userStates[jid] = { step: 'idle' };
-                    return sock.sendMessage(jid, { text: '🛒 Your cart is empty.' });
+                    return sock.sendMessage(jid, { text: '🗑️ Cart cleared. Type *menu* to start over.' });
                 }
 
-                await submitOrderForReview(sock, jid, cart);
-                delete userCarts[jid];
-                userStates[jid] = { step: 'idle' };
-                return sock.sendMessage(jid, {
-                    text: `✅ Thank you. Your quote/request has been sent to ${BUSINESS_NAME} for follow-up. A team member will contact you if anything needs clarification.`
-                });
-            }
+                // ── Checkout ────────────────────────────────────────────────────────
+                if (text === 'checkout') {
+                    const cart = userCarts[jid];
+                    if (!cart || cart.length === 0) return sock.sendMessage(jid, { text: '🛒 Your cart is empty.' });
 
-            return sock.sendMessage(jid, {
-                text: 'Please reply *confirm* to accept the artwork disclaimer and submit your order, or send *human* if you want a person to assist.'
-            });
-        }
-
-        // ── Main menu / category browsing ───────────────────────────────────
-        if (text === 'products') {
-            return sock.sendMessage(jid, { text: 'Please send *products [category]*, for example _products Signs_.' });
-        }
-
-        if (text.startsWith('products ')) {
-            const catName = rawText.substring(9).trim();
-            const catProducts = products.filter((p) => p.Category.toLowerCase() === catName.toLowerCase());
-            if (catProducts.length === 0) {
-                return sock.sendMessage(jid, { text: `❓ Category "${catName}" not found. Type *menu* to see categories.` });
-            }
-            let reply = `*${catName} Products:*\n\n`;
-            catProducts.forEach((p) => {
-                if (p.PriceType === 'sqm') {
-                    reply += `*ID ${p.ID}*: ${p.Name}\n`;
-                    if (p.Size) reply += `  📏 Size: ${p.Size}\n`;
-                    if (p.Finish) reply += `  ✨ Finish: ${p.Finish}\n`;
-                    if (p.SingleOrDoubleSided) reply += `  ↔️ Sides: ${p.SingleOrDoubleSided}\n`;
-                    if (p.UnitsPerProduct) reply += `  📦 Units per product: ${p.UnitsPerProduct}\n`;
-                    reply += `  📐 ${formatCurrency(p.PricePerSqm)}/m² (min ${formatCurrency(p.MinPrice)})\n`;
-                    if (toNumber(p.DesignFee) > 0) reply += `  🎨 Design fee: ${formatCurrency(p.DesignFee)}\n`;
-                    if (p.PolesAvailable === 'yes') reply += `  🪧 Poles: ${formatCurrency(p.PolePrice)}/pole\n`;
-                    if (toNumber(p.InstallationFee) > 0) reply += `  🔧 Installation: ${formatCurrency(p.InstallationFee)}\n`;
-                } else {
-                    reply += `*ID ${p.ID}*: ${p.Name} — ${formatCurrency(p.FixedPrice)}\n`;
-                    if (p.Size) reply += `  📏 Size: ${p.Size}\n`;
-                    if (p.Finish) reply += `  ✨ Finish: ${p.Finish}\n`;
-                    if (p.SingleOrDoubleSided) reply += `  ↔️ Sides: ${p.SingleOrDoubleSided}\n`;
-                    if (p.UnitsPerProduct) reply += `  📦 Units per product: ${p.UnitsPerProduct}\n`;
+                    const { summary } = buildOrderSummary(cart, { includeDisclaimer: true });
+                    userStates[jid] = { step: 'awaiting_checkout_confirmation', pendingCart: cart };
+                    return sock.sendMessage(jid, {
+                        text: `${summary}\n\nReply *confirm* to accept the artwork disclaimer and submit your order, or send *human* if you want a person to assist.`
+                    });
                 }
-                reply += '\n';
-            });
-            reply += `Type *buy [ID]* to order.\ne.g. _buy ${catProducts[0].ID}_`;
-            return sock.sendMessage(jid, { text: reply });
-        }
 
-        // ── Buy command ─────────────────────────────────────────────────────
-        if (text === 'buy') {
-            return sock.sendMessage(jid, { text: 'Please send *buy [ID]*, for example _buy 4_.' });
-        }
+                const learnedResponse = findLearnedResponse(rawText);
+                if (learnedResponse) {
+                    return sock.sendMessage(jid, { text: learnedResponse.response });
+                }
 
-        if (text.startsWith('buy ')) {
-            const parts = text.split(/\s+/);
-            const id = parts[1];
-            const product = products.find((p) => p.ID === id);
-            if (!product) {
-                return sock.sendMessage(jid, { text: `❓ Product ID *${id}* not found. Type *menu* to browse.` });
-            }
-            if (product.PriceType === 'sqm') {
-                userStates[jid] = { step: 'awaiting_dimensions', pendingProduct: product };
+                recordLearningLead(jid, rawText);
                 return sock.sendMessage(jid, {
-                    text: `📐 *${product.Name}*\nPlease send the *length x height in mm*\nfor example _${DIMENSION_FORMAT_EXAMPLE}_.\n\nType *cancel* to go back or *human* for a team member.`
+                    text: `I want to make this easy for you. Send *menu* to browse, *products [category]* to see items, *buy [ID]* to order, or *human* if you would like a ${BUSINESS_NAME} team member to take over.`
                 });
+            } catch (error) {
+                console.error(`❌ Error while handling message:`, error);
             }
-
-            const price = toNumber(product.FixedPrice);
-            const qty = parseInt(parts[2] || '1', 10);
-            if (Number.isNaN(qty) || qty < 1) {
-                return sock.sendMessage(jid, { text: 'Please enter a valid quantity, for example _buy 12 2_.' });
-            }
-            if (!userCarts[jid]) userCarts[jid] = [];
-            userCarts[jid].push({
-                name: product.Name,
-                sqmPrice: price,
-                designFee: 0,
-                polesCost: 0,
-                poles: 0,
-                installationFee: 0,
-                total: price * qty,
-                qty
-            });
-            return sock.sendMessage(jid, {
-                text: `✅ Added ${qty} × *${product.Name}* @ ${formatCurrency(price)} each.\nType *cart* to view it or *checkout* when you are ready.`
-            });
-        }
-
-        // ── Cart ────────────────────────────────────────────────────────────
-        if (text === 'cart') {
-            const cart = userCarts[jid];
-            if (!cart || cart.length === 0) return sock.sendMessage(jid, { text: '🛒 Your cart is empty.' });
-            return sock.sendMessage(jid, { text: buildCartText(cart) });
-        }
-
-        // ── Clear cart ──────────────────────────────────────────────────────
-        if (text === 'clear') {
-            delete userCarts[jid];
-            userStates[jid] = { step: 'idle' };
-            return sock.sendMessage(jid, { text: '🗑️ Cart cleared. Type *menu* to start over.' });
-        }
-
-        // ── Checkout ────────────────────────────────────────────────────────
-        if (text === 'checkout') {
-            const cart = userCarts[jid];
-            if (!cart || cart.length === 0) return sock.sendMessage(jid, { text: '🛒 Your cart is empty.' });
-
-            const { summary } = buildOrderSummary(cart, { includeDisclaimer: true });
-            userStates[jid] = { step: 'awaiting_checkout_confirmation', pendingCart: cart };
-            return sock.sendMessage(jid, {
-                text: `${summary}\n\nReply *confirm* to accept the artwork disclaimer and submit your order, or send *human* if you want a person to assist.`
-            });
-        }
-
-        const learnedResponse = findLearnedResponse(rawText);
-        if (learnedResponse) {
-            return sock.sendMessage(jid, { text: learnedResponse.response });
-        }
-
-        recordLearningLead(jid, rawText);
-        return sock.sendMessage(jid, {
-            text: `I want to make this easy for you. Send *menu* to browse, *products [category]* to see items, *buy [ID]* to order, or *human* if you would like a ${BUSINESS_NAME} team member to take over.`
         });
-    });
+    } catch (error) {
+        console.error('❌ Failed to initialize WhatsApp Engine:', error);
+        scheduleBotRestart(error);
+    }
 }
 
 // --- DUMMY WEB SERVER FOR RAILWAY HEALTH CHECK ---
 const app = express();
 const PORT = process.env.PORT || 3000;
 app.get('/', (req, res) => res.send('Bot is running!'));
+app.get('/health', (req, res) => {
+    res.json({
+        ok: true,
+        service: 'whatsapp-bot',
+        whatsapp: whatsappRuntime
+    });
+});
 app.listen(PORT, () => {
     console.log(`📡 Health check server listening on port ${PORT}`);
     startBot(); // Start the bot after the server is up
+});
+
+process.on('unhandledRejection', (reason) => {
+    console.error('❌ Unhandled promise rejection:', reason);
+    setWhatsAppPhase('error', reason);
+});
+
+process.on('uncaughtException', (error) => {
+    console.error('❌ Uncaught exception:', error);
+    setWhatsAppPhase('error', error);
 });
