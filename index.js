@@ -14,9 +14,9 @@ const path = require('path');
 const express = require('express');
 
 // --- YOUR CONFIGURATION ---
-const ADMIN_JID = process.env.ADMIN_JID;
-const EMAIL_USER = process.env.EMAIL_USER;
-const EMAIL_PASS = process.env.EMAIL_PASS;
+const ADMIN_JID = process.env.ADMIN_JID || '';
+const EMAIL_USER = process.env.EMAIL_USER || '';
+const EMAIL_PASS = process.env.EMAIL_PASS || '';
 
 const STORAGE_DIR = path.join(__dirname, 'storage');
 const CSV_FILE = path.join(__dirname, 'products.csv');
@@ -60,8 +60,8 @@ function validateConfig() {
         process.exit(1);
     }
 
-    if (EMAIL_PASS.length < 12) {
-        console.warn('⚠️ EMAIL_PASS looks short. Use a strong Gmail app password.');
+    if (EMAIL_PASS.length !== 16) {
+        console.warn('⚠️ EMAIL_PASS should be the 16-character Gmail app password for this mailbox.');
     }
 }
 
@@ -160,7 +160,7 @@ function parseDimensions(text) {
     const height = parseFloat(values[1]);
 
     if (!Number.isFinite(length) || !Number.isFinite(height)) return null;
-    if (length <= 0 || height <= 0) return { error: 'non_positive' };
+    if (length <= 0 || height <= 0) return { error: 'non_positive', length, height };
     if (length > MAX_DIMENSION_MM || height > MAX_DIMENSION_MM) return { error: 'too_large', length, height };
 
     return { length, height };
@@ -309,9 +309,7 @@ function recordLearningLead(jid, message) {
         });
     }
 
-    learningLeads = learningLeads
-        .sort((a, b) => b.count - a.count)
-        .slice(0, MAX_LEARNING_LEADS);
+    learningLeads = learningLeads.slice(0, MAX_LEARNING_LEADS);
     saveJsonFile(LEARNING_LEADS_FILE, learningLeads);
 }
 
@@ -460,7 +458,7 @@ async function startBot() {
             const payload = rawText.slice(6);
             const [question, answer] = payload.split(/\s*=>\s*/);
             if (!question || !answer) {
-                return sock.sendMessage(jid, { text: 'Use *teach question => response* to store a learned reply.' });
+                return sock.sendMessage(jid, { text: 'Use *teach question => response*. Example: *teach do you deliver => Yes, we deliver nationwide.*' });
             }
 
             const normalizedQuestion = normalizeText(question);
@@ -486,7 +484,9 @@ async function startBot() {
                 return sock.sendMessage(jid, { text: 'No learning leads captured yet.' });
             }
 
-            const topLeads = learningLeads.slice(0, 10)
+            const topLeads = [...learningLeads]
+                .sort((a, b) => b.count - a.count)
+                .slice(0, 10)
                 .map((lead, index) => `${index + 1}. ${lead.example} (${lead.count} time(s))`)
                 .join('\n');
             return sock.sendMessage(jid, { text: `*Top unanswered messages:*\n\n${topLeads}` });
@@ -547,9 +547,14 @@ async function startBot() {
         // ── State: awaiting_dimensions ──────────────────────────────────────
         if (userState.step === 'awaiting_dimensions') {
             const dims = parseDimensions(rawText);
-            if (!dims || dims.error === 'non_positive') {
+            if (!dims) {
                 return sock.sendMessage(jid, {
                     text: '❓ I could not read a valid size from that message.\nPlease send *length x height in mm* (for example _1200 x 600 mm_).\n\nType *cancel* to go back or *human* if you want a person to help.'
+                });
+            }
+            if (dims.error === 'non_positive') {
+                return sock.sendMessage(jid, {
+                    text: '⚠️ Please use positive measurements only. Send the *length x height in mm* again, for example _1200 x 600 mm_.'
                 });
             }
             if (dims.error === 'too_large') {

@@ -278,7 +278,7 @@ The bot stores these items in `/storage`:
 - learned replies
 - unanswered learning leads
 
-On Railway, add a persistent volume and mount it so the bot can keep that data between restarts and deploys. If you do not use persistent storage, the bot may need to be linked again and may lose its learned responses.
+On Railway, add a persistent volume and mount it to **`/app/storage`** so the bot can keep that data between restarts and deploys. If you do not use persistent storage, the bot may need to be linked again and may lose its learned responses.
 
 ### Step 5: Deploy
 
