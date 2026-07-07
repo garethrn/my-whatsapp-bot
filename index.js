@@ -60,9 +60,6 @@ function validateConfig() {
         process.exit(1);
     }
 
-    if (EMAIL_PASS.length !== 16) {
-        console.warn('⚠️ Gmail app passwords are commonly 16 characters. Double-check EMAIL_PASS if QR emails fail.');
-    }
 }
 
 validateConfig();
@@ -155,6 +152,7 @@ function parseDimensions(text) {
     const cleaned = text.replace(/mm/gi, ' ').replace(/\bby\b/gi, ' x ');
     const values = cleaned.match(/\d+(?:\.\d+)?/g);
     if (!values || values.length < 2) return null;
+    if (values.length !== 2) return { error: 'invalid_count' };
 
     const length = parseFloat(values[0]);
     const height = parseFloat(values[1]);
@@ -557,9 +555,14 @@ async function startBot() {
                     text: '⚠️ Please use positive measurements only. Send the *length x height in mm* again, for example _1200 x 600 mm_.'
                 });
             }
+            if (dims.error === 'invalid_count') {
+                return sock.sendMessage(jid, {
+                    text: '⚠️ Please send only *two* measurements: *length x height in mm*. Example: _1200 x 600 mm_.'
+                });
+            }
             if (dims.error === 'too_large') {
                 return sock.sendMessage(jid, {
-                    text: '⚠️ Those dimensions look unusually large. Please send the *length x height in mm* again, for example _1200 x 600 mm_.'
+                    text: `⚠️ Those dimensions exceed our maximum of ${MAX_DIMENSION_MM}mm. Please send the *length x height in mm* again, for example _1200 x 600 mm_.`
                 });
             }
 
