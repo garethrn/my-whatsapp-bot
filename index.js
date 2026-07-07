@@ -76,6 +76,12 @@ function scheduleBotRestart(reason, delayMs = DEFAULT_RESTART_DELAY_MS) {
     }, delayMs);
 }
 
+function clearBotRestartTimer() {
+    if (!botRestartTimer) return;
+    clearTimeout(botRestartTimer);
+    botRestartTimer = null;
+}
+
 function validateConfig() {
     const missingConfig = [
         ['ADMIN_JID', ADMIN_JID],
@@ -90,6 +96,12 @@ function validateConfig() {
 
     if (!ADMIN_JID.endsWith('@s.whatsapp.net')) {
         console.error('❌ ADMIN_JID must end with @s.whatsapp.net');
+        process.exit(1);
+    }
+
+    const phonePart = ADMIN_JID.replace('@s.whatsapp.net', '');
+    if (!/^\d+$/.test(phonePart)) {
+        console.error('❌ ADMIN_JID must contain only digits before @s.whatsapp.net');
         process.exit(1);
     }
 
@@ -446,15 +458,19 @@ async function startBot() {
                     console.log('⚠️ QR Code generated. Sending to email...');
                     const qrPath = path.join(STORAGE_DIR, 'bot-qr.png');
                     await qrcodeImg.toFile(qrPath, qr);
-
-                    await transporter.sendMail({
-                        from: EMAIL_USER,
-                        to: EMAIL_USER,
-                        subject: 'WhatsApp Bot Login',
-                        text: 'Scan the attached QR code.',
-                        attachments: [{ filename: 'bot-qr.png', path: qrPath }]
-                    });
-                    console.log(`📧 QR code email sent to ${EMAIL_USER}`);
+                    try {
+                        await transporter.sendMail({
+                            from: EMAIL_USER,
+                            to: EMAIL_USER,
+                            subject: 'WhatsApp Bot Login',
+                            text: 'Scan the attached QR code.',
+                            attachments: [{ filename: 'bot-qr.png', path: qrPath }]
+                        });
+                        console.log(`📧 QR code email sent to ${EMAIL_USER}`);
+                    } catch (error) {
+                        console.error('❌ Failed to email WhatsApp QR code:', error);
+                        setWhatsAppPhase('awaiting_qr', 'QR generated but email delivery failed. Check EMAIL_USER / EMAIL_PASS and Gmail app password settings.');
+                    }
                 }
 
                 if (connection === 'close') {
@@ -463,12 +479,17 @@ async function startBot() {
                     const errorMessage = disconnectError?.message || `Disconnect status ${statusCode || 'unknown'}`;
                     if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
                         setWhatsAppPhase('logged_out', errorMessage);
-                        if (fs.existsSync(AUTH_DIR)) fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+                        try {
+                            if (fs.existsSync(AUTH_DIR)) fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+                        } catch (cleanupError) {
+                            console.error('⚠️ Failed to clear WhatsApp auth directory:', cleanupError);
+                        }
                         scheduleBotRestart(errorMessage, 1000);
                     } else {
                         scheduleBotRestart(errorMessage);
                     }
                 } else if (connection === 'open') {
+                    clearBotRestartTimer();
                     setWhatsAppPhase('connected');
                     console.log('🚀 BOT IS CONNECTED AND LIVE!');
                 }
