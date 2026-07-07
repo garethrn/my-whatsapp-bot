@@ -61,7 +61,7 @@ function validateConfig() {
     }
 
     if (EMAIL_PASS.length !== 16) {
-        console.warn('⚠️ EMAIL_PASS should be the 16-character Gmail app password for this mailbox.');
+        console.warn('⚠️ Gmail app passwords are commonly 16 characters. Double-check EMAIL_PASS if QR emails fail.');
     }
 }
 
@@ -231,7 +231,7 @@ function buildOrderSummary(cart, options = {}) {
         grandTotal += item.total;
     });
 
-    summary += `*GRAND TOTAL: ${formatCurrency(grandTotal)}*`;
+    summary += `*Grand Total: ${formatCurrency(grandTotal)}*`;
 
     if (includeDisclaimer) {
         summary += `\n\n*Please review and accept before production:*\n${ARTWORK_DISCLAIMER}`;

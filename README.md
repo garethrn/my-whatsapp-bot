@@ -35,7 +35,7 @@ This is not a full AI model training pipeline. It is a practical, controlled way
    https://github.com
 3. **Gmail** - to receive the QR code email  
    https://mail.google.com
-4. **Railway** - recommended cloud hosting  
+4. **Railway** - recommended cloud hosting because this repo already includes a working start command and it is simple to add persistent storage  
    https://railway.app
 5. **WhatsApp on your phone** - to scan the QR code
 
