@@ -45,6 +45,7 @@ const ARTWORK_DISCLAIMER = [
 const HUMAN_KEYWORDS = ['human', 'person', 'agent', 'consultant', 'staff', 'help me', 'call me', 'speak to someone', 'speak to a human', 'handover'];
 const FRUSTRATION_KEYWORDS = ['frustrated', 'angry', 'upset', 'annoyed', 'not helping', 'complaint', 'terrible', 'useless', 'confused', 'speak to manager'];
 const DEFAULT_RESTART_DELAY_MS = 5000;
+const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 10000;
 
 const whatsappRuntime = {
     phase: 'booting',
@@ -455,21 +456,33 @@ async function startBot() {
 
                 if (qr) {
                     setWhatsAppPhase('awaiting_qr');
-                    console.log('⚠️ QR Code generated. Sending to email...');
                     const qrPath = path.join(STORAGE_DIR, 'bot-qr.png');
                     await qrcodeImg.toFile(qrPath, qr);
+                    // RAILWAY_PUBLIC_DOMAIN is a bare domain (e.g. "myapp.up.railway.app")
+                    // RAILWAY_STATIC_URL may be a full URL — strip any existing protocol to avoid duplication
+                    const rawHost = process.env.RAILWAY_PUBLIC_DOMAIN || process.env.RAILWAY_STATIC_URL;
+                    const railwayUrl = rawHost
+                        ? `https://${rawHost.replace(/^https?:\/\//, '')}/qr`
+                        : null;
+                    console.log('⚠️ QR Code generated.');
+                    if (railwayUrl) {
+                        console.log(`🔗 Scan QR directly at: ${railwayUrl}`);
+                    } else {
+                        console.log('🔗 Scan QR at: <your-railway-url>/qr');
+                    }
+                    console.log('📧 Sending QR to email...');
                     try {
                         await transporter.sendMail({
                             from: EMAIL_USER,
                             to: EMAIL_USER,
                             subject: 'WhatsApp Bot Login',
-                            text: 'Scan the attached QR code.',
+                            text: `Scan the attached QR code to log in.\n\nAlternatively, open ${railwayUrl || '<your-railway-url>/qr'} in your browser.`,
                             attachments: [{ filename: 'bot-qr.png', path: qrPath }]
                         });
                         console.log(`📧 QR code email sent to ${EMAIL_USER}`);
                     } catch (error) {
                         console.error('❌ Failed to email WhatsApp QR code:', error);
-                        setWhatsAppPhase('awaiting_qr', 'QR generated but email delivery failed. Check EMAIL_USER / EMAIL_PASS and Gmail app password settings.');
+                        setWhatsAppPhase('awaiting_qr', 'QR generated but email delivery failed. Visit /qr in your browser or check EMAIL_USER / EMAIL_PASS and Gmail app password settings.');
                     }
                 }
 
@@ -894,7 +907,7 @@ async function startBot() {
     }
 }
 
-// --- DUMMY WEB SERVER FOR RAILWAY HEALTH CHECK ---
+// --- WEB SERVER FOR RAILWAY HEALTH CHECK AND QR ACCESS ---
 const app = express();
 const PORT = process.env.PORT || 3000;
 app.get('/', (req, res) => res.send('Bot is running!'));
@@ -905,8 +918,40 @@ app.get('/health', (req, res) => {
         whatsapp: whatsappRuntime
     });
 });
-app.listen(PORT, () => {
+// Serve QR code image so it can be scanned directly from the Railway URL
+// (reliable fallback when email delivery fails)
+// Simple in-memory rate limiter: max 10 requests per IP per minute
+const qrRateLimit = new Map();
+app.get('/qr', (req, res) => {
+    const ip = req.ip || req.socket.remoteAddress;
+    const now = Date.now();
+    const windowMs = 60 * 1000;
+    const maxRequests = 10;
+    const record = qrRateLimit.get(ip) || { count: 0, resetAt: now + windowMs };
+    if (now > record.resetAt) {
+        record.count = 0;
+        record.resetAt = now + windowMs;
+    }
+    record.count++;
+    qrRateLimit.set(ip, record);
+    if (record.count > maxRequests) {
+        return res.status(429).send('<p>Too many requests. Please wait a minute.</p>');
+    }
+
+    const qrPath = path.join(STORAGE_DIR, 'bot-qr.png');
+    if (!fs.existsSync(qrPath)) {
+        const phase = whatsappRuntime.phase;
+        if (phase === 'connected') {
+            return res.status(200).send('<p>✅ Bot is already connected — no QR code needed.</p>');
+        }
+        return res.status(404).send('<p>⏳ QR code not yet available. Try again in a few seconds.</p>');
+    }
+    res.setHeader('Cache-Control', 'no-store');
+    res.sendFile(qrPath);
+});
+const server = app.listen(PORT, () => {
     console.log(`📡 Health check server listening on port ${PORT}`);
+    console.log(`🔗 QR code available at /qr once WhatsApp login is needed`);
     startBot(); // Start the bot after the server is up
 });
 
@@ -919,3 +964,16 @@ process.on('uncaughtException', (error) => {
     console.error('❌ Uncaught exception:', error);
     setWhatsAppPhase('error', error);
 });
+
+// Graceful shutdown on SIGTERM / SIGINT (e.g. Railway stopping the container)
+function gracefulShutdown(signal) {
+    console.log(`🛑 Received ${signal}. Shutting down gracefully...`);
+    clearBotRestartTimer();
+    server.close(() => {
+        console.log('👋 HTTP server closed. Exiting.');
+        process.exit(0);
+    });
+    setTimeout(() => process.exit(0), GRACEFUL_SHUTDOWN_TIMEOUT_MS).unref();
+}
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
