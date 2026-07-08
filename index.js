@@ -8,6 +8,7 @@ const {
     normalizeMessageContent
 } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
+const crypto = require('crypto');
 const fs = require('fs');
 const csv = require('csv-parser');
 const pino = require('pino');
@@ -443,6 +444,17 @@ function extractMessageText(messageContent) {
         || '';
 
     return typeof text === 'string' ? text.trim() : '';
+}
+
+function isAuthorizedQrRequest(token) {
+    if (!QR_ACCESS_TOKEN) return true;
+    if (typeof token !== 'string') return false;
+
+    const expected = Buffer.from(QR_ACCESS_TOKEN);
+    const received = Buffer.from(token);
+    if (expected.length !== received.length) return false;
+
+    return crypto.timingSafeEqual(expected, received);
 }
 
 async function activateHumanHandover(sock, jid, reason) {
@@ -1065,7 +1077,7 @@ app.get('/health', (req, res) => {
 // Serve QR code as a self-refreshing HTML page so the user can scan it
 // even when email delivery fails. Always shows the latest in-memory QR.
 app.get('/qr', qrRouteLimiter, (req, res) => {
-    if (QR_ACCESS_TOKEN && req.query.token !== QR_ACCESS_TOKEN) {
+    if (!isAuthorizedQrRequest(req.query.token)) {
         return res.status(401).send('<p>Unauthorized. Missing or invalid token.</p>');
     }
 
