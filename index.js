@@ -2,7 +2,9 @@ const {
     default: makeWASocket,
     useMultiFileAuthState,
     DisconnectReason,
-    downloadMediaMessage
+    downloadMediaMessage,
+    fetchLatestBaileysVersion,
+    Browsers
 } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 const fs = require('fs');
@@ -441,11 +443,20 @@ async function startBot() {
 
     try {
         const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+        let version;
+        try {
+            const latestVersion = await fetchLatestBaileysVersion();
+            version = latestVersion.version;
+            console.log(`ℹ️ WhatsApp Web version: ${version.join('.')} (${latestVersion.isLatest ? 'latest' : 'fallback'})`);
+        } catch (versionError) {
+            console.warn('⚠️ Could not fetch latest WhatsApp Web version, using library default:', versionError?.message || versionError);
+        }
 
         const sock = makeWASocket({
             auth: state,
             logger: pino({ level: 'error' }),
-            browser: ['Mac OS', 'Chrome', '1.0.0']
+            browser: Browsers.appropriate('Desktop'),
+            ...(version ? { version } : {})
         });
 
         sock.ev.on('creds.update', saveCreds);
@@ -488,8 +499,14 @@ async function startBot() {
 
                 if (connection === 'close') {
                     const disconnectError = lastDisconnect?.error;
-                    const statusCode = (disconnectError instanceof Boom) ? disconnectError.output.statusCode : 0;
+                    const statusCode = (disconnectError instanceof Boom)
+                        ? disconnectError.output.statusCode
+                        : (disconnectError?.output?.statusCode || disconnectError?.data?.statusCode || 0);
                     const errorMessage = disconnectError?.message || `Disconnect status ${statusCode || 'unknown'}`;
+                    console.error('🔌 WhatsApp connection closed:', {
+                        statusCode: statusCode || 'unknown',
+                        reason: errorMessage
+                    });
                     if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
                         setWhatsAppPhase('logged_out', errorMessage);
                         try {
