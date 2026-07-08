@@ -1,9 +1,10 @@
+const baileys = require('@whiskeysockets/baileys');
 const { 
     default: makeWASocket, 
     useMultiFileAuthState, 
     DisconnectReason, 
     downloadMediaMessage 
-} = require('@whiskeysockets/baileys');
+} = baileys;
 const { Boom } = require('@hapi/boom');
 const fs = require('fs');
 const csv = require('csv-parser');
@@ -12,6 +13,13 @@ const nodemailer = require('nodemailer');
 const qrcodeImg = require('qrcode');
 const path = require('path');
 const express = require('express'); // Added for Health Check
+
+// Browser fingerprints to rotate through on connection failures
+const BROWSER_FINGERPRINTS = [
+    ['Mac OS', 'Chrome', '1.0.0'],
+    ['Windows', 'Firefox', '1.0.0'],
+    ['Linux', 'Safari', '1.0.0'],
+];
 
 // --- YOUR CONFIGURATION ---
 const ADMIN_JID = process.env.ADMIN_JID;
@@ -35,6 +43,11 @@ let latestQR = null;
 let retryCount = 0;
 const MAX_RETRIES = 10;
 
+// Compute exponential backoff delay, capped at 60s
+function getRetryDelay(count) {
+    return Math.min(5000 * Math.pow(2, count - 1), 60000);
+}
+
 function loadProducts() {
     const results = [];
     if (!fs.existsSync(CSV_FILE)) {
@@ -50,15 +63,16 @@ function loadProducts() {
 }
 loadProducts();
 
-async function startBot() {
-    console.log(`🔄 Initializing WhatsApp Engine... (attempt ${retryCount + 1})`);
+async function startBot(fingerprintIndex = 0) {
+    const browser = BROWSER_FINGERPRINTS[fingerprintIndex % BROWSER_FINGERPRINTS.length];
+    console.log(`🔄 Initializing WhatsApp Engine... (attempt ${retryCount + 1}, browser: ${browser[0]} / ${browser[1]})`);
     try {
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
     
     const sock = makeWASocket({
         auth: state,
         logger: pino({ level: 'silent' }),
-        browser: ['Mac OS', 'Chrome', '1.0.0']
+        browser
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -98,15 +112,19 @@ async function startBot() {
             const err = lastDisconnect?.error;
             const statusCode = (err instanceof Boom) ? err.output.statusCode : 0;
             console.error(`🔌 Connection closed. Status: ${statusCode}. Reason: ${err?.message || 'unknown'}`);
+            console.error('🔍 Full error details:', JSON.stringify(err, Object.getOwnPropertyNames(err || {}), 2));
             retryCount++;
             if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
                 console.log('🗑️  Auth invalidated — clearing auth state and restarting...');
                 if (fs.existsSync(AUTH_DIR)) fs.rmSync(AUTH_DIR, { recursive: true, force: true });
                 retryCount = 0;
-                startBot();
+                startBot(0);
             } else if (retryCount < MAX_RETRIES) {
-                console.log(`🔁 Retrying in 5s... (${retryCount}/${MAX_RETRIES})`);
-                setTimeout(startBot, 5000);
+                const delay = getRetryDelay(retryCount);
+                const nextFingerprint = retryCount % BROWSER_FINGERPRINTS.length;
+                const nextBrowser = BROWSER_FINGERPRINTS[nextFingerprint];
+                console.log(`🔁 Retrying in ${delay / 1000}s with browser fingerprint [${nextBrowser[0]} / ${nextBrowser[1]}]... (${retryCount}/${MAX_RETRIES})`);
+                setTimeout(() => startBot(nextFingerprint), delay);
             } else {
                 console.error(`🛑 Max retries (${MAX_RETRIES}) reached. Bot stopped. Restart the service to try again.`);
             }
@@ -164,10 +182,14 @@ async function startBot() {
     });
     } catch (err) {
         console.error('❌ Fatal error in startBot():', err);
+        console.error('🔍 Full error details:', JSON.stringify(err, Object.getOwnPropertyNames(err || {}), 2));
         retryCount++;
         if (retryCount < MAX_RETRIES) {
-            console.log(`🔁 Retrying in 5s... (${retryCount}/${MAX_RETRIES})`);
-            setTimeout(startBot, 5000);
+            const delay = getRetryDelay(retryCount);
+            const nextFingerprint = retryCount % BROWSER_FINGERPRINTS.length;
+            const nextBrowser = BROWSER_FINGERPRINTS[nextFingerprint];
+            console.log(`🔁 Retrying in ${delay / 1000}s with browser fingerprint [${nextBrowser[0]} / ${nextBrowser[1]}]... (${retryCount}/${MAX_RETRIES})`);
+            setTimeout(() => startBot(nextFingerprint), delay);
         } else {
             console.error(`🛑 Max retries (${MAX_RETRIES}) reached after fatal error. Restart the service to try again.`);
         }
@@ -191,5 +213,6 @@ app.get('/qr', (req, res) => {
 app.listen(PORT, () => {
     console.log(`📡 Web server listening on port ${PORT}`);
     console.log(`🔗 QR code will be available at /qr once the bot starts`);
-    startBot(); // Start the bot after the server is up
+    console.log('📦 Baileys version:', baileys.version || require('./node_modules/@whiskeysockets/baileys/package.json').version || 'unknown');
+    startBot(0); // Start the bot after the server is up
 });
