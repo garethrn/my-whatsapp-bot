@@ -196,7 +196,7 @@ function loadProducts() {
         fs.writeFileSync(CSV_FILE, DEFAULT_CSV);
     }
     fs.createReadStream(CSV_FILE)
-        .pipe(csv())
+        .pipe(csv({ mapHeaders: ({ header }) => header.replace(/^\uFEFF/, '').trim() }))
         .on('data', (d) => results.push(d))
         .on('end', () => {
             products = results;
@@ -287,7 +287,7 @@ function getCategories() {
 }
 
 function toNumber(value, fallback = 0) {
-    const parsed = parseFloat(value);
+    const parsed = parseFloat(String(value ?? '').replace(/^[^0-9.-]+/, ''));
     return Number.isFinite(parsed) ? parsed : fallback;
 }
 
