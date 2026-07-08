@@ -1,4 +1,4 @@
-﻿ID,Category,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvailable,PolePrice,InstallationFee
+ID,Category,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvailable,PolePrice,InstallationFee
 1,Paper Printing,Business Cards 300GSM ,Standard 90x55mm,Semi Gloss,Single sided ,100,fixed,,R120.00,,0,no,,0
 2,Paper Printing,Business Cards 300GSM ,Standard 90x55mm,Semi Gloss,Single sided ,250,fixed,,R230.00,,0,no,,0
 3,Paper Printing,Business Cards 300GSM ,Standard 90x55mm,Semi Gloss,Single sided ,500,fixed,,R350.00,,0,no,,0
