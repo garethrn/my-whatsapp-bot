@@ -49,6 +49,13 @@ const ARTWORK_DISCLAIMER = [
 ].join('\n');
 const HUMAN_KEYWORDS = ['human', 'person', 'agent', 'consultant', 'staff', 'help me', 'call me', 'speak to someone', 'speak to a human', 'handover'];
 const FRUSTRATION_KEYWORDS = ['frustrated', 'angry', 'upset', 'annoyed', 'not helping', 'complaint', 'terrible', 'useless', 'confused', 'speak to manager', 'scam', 'fraud'];
+const PRODUCT_SEARCH_STOP_WORDS = new Set([
+    'a', 'about', 'am', 'an', 'and', 'any', 'are', 'can', 'catalogue', 'cost', 'do', 'estimate', 'for',
+    'get', 'give', 'have', 'hello', 'help', 'hi', 'how', 'i', 'im', 'in', 'interested', 'is', 'item', 'items',
+    'like', 'looking', 'me', 'menu', 'need', 'of', 'on', 'please', 'price', 'print', 'pricing', 'product',
+    'products', 'quote', 'quotes', 'rate', 'search', 'show', 'some', 'tell', 'the', 'to', 'want', 'what', 'with',
+    'you', 'your'
+]);
 const DEFAULT_RESTART_DELAY_MS = 5000;
 const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 10000;
 
@@ -187,25 +194,64 @@ function loadProducts() {
 }
 loadProducts();
 
+function normalizeSearchText(value) {
+    return String(value || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function getProductSearchTerms(text) {
+    return normalizeSearchText(text)
+        .split(' ')
+        .filter((word) => word && !/^\d+$/.test(word) && !PRODUCT_SEARCH_STOP_WORDS.has(word));
+}
+
 function findProductsByKeyword(text) {
-    const normalized = text.toLowerCase().replace(/-/g, ' ');
-    const searchWords = normalized.split(/\s+/).filter((w) => w.length > 2);
-    if (searchWords.length === 0) return [];
-    const matched = products.filter((p) => {
-        const target = `${p.Name || ''} ${p.Category || ''}`.toLowerCase().replace(/-/g, ' ');
-        return searchWords.some((word) => target.includes(word));
-    });
-    // If many results, collapse to one representative per category to keep the list manageable
-    if (matched.length > 5) {
-        const seen = new Set();
-        return matched.filter((p) => {
-            const cat = (p.Category || '').trim();
-            if (seen.has(cat)) return false;
-            seen.add(cat);
-            return true;
-        });
-    }
-    return matched;
+    const normalized = normalizeSearchText(text);
+    const searchWords = getProductSearchTerms(text);
+    if (!normalized || searchWords.length === 0) return [];
+
+    return products
+        .map((product) => {
+            const name = normalizeSearchText(product.Name);
+            const category = normalizeSearchText(product.Category);
+            const detail = normalizeSearchText([
+                product.Name,
+                product.Category,
+                product.Size,
+                product.Finish,
+                product.SingleOrDoubleSided
+            ].join(' '));
+
+            let score = 0;
+            if (name && normalized.includes(name)) score += 18;
+            if (name && name.includes(normalized)) score += 14;
+            if (category && category.includes(normalized)) score += 10;
+            if (detail.includes(normalized)) score += 8;
+
+            const nameMatches = searchWords.filter((word) => name.includes(word)).length;
+            const categoryMatches = searchWords.filter((word) => category.includes(word)).length;
+            const detailMatches = searchWords.filter((word) => detail.includes(word)).length;
+
+            score += nameMatches * 5;
+            score += categoryMatches * 3;
+            score += Math.max(0, detailMatches - nameMatches - categoryMatches);
+
+            if (searchWords.length > 0 && searchWords.every((word) => name.includes(word))) score += 8;
+            if (searchWords.length > 1 && searchWords.every((word) => detail.includes(word))) score += 4;
+
+            return { product, score };
+        })
+        .filter(({ score }) => score > 0)
+        .sort((a, b) => {
+            if (b.score !== a.score) return b.score - a.score;
+            const nameCompare = String(a.product.Name || '').localeCompare(String(b.product.Name || ''));
+            if (nameCompare !== 0) return nameCompare;
+            return String(a.product.ID || '').localeCompare(String(b.product.ID || ''));
+        })
+        .map(({ product }) => product);
 }
 
 function extractQuantityFromText(text) {
@@ -236,6 +282,30 @@ function buildProductListText() {
     const lines = [`Here's what we print at *${BUSINESS_NAME}*:`, ''];
     categories.forEach((cat) => lines.push(`• ${cat.trim()}`));
     lines.push('', "Anything specific you're looking for? Type *menu* to browse our full catalogue or ask for a *quote*! 😊");
+    return lines.join('\n');
+}
+
+function buildProductOptionSummary(product, index) {
+    const details = [];
+    if (product.Size) details.push(product.Size.trim());
+    if (product.Finish) details.push(product.Finish.trim());
+    if (product.SingleOrDoubleSided) details.push(product.SingleOrDoubleSided.trim());
+    if (product.PriceType !== 'sqm' && product.UnitsPerProduct) details.push(`${product.UnitsPerProduct.trim()} units`);
+
+    const pricing = product.PriceType === 'sqm'
+        ? `${formatCurrency(product.PricePerSqm)}/m²${toNumber(product.MinPrice) > 0 ? ` (min ${formatCurrency(product.MinPrice)})` : ''}`
+        : formatCurrency(product.FixedPrice);
+
+    const parts = [`${index + 1}) *${String(product.Name || '').trim()}*`];
+    if (details.length > 0) parts.push(details.join(' • '));
+    parts.push(pricing);
+    return parts.join(' — ');
+}
+
+function buildProductMatchesText(matches, intro, outro) {
+    const lines = [intro, ''];
+    matches.forEach((product, index) => lines.push(buildProductOptionSummary(product, index)));
+    if (outro) lines.push('', outro);
     return lines.join('\n');
 }
 
@@ -450,6 +520,23 @@ function isFrustratedMessage(text) {
     return FRUSTRATION_KEYWORDS.some((keyword) => text.includes(keyword));
 }
 
+function isProductInquiry(text, matches) {
+    if (!matches || matches.length === 0) return false;
+
+    const normalized = normalizeSearchText(text);
+    if (!normalized) return false;
+
+    if (/\b(looking for|need|want|interested in|show me|tell me about|do you have|can you print|can you do|can i get)\b/.test(normalized)) {
+        return true;
+    }
+
+    const searchWords = getProductSearchTerms(text);
+    if (searchWords.length === 0 || searchWords.length > 6) return false;
+
+    const rawWords = normalized.split(' ').filter(Boolean);
+    return rawWords.every((word) => PRODUCT_SEARCH_STOP_WORDS.has(word) || /^\d+$/.test(word) || searchWords.includes(word));
+}
+
 function toWhatsAppJid(value) {
     const trimmed = (value || '').trim();
     if (!trimmed) return null;
@@ -529,6 +616,17 @@ async function activateHumanHandover(sock, jid, reason) {
     await sock.sendMessage(ADMIN_JID, { text: adminNotice });
     await sock.sendMessage(jid, {
         text: `🤝 A ${BUSINESS_NAME} team member has been asked to take over. We will stop the automated replies for now so that a human can assist you properly.`
+    });
+}
+
+async function requestHumanHandoverConfirmation(sock, jid, reason) {
+    userStates[jid] = {
+        step: 'awaiting_handover_confirmation',
+        pendingHandoverReason: reason
+    };
+
+    await sock.sendMessage(jid, {
+        text: `🤝 I can ask a ${BUSINESS_NAME} team member to take over.\nIf you confirm, I will pause my automated replies so a person can assist you.\n\nReply *yes* to confirm or *no* to keep chatting with me.`
     });
 }
 
@@ -750,7 +848,7 @@ async function startBot() {
                     }
 
                     if (jid !== ADMIN_JID && rawText && (isHumanRequest(text) || isFrustratedMessage(text))) {
-                        await activateHumanHandover(sock, jid, rawText);
+                        await requestHumanHandoverConfirmation(sock, jid, rawText);
                         continue;
                     }
 
@@ -776,6 +874,21 @@ async function startBot() {
 
                     if (text === 'help') {
                         await sock.sendMessage(jid, { text: buildHelpText() });
+                        continue;
+                    }
+
+                // ── State: awaiting_handover_confirmation ─────────────────────────────
+                    if (userState.step === 'awaiting_handover_confirmation') {
+                        if (['yes', 'y', 'confirm', 'ok', 'okay', 'please do'].includes(text)) {
+                            await activateHumanHandover(sock, jid, userState.pendingHandoverReason || rawText);
+                            continue;
+                        }
+                        if (['no', 'n', 'cancel', 'keep chatting', 'keep going'].includes(text)) {
+                            userStates[jid] = { step: 'idle' };
+                            await sock.sendMessage(jid, { text: `No problem 👍 I’ll keep assisting you here. Tell me what product or quote you need.` });
+                            continue;
+                        }
+                        await sock.sendMessage(jid, { text: 'Please reply *yes* to hand over to a team member or *no* to keep chatting with me.' });
                         continue;
                     }
 
@@ -976,9 +1089,16 @@ async function startBot() {
                             await sock.sendMessage(jid, { text: `Got it – *${product.Name}*! How many do you need?` });
                             continue;
                         }
-                        const list = matches.map((p, i) => `${i + 1}) ${p.Name}`).join('\n');
                         userStates[jid] = { step: 'awaiting_quote_product_selection', pendingMatches: matches };
-                        await sock.sendMessage(jid, { text: `We have a few options:\n${list}\n\nReply with the number.` });
+                        await sock.sendMessage(jid, {
+                            text: buildProductMatchesText(
+                                matches,
+                                'I found these options:',
+                                matches.every((product) => product.PriceType === 'sqm')
+                                    ? 'Reply with the option number and then I’ll ask for the size in mm to calculate the price.'
+                                    : 'Reply with the option number for a quote.'
+                            )
+                        });
                         continue;
                     }
 
@@ -1072,9 +1192,10 @@ async function startBot() {
                             await sock.sendMessage(jid, { text: `✅ Got it! I've added ${qty.toLocaleString()} × *${product.Name}* to your cart.\nWould you like to add anything else? (Type *cart* to view, *quote* for a price, or *checkout* to order.) 😊` });
                             continue;
                         }
-                        const list = matches.map((p, i) => `${i + 1}) ${p.Name}`).join('\n');
                         userStates[jid] = { step: 'awaiting_add_product_selection', pendingMatches: matches, pendingQty: qty };
-                        await sock.sendMessage(jid, { text: `We have a few options:\n${list}\n\nWhich one would you like to add?` });
+                        await sock.sendMessage(jid, {
+                            text: buildProductMatchesText(matches, 'I found these options:', 'Reply with the option number to add it to your cart.')
+                        });
                         continue;
                     }
 
@@ -1263,7 +1384,7 @@ async function startBot() {
 
                 // ── Intent: complaint / issue ───────────────────────────────────────
                     if (/\bcomplaint\b|\bproblem with\b|\bissue with\b|\bwrong order\b|\bdamaged\b|\bfaulty\b|\bnot happy\b|\bdisappointed\b/.test(text) && jid !== ADMIN_JID) {
-                        await activateHumanHandover(sock, jid, rawText);
+                        await requestHumanHandoverConfirmation(sock, jid, rawText);
                         continue;
                     }
 
@@ -1298,14 +1419,62 @@ async function startBot() {
                             }
 
                             if (matches.length > 1) {
-                                const list = matches.map((p, i) => `${i + 1}) ${p.Name}`).join('\n');
                                 userStates[jid] = { step: 'awaiting_quote_product_selection', pendingMatches: matches };
-                                await sock.sendMessage(jid, { text: `We have a few options:\n${list}\n\nWhich one would you like a quote for?` });
+                                await sock.sendMessage(jid, {
+                                    text: buildProductMatchesText(
+                                        matches,
+                                        'I found these options:',
+                                        matches.every((product) => product.PriceType === 'sqm')
+                                            ? 'Reply with the option number and then I’ll ask for the size in mm to calculate the price.'
+                                            : 'Reply with the option number for a quote.'
+                                    )
+                                });
                                 continue;
                             }
 
                             await sock.sendMessage(jid, { text: `To give you an accurate quote, I need:\n1) Product type (e.g. _flyers_, _banners_, _business cards_)\n2) Quantity\n3) Paper type / finishing (e.g. gloss/matte)\n\nCould you provide these?` });
                             userStates[jid] = { step: 'awaiting_quote_product' };
+                            continue;
+                        }
+                    }
+
+                // ── Intent: product search / browse ──────────────────────────────────
+                    if (userState.step === 'idle') {
+                        const matches = findProductsByKeyword(text);
+                        if (isProductInquiry(text, matches)) {
+                            fallbackCounts[jid] = 0;
+
+                            if (matches.length === 1) {
+                                const [product] = matches;
+                                if (product.PriceType === 'sqm') {
+                                    userStates[jid] = { step: 'awaiting_dimensions', pendingProduct: product };
+                                    await sock.sendMessage(jid, {
+                                        text: `📐 *${product.Name}*\nThis item is priced by size.\nPlease send the *length x height in mm*, for example _${DIMENSION_FORMAT_EXAMPLE}_, and I’ll calculate the price for you.`
+                                    });
+                                    continue;
+                                }
+
+                                userStates[jid] = { step: 'awaiting_quote_quantity', pendingProduct: product };
+                                await sock.sendMessage(jid, {
+                                    text: buildProductMatchesText(
+                                        matches,
+                                        'I found this option:',
+                                        'Reply with the quantity you need and I’ll work out the price for you.'
+                                    )
+                                });
+                                continue;
+                            }
+
+                            userStates[jid] = { step: 'awaiting_quote_product_selection', pendingMatches: matches };
+                            await sock.sendMessage(jid, {
+                                text: buildProductMatchesText(
+                                    matches,
+                                    'I found these options:',
+                                    matches.every((product) => product.PriceType === 'sqm')
+                                        ? 'Reply with the option number and then I’ll ask for the size in mm to calculate the price.'
+                                        : 'Reply with the option number for pricing, or send *buy [ID]* to order directly.'
+                                )
+                            });
                             continue;
                         }
                     }
@@ -1384,7 +1553,7 @@ async function startBot() {
                     recordLearningLead(jid, rawText);
                     if (fallbackCounts[jid] >= 3 && jid !== ADMIN_JID) {
                         fallbackCounts[jid] = 0;
-                        await activateHumanHandover(sock, jid, `Bot could not understand repeated messages (last: "${rawText}")`);
+                        await requestHumanHandoverConfirmation(sock, jid, `Bot could not understand repeated messages (last: "${rawText}")`);
                         continue;
                     }
                     await sock.sendMessage(jid, {
