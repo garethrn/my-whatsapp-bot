@@ -14,6 +14,7 @@ const nodemailer = require('nodemailer');
 const qrcodeImg = require('qrcode');
 const path = require('path');
 const express = require('express');
+const { rateLimit } = require('express-rate-limit');
 
 // --- YOUR CONFIGURATION ---
 const ADMIN_JID = process.env.ADMIN_JID;
@@ -83,6 +84,24 @@ function clearBotRestartTimer() {
     if (!botRestartTimer) return;
     clearTimeout(botRestartTimer);
     botRestartTimer = null;
+}
+
+function extractDisconnectStatusCode(error) {
+    if (!error) return 0;
+    if (error instanceof Boom) return error.output.statusCode || 0;
+    return error?.output?.statusCode || error?.data?.statusCode || 0;
+}
+
+function getRailwayQrUrl() {
+    const rawHost = process.env.RAILWAY_PUBLIC_DOMAIN || process.env.RAILWAY_STATIC_URL;
+    if (!rawHost) return null;
+    try {
+        const hostWithProtocol = /^https?:\/\//i.test(rawHost) ? rawHost : `https://${rawHost}`;
+        const url = new URL(hostWithProtocol);
+        return `${url.origin}/qr`;
+    } catch {
+        return null;
+    }
 }
 
 function validateConfig() {
@@ -449,7 +468,7 @@ async function startBot() {
             version = latestVersion.version;
             console.log(`ℹ️ WhatsApp Web version: ${version.join('.')} (${latestVersion.isLatest ? 'latest' : 'fallback'})`);
         } catch (versionError) {
-            console.warn('⚠️ Could not fetch latest WhatsApp Web version, using library default:', versionError?.message || versionError);
+            console.warn('⚠️ Could not fetch latest WhatsApp Web version; continuing with Baileys built-in default:', versionError?.message || versionError);
         }
 
         const sock = makeWASocket({
@@ -469,12 +488,7 @@ async function startBot() {
                     setWhatsAppPhase('awaiting_qr');
                     const qrPath = path.join(STORAGE_DIR, 'bot-qr.png');
                     await qrcodeImg.toFile(qrPath, qr);
-                    // RAILWAY_PUBLIC_DOMAIN is a bare domain (e.g. "myapp.up.railway.app")
-                    // RAILWAY_STATIC_URL may be a full URL — strip any existing protocol to avoid duplication
-                    const rawHost = process.env.RAILWAY_PUBLIC_DOMAIN || process.env.RAILWAY_STATIC_URL;
-                    const railwayUrl = rawHost
-                        ? `https://${rawHost.replace(/^https?:\/\//, '')}/qr`
-                        : null;
+                    const railwayUrl = getRailwayQrUrl();
                     console.log('⚠️ QR Code generated.');
                     if (railwayUrl) {
                         console.log(`🔗 Scan QR directly at: ${railwayUrl}`);
@@ -499,9 +513,7 @@ async function startBot() {
 
                 if (connection === 'close') {
                     const disconnectError = lastDisconnect?.error;
-                    const statusCode = (disconnectError instanceof Boom)
-                        ? disconnectError.output.statusCode
-                        : (disconnectError?.output?.statusCode || disconnectError?.data?.statusCode || 0);
+                    const statusCode = extractDisconnectStatusCode(disconnectError);
                     const errorMessage = disconnectError?.message || `Disconnect status ${statusCode || 'unknown'}`;
                     console.error('🔌 WhatsApp connection closed:', {
                         statusCode: statusCode || 'unknown',
@@ -927,6 +939,13 @@ async function startBot() {
 // --- WEB SERVER FOR RAILWAY HEALTH CHECK AND QR ACCESS ---
 const app = express();
 const PORT = process.env.PORT || 3000;
+const qrRouteLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: '<p>Too many requests. Please wait a minute.</p>'
+});
 app.get('/', (req, res) => res.send('Bot is running!'));
 app.get('/health', (req, res) => {
     res.json({
@@ -937,24 +956,7 @@ app.get('/health', (req, res) => {
 });
 // Serve QR code image so it can be scanned directly from the Railway URL
 // (reliable fallback when email delivery fails)
-// Simple in-memory rate limiter: max 10 requests per IP per minute
-const qrRateLimit = new Map();
-app.get('/qr', (req, res) => {
-    const ip = req.ip || req.socket.remoteAddress;
-    const now = Date.now();
-    const windowMs = 60 * 1000;
-    const maxRequests = 10;
-    const record = qrRateLimit.get(ip) || { count: 0, resetAt: now + windowMs };
-    if (now > record.resetAt) {
-        record.count = 0;
-        record.resetAt = now + windowMs;
-    }
-    record.count++;
-    qrRateLimit.set(ip, record);
-    if (record.count > maxRequests) {
-        return res.status(429).send('<p>Too many requests. Please wait a minute.</p>');
-    }
-
+app.get('/qr', qrRouteLimiter, (req, res) => {
     const qrPath = path.join(STORAGE_DIR, 'bot-qr.png');
     if (!fs.existsSync(qrPath)) {
         const phase = whatsappRuntime.phase;
