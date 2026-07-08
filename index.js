@@ -14,9 +14,9 @@ const path = require('path');
 const express = require('express'); // Added for Health Check
 
 // --- YOUR CONFIGURATION ---
-const ADMIN_JID = '2721870306@s.whatsapp.net';
-const EMAIL_USER = 'garethrn@gmail.com';
-const EMAIL_PASS = 'cxxs awqa nnpa iylu'; 
+const ADMIN_JID = process.env.ADMIN_JID;
+const EMAIL_USER = process.env.EMAIL_USER;
+const EMAIL_PASS = process.env.EMAIL_PASS;
 
 const STORAGE_DIR = path.join(__dirname, 'storage');
 const CSV_FILE = path.join(STORAGE_DIR, 'products.csv');
@@ -31,6 +31,9 @@ const transporter = nodemailer.createTransport({
 
 let products = [];
 let userCarts = {};
+let latestQR = null;
+let retryCount = 0;
+const MAX_RETRIES = 10;
 
 function loadProducts() {
     const results = [];
@@ -48,12 +51,13 @@ function loadProducts() {
 loadProducts();
 
 async function startBot() {
-    console.log('🔄 Initializing WhatsApp Engine...');
+    console.log(`🔄 Initializing WhatsApp Engine... (attempt ${retryCount + 1})`);
+    try {
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
     
     const sock = makeWASocket({
         auth: state,
-        logger: pino({ level: 'error' }),
+        logger: pino({ level: 'silent' }),
         browser: ['Mac OS', 'Chrome', '1.0.0']
     });
 
@@ -63,27 +67,52 @@ async function startBot() {
         const { connection, lastDisconnect, qr } = update;
         
         if (qr) {
-            console.log('⚠️ QR Code generated. Sending to email...');
-            const qrPath = path.join(STORAGE_DIR, 'bot-qr.png');
-            await qrcodeImg.toFile(qrPath, qr);
-            
-            transporter.sendMail({
-                from: EMAIL_USER, to: EMAIL_USER,
-                subject: 'WhatsApp Bot Login',
-                text: 'Scan the attached QR code.',
-                attachments: [{ filename: 'bot-qr.png', path: qrPath }]
-            });
+            console.log('⚠️ QR Code generated. Visit /qr to scan it.');
+            try {
+                latestQR = await qrcodeImg.toBuffer(qr, { type: 'png' });
+                console.log('✅ QR code stored in memory — fetch it at /qr');
+            } catch (qrErr) {
+                console.error('❌ Failed to generate QR buffer:', qrErr);
+            }
+
+            if (EMAIL_USER && EMAIL_PASS) {
+                const qrPath = path.join(STORAGE_DIR, 'bot-qr.png');
+                try {
+                    await qrcodeImg.toFile(qrPath, qr);
+                    transporter.sendMail({
+                        from: EMAIL_USER, to: EMAIL_USER,
+                        subject: 'WhatsApp Bot Login',
+                        text: 'Scan the attached QR code, or visit /qr on the bot server.',
+                        attachments: [{ filename: 'bot-qr.png', path: qrPath }]
+                    }, (mailErr) => {
+                        if (mailErr) console.error('❌ Failed to send QR email:', mailErr.message);
+                        else console.log('📧 QR code emailed successfully.');
+                    });
+                } catch (mailFileErr) {
+                    console.error('❌ Failed to write QR file for email:', mailFileErr);
+                }
+            }
         }
         
         if (connection === 'close') {
-            const statusCode = (lastDisconnect.error instanceof Boom) ? lastDisconnect.error.output.statusCode : 0;
+            const err = lastDisconnect?.error;
+            const statusCode = (err instanceof Boom) ? err.output.statusCode : 0;
+            console.error(`🔌 Connection closed. Status: ${statusCode}. Reason: ${err?.message || 'unknown'}`);
+            retryCount++;
             if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
+                console.log('🗑️  Auth invalidated — clearing auth state and restarting...');
                 if (fs.existsSync(AUTH_DIR)) fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+                retryCount = 0;
                 startBot();
-            } else {
+            } else if (retryCount < MAX_RETRIES) {
+                console.log(`🔁 Retrying in 5s... (${retryCount}/${MAX_RETRIES})`);
                 setTimeout(startBot, 5000);
+            } else {
+                console.error(`🛑 Max retries (${MAX_RETRIES}) reached. Bot stopped. Restart the service to try again.`);
             }
         } else if (connection === 'open') {
+            retryCount = 0;
+            latestQR = null;
             console.log('🚀 BOT IS CONNECTED AND LIVE!');
         }
     });
@@ -133,13 +162,34 @@ async function startBot() {
             delete userCarts[jid];
         }
     });
+    } catch (err) {
+        console.error('❌ Fatal error in startBot():', err);
+        retryCount++;
+        if (retryCount < MAX_RETRIES) {
+            console.log(`🔁 Retrying in 5s... (${retryCount}/${MAX_RETRIES})`);
+            setTimeout(startBot, 5000);
+        } else {
+            console.error(`🛑 Max retries (${MAX_RETRIES}) reached after fatal error. Restart the service to try again.`);
+        }
+    }
 }
 
-// --- DUMMY WEB SERVER FOR RAILWAY HEALTH CHECK ---
+// --- WEB SERVER FOR RAILWAY HEALTH CHECK + QR CODE ---
 const app = express();
 const PORT = process.env.PORT || 3000;
+
 app.get('/', (req, res) => res.send('Bot is running!'));
+
+app.get('/qr', (req, res) => {
+    if (!latestQR) {
+        return res.status(404).send('No QR code available yet. The bot may already be connected, or it has not started yet. Check the logs.');
+    }
+    res.setHeader('Content-Type', 'image/png');
+    res.send(latestQR);
+});
+
 app.listen(PORT, () => {
-    console.log(`📡 Health check server listening on port ${PORT}`);
+    console.log(`📡 Web server listening on port ${PORT}`);
+    console.log(`🔗 QR code will be available at /qr once the bot starts`);
     startBot(); // Start the bot after the server is up
 });
