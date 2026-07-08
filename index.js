@@ -48,7 +48,7 @@ const ARTWORK_DISCLAIMER = [
     '• Customer-supplied artwork can only be edited if an editable file is provided.'
 ].join('\n');
 const HUMAN_KEYWORDS = ['human', 'person', 'agent', 'consultant', 'staff', 'help me', 'call me', 'speak to someone', 'speak to a human', 'handover'];
-const FRUSTRATION_KEYWORDS = ['frustrated', 'angry', 'upset', 'annoyed', 'not helping', 'complaint', 'terrible', 'useless', 'confused', 'speak to manager'];
+const FRUSTRATION_KEYWORDS = ['frustrated', 'angry', 'upset', 'annoyed', 'not helping', 'complaint', 'terrible', 'useless', 'confused', 'speak to manager', 'scam', 'fraud'];
 const DEFAULT_RESTART_DELAY_MS = 5000;
 const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 10000;
 
@@ -149,6 +149,8 @@ let learnedResponses = loadJsonFile(LEARNED_RESPONSES_FILE, []);
 let learningLeads = loadJsonFile(LEARNING_LEADS_FILE, []);
 let handoverSessions = {};
 let conversationHistory = {};
+let userNames = {};
+let fallbackCounts = {};
 
 function loadJsonFile(filePath, fallbackValue) {
     try {
@@ -202,6 +204,83 @@ function loadProducts() {
         });
 }
 loadProducts();
+
+// Ordered from most-specific to least-specific so the first matching entry wins
+const PRODUCT_KEYWORD_MAP = [
+    { keywords: ['business card', 'biz card', 'visiting card', 'business cards', 'biz cards'], ids: ['12'] },
+    { keywords: ['a5 flyer', 'a5 leaflet', 'a5 flyers'], ids: ['13'] },
+    { keywords: ['a4 flyer', 'a4 poster', 'a4 flyers'], ids: ['14'] },
+    { keywords: ['flyer', 'leaflet', 'pamphlet'], ids: ['13'] },
+    { keywords: ['poster'], ids: ['14'] },
+    { keywords: ['pull-up banner', 'pull up banner', 'popup banner', 'retractable banner', 'roller banner'], ids: ['2'] },
+    { keywords: ['mesh banner'], ids: ['3'] },
+    { keywords: ['vinyl banner'], ids: ['1'] },
+    { keywords: ['banner'], ids: ['1', '2', '3'] },
+    { keywords: ['aluminium composite', 'acm sign', 'aluminium sign', 'alu composite'], ids: ['4'] },
+    { keywords: ['corflute sign', 'corflute'], ids: ['5'] },
+    { keywords: ['a-frame', 'pavement sign', 'sandwich board'], ids: ['6'] },
+    { keywords: ['frosted window', 'frosted vinyl', 'window vinyl', 'frosted glass'], ids: ['9'] },
+    { keywords: ['cut vinyl sticker', 'cut vinyl'], ids: ['7'] },
+    { keywords: ['printed vinyl sticker', 'vinyl sticker'], ids: ['8'] },
+    { keywords: ['sticker', 'label'], ids: ['7', '8', '9'] },
+    { keywords: ['t-shirt', 'tshirt', 't shirt', 'shirt'], ids: ['10'] },
+    { keywords: ['hoodie', 'hoody'], ids: ['11'] },
+    { keywords: ['full vehicle wrap', 'vehicle wrap', 'car wrap', 'full wrap'], ids: ['15'] },
+    { keywords: ['car decal', 'door sticker', 'door decal', 'vehicle decal'], ids: ['16'] },
+    { keywords: ['decal'], ids: ['16'] },
+];
+
+function findProductsByKeyword(text) {
+    const normalized = text.toLowerCase().replace(/-/g, ' ');
+    for (const mapping of PRODUCT_KEYWORD_MAP) {
+        for (const kw of mapping.keywords) {
+            if (normalized.includes(kw)) {
+                return mapping.ids.map((id) => products.find((p) => p.ID === id)).filter(Boolean);
+            }
+        }
+    }
+    return [];
+}
+
+function extractQuantityFromText(text) {
+    const match = text.match(/\b(\d{1,6})\b/);
+    if (!match) return null;
+    const num = parseInt(match[1], 10);
+    return Number.isFinite(num) && num > 0 ? num : null;
+}
+
+function calcFixedQuoteForQty(product, qty) {
+    const unitsPerPack = parseInt(product.UnitsPerProduct, 10) || 1;
+    const packPrice = toNumber(product.FixedPrice);
+    const packs = Math.ceil(qty / unitsPerPack);
+    return packs * packPrice;
+}
+
+function greetUser(jid) {
+    const name = userNames[jid];
+    return name ? `Hi ${name}! 👋` : 'Hi there! 👋';
+}
+
+function buildWelcomeText(jid) {
+    return `${greetUser(jid)} Welcome to *${BUSINESS_NAME}* 🖨️\nHow can I help with your printing today – quotes, orders, or info?\n\nSend *menu* to browse our products, or just tell me what you need! 😊`;
+}
+
+function buildProductListText() {
+    return [
+        `Here's what we print at *${BUSINESS_NAME}*:`,
+        '',
+        '• Business Cards',
+        '• Flyers & Leaflets',
+        '• Posters',
+        '• Banners (Vinyl, Pull-Up, Mesh)',
+        '• Stickers & Labels',
+        '• Signs (Aluminium, Corflute, A-Frame)',
+        '• Clothing (T-Shirts, Hoodies)',
+        '• Vehicle Branding & Decals',
+        '',
+        "Anything specific you're looking for? Type *menu* to browse our full catalogue or ask for a *quote*! 😊"
+    ].join('\n');
+}
 
 function getCategories() {
     return [...new Set(products.map((p) => p.Category))];
@@ -619,6 +698,11 @@ async function startBot() {
                     if (!rawText && !messageContent.documentMessage) continue;
                     if (rawText) rememberConversation(jid, rawText);
 
+                    // Capture WhatsApp display name for personalised greetings
+                    if (msg.pushName && !userNames[jid]) {
+                        userNames[jid] = msg.pushName;
+                    }
+
                     // Admin: upload new CSV via document message
                     if (jid === ADMIN_JID && messageContent.documentMessage) {
                         const doc = messageContent.documentMessage;
@@ -716,12 +800,17 @@ async function startBot() {
                     const userState = userStates[jid] || { step: 'idle' };
 
                 // Cancel / escape from any mid-flow state
-                    if (text === 'cancel' || text === 'menu' || text === 'hello' || text === 'hi') {
+                    if (text === 'cancel' || text === 'menu' || /^(hello|hi|hey)\b/.test(text)) {
                         if (userState.step !== 'idle') {
                             userStates[jid] = { step: 'idle' };
                         }
                         if (text === 'cancel') {
                             await sock.sendMessage(jid, { text: '❌ Cancelled. Type *menu* to start over.' });
+                            continue;
+                        }
+                        if (/^(hello|hi|hey)\b/.test(text)) {
+                            fallbackCounts[jid] = 0;
+                            await sock.sendMessage(jid, { text: buildWelcomeText(jid) });
                             continue;
                         }
                         await sock.sendMessage(jid, { text: buildMenuText() });
@@ -912,6 +1001,165 @@ async function startBot() {
                         continue;
                     }
 
+                // ── State: awaiting_quote_product ───────────────────────────────────
+                    if (userState.step === 'awaiting_quote_product') {
+                        const matches = findProductsByKeyword(text);
+                        if (matches.length === 0) {
+                            await sock.sendMessage(jid, { text: `I couldn't find that product. Could you clarify? E.g. _business cards_, _flyers_, _banners_.\n\nType *cancel* to go back.` });
+                            continue;
+                        }
+                        if (matches.length === 1) {
+                            const product = matches[0];
+                            if (product.PriceType === 'sqm') {
+                                userStates[jid] = { step: 'awaiting_dimensions', pendingProduct: product };
+                                await sock.sendMessage(jid, { text: `📐 *${product.Name}*\nTo give you an accurate quote, please send the *length x height in mm*, for example _${DIMENSION_FORMAT_EXAMPLE}_.\n\nType *cancel* to go back.` });
+                                continue;
+                            }
+                            userStates[jid] = { step: 'awaiting_quote_quantity', pendingProduct: product };
+                            await sock.sendMessage(jid, { text: `Got it – *${product.Name}*! How many do you need?` });
+                            continue;
+                        }
+                        const list = matches.map((p, i) => `${i + 1}) ${p.Name}`).join('\n');
+                        userStates[jid] = { step: 'awaiting_quote_product_selection', pendingMatches: matches };
+                        await sock.sendMessage(jid, { text: `We have a few options:\n${list}\n\nReply with the number.` });
+                        continue;
+                    }
+
+                // ── State: awaiting_quote_product_selection ─────────────────────────
+                    if (userState.step === 'awaiting_quote_product_selection') {
+                        const idx = parseInt(text, 10) - 1;
+                        const matches = userState.pendingMatches || [];
+                        if (Number.isNaN(idx) || idx < 0 || idx >= matches.length) {
+                            await sock.sendMessage(jid, { text: `Please reply with a number between 1 and ${matches.length}.` });
+                            continue;
+                        }
+                        const product = matches[idx];
+                        if (product.PriceType === 'sqm') {
+                            userStates[jid] = { step: 'awaiting_dimensions', pendingProduct: product };
+                            await sock.sendMessage(jid, { text: `📐 *${product.Name}*\nPlease send the *length x height in mm*, for example _${DIMENSION_FORMAT_EXAMPLE}_.\n\nType *cancel* to go back.` });
+                            continue;
+                        }
+                        userStates[jid] = { step: 'awaiting_quote_quantity', pendingProduct: product };
+                        await sock.sendMessage(jid, { text: `Got it – *${product.Name}*! How many do you need?` });
+                        continue;
+                    }
+
+                // ── State: awaiting_quote_quantity ──────────────────────────────────
+                    if (userState.step === 'awaiting_quote_quantity') {
+                        const qty = extractQuantityFromText(text);
+                        if (!qty) {
+                            await sock.sendMessage(jid, { text: `Please enter a valid quantity (e.g. _500_). Type *cancel* to go back.` });
+                            continue;
+                        }
+                        const product = userState.pendingProduct;
+                        const total = calcFixedQuoteForQty(product, qty);
+                        const unitsPerPack = parseInt(product.UnitsPerProduct, 10) || 1;
+                        const packs = Math.ceil(qty / unitsPerPack);
+                        let quoteText = `💰 *Quote for ${qty.toLocaleString()} × ${product.Name}*\n`;
+                        if (unitsPerPack > 1) quoteText += `(${packs} pack${packs > 1 ? 's' : ''} of ${unitsPerPack})\n`;
+                        quoteText += `Estimated total: *${formatCurrency(total)}* (incl. VAT, excl. delivery)\n\nWould you like to add this to your cart? Reply *yes* or *no*.\n\n– ${BUSINESS_NAME} Team`;
+                        userStates[jid] = { step: 'awaiting_quote_confirm', pendingProduct: product, pendingQty: qty, pendingTotal: total };
+                        await sock.sendMessage(jid, { text: quoteText });
+                        continue;
+                    }
+
+                // ── State: awaiting_quote_confirm ───────────────────────────────────
+                    if (userState.step === 'awaiting_quote_confirm') {
+                        if (['yes', 'y', 'add', 'yes add', 'yeah', 'yep', 'sure'].includes(text)) {
+                            const product = userState.pendingProduct;
+                            const qty = userState.pendingQty;
+                            const total = userState.pendingTotal;
+                            if (!userCarts[jid]) userCarts[jid] = [];
+                            userCarts[jid].push({
+                                name: product.Name,
+                                sqmPrice: toNumber(product.FixedPrice),
+                                designFee: 0,
+                                polesCost: 0,
+                                poles: 0,
+                                installationFee: 0,
+                                total,
+                                qty
+                            });
+                            userStates[jid] = { step: 'idle' };
+                            await sock.sendMessage(jid, { text: `✅ Added to your cart! You have ${userCarts[jid].length} item(s). Type *cart* to view or *checkout* to order. 😊\n\n– ${BUSINESS_NAME} Team` });
+                            continue;
+                        }
+                        if (['no', 'n', 'nope', 'nah'].includes(text)) {
+                            userStates[jid] = { step: 'idle' };
+                            await sock.sendMessage(jid, { text: `No problem! Let me know if you need anything else. Type *menu* or ask for another *quote*. 😊` });
+                            continue;
+                        }
+                        await sock.sendMessage(jid, { text: `Please reply *yes* to add to cart or *no* to cancel.` });
+                        continue;
+                    }
+
+                // ── State: awaiting_add_product ─────────────────────────────────────
+                    if (userState.step === 'awaiting_add_product') {
+                        const qty = extractQuantityFromText(text) || userState.pendingQty || 1;
+                        const matches = findProductsByKeyword(text);
+                        if (matches.length === 0) {
+                            await sock.sendMessage(jid, { text: `I couldn't find that product. What would you like to add? E.g. _500 A5 flyers_, _100 business cards_.\n\nType *cancel* to go back.` });
+                            continue;
+                        }
+                        if (matches.length === 1) {
+                            const product = matches[0];
+                            if (product.PriceType === 'sqm') {
+                                userStates[jid] = { step: 'awaiting_dimensions', pendingProduct: product };
+                                await sock.sendMessage(jid, { text: `📐 *${product.Name}*\nPlease send the *length x height in mm*, for example _${DIMENSION_FORMAT_EXAMPLE}_.\n\nType *cancel* to go back.` });
+                                continue;
+                            }
+                            const total = calcFixedQuoteForQty(product, qty);
+                            if (!userCarts[jid]) userCarts[jid] = [];
+                            userCarts[jid].push({ name: product.Name, sqmPrice: toNumber(product.FixedPrice), designFee: 0, polesCost: 0, poles: 0, installationFee: 0, total, qty });
+                            userStates[jid] = { step: 'idle' };
+                            await sock.sendMessage(jid, { text: `✅ Got it! I've added ${qty.toLocaleString()} × *${product.Name}* to your cart.\nWould you like to add anything else? (Type *cart* to view, *quote* for a price, or *checkout* to order.) 😊` });
+                            continue;
+                        }
+                        const list = matches.map((p, i) => `${i + 1}) ${p.Name}`).join('\n');
+                        userStates[jid] = { step: 'awaiting_add_product_selection', pendingMatches: matches, pendingQty: qty };
+                        await sock.sendMessage(jid, { text: `We have a few options:\n${list}\n\nWhich one would you like to add?` });
+                        continue;
+                    }
+
+                // ── State: awaiting_add_product_selection ───────────────────────────
+                    if (userState.step === 'awaiting_add_product_selection') {
+                        const idx = parseInt(text, 10) - 1;
+                        const matches = userState.pendingMatches || [];
+                        const qty = userState.pendingQty || 1;
+                        if (Number.isNaN(idx) || idx < 0 || idx >= matches.length) {
+                            await sock.sendMessage(jid, { text: `Please reply with a number between 1 and ${matches.length}.` });
+                            continue;
+                        }
+                        const product = matches[idx];
+                        if (product.PriceType === 'sqm') {
+                            userStates[jid] = { step: 'awaiting_dimensions', pendingProduct: product };
+                            await sock.sendMessage(jid, { text: `📐 *${product.Name}*\nPlease send the *length x height in mm*, for example _${DIMENSION_FORMAT_EXAMPLE}_.\n\nType *cancel* to go back.` });
+                            continue;
+                        }
+                        const total = calcFixedQuoteForQty(product, qty);
+                        if (!userCarts[jid]) userCarts[jid] = [];
+                        userCarts[jid].push({ name: product.Name, sqmPrice: toNumber(product.FixedPrice), designFee: 0, polesCost: 0, poles: 0, installationFee: 0, total, qty });
+                        userStates[jid] = { step: 'idle' };
+                        await sock.sendMessage(jid, { text: `✅ Got it! I've added ${qty.toLocaleString()} × *${product.Name}* to your cart.\nWould you like to add anything else? (Type *cart* to view, *quote* for a price, or *checkout* to order.) 😊` });
+                        continue;
+                    }
+
+                // ── State: awaiting_remove_selection ───────────────────────────────
+                    if (userState.step === 'awaiting_remove_selection') {
+                        const idx = parseInt(text, 10) - 1;
+                        const cart = userCarts[jid] || [];
+                        if (Number.isNaN(idx) || idx < 0 || idx >= cart.length) {
+                            await sock.sendMessage(jid, { text: `Please reply with a number between 1 and ${cart.length}.` });
+                            continue;
+                        }
+                        const removedItem = cart[idx];
+                        userCarts[jid].splice(idx, 1);
+                        userStates[jid] = { step: 'idle' };
+                        const remaining = userCarts[jid].length;
+                        await sock.sendMessage(jid, { text: `I've removed *${removedItem.name}* from your cart. Your updated cart has ${remaining} item(s). Type *cart* to view.` });
+                        continue;
+                    }
+
                 // ── Main menu / category browsing ───────────────────────────────────
                     if (text === 'products') {
                         await sock.sendMessage(jid, { text: 'Please send *products [category]*, for example _products Signs_.' });
@@ -998,7 +1246,7 @@ async function startBot() {
                     }
 
                 // ── Cart ────────────────────────────────────────────────────────────
-                    if (text === 'cart') {
+                    if (text === 'cart' || text === 'my cart' || text === 'view cart') {
                         const cart = userCarts[jid];
                         if (!cart || cart.length === 0) {
                             await sock.sendMessage(jid, { text: '🛒 Your cart is empty.' });
@@ -1009,7 +1257,7 @@ async function startBot() {
                     }
 
                 // ── Clear cart ──────────────────────────────────────────────────────
-                    if (text === 'clear') {
+                    if (text === 'clear' || text === 'clear cart' || text === 'empty cart') {
                         delete userCarts[jid];
                         userStates[jid] = { step: 'idle' };
                         await sock.sendMessage(jid, { text: '🗑️ Cart cleared. Type *menu* to start over.' });
@@ -1017,7 +1265,7 @@ async function startBot() {
                     }
 
                 // ── Checkout ────────────────────────────────────────────────────────
-                    if (text === 'checkout') {
+                    if (text === 'checkout' || text === 'buy now' || text === 'order' || text === 'place order') {
                         const cart = userCarts[jid];
                         if (!cart || cart.length === 0) {
                             await sock.sendMessage(jid, { text: '🛒 Your cart is empty.' });
@@ -1032,15 +1280,158 @@ async function startBot() {
                         continue;
                     }
 
+                // ── Intent: thanks / okay ───────────────────────────────────────────
+                    if (/^(thanks|thank you|thx|cheers|ok|okay|cool|great|perfect|noted|pleasure|👍)\b/.test(text)) {
+                        await sock.sendMessage(jid, { text: `Pleasure! 😊 Let me know if you need anything else.\n\n– ${BUSINESS_NAME}` });
+                        continue;
+                    }
+
+                // ── Intent: what do you print / services ───────────────────────────
+                    if (/what (do|can|does) (you|duzi|we) (print|make|do|offer|produce)|what('s| is) (on offer|available)|your (products|services|range)|(products|items) (do you have|are available|you (have|sell|offer))/.test(text)) {
+                        await sock.sendMessage(jid, { text: buildProductListText() });
+                        continue;
+                    }
+
+                // ── Intent: turnaround time ─────────────────────────────────────────
+                    if (/turnaround|how long|when will|delivery time|production time|when (can i|will i|do i) (get|receive|collect)|how (quickly|fast|soon)|lead time/.test(text)) {
+                        await sock.sendMessage(jid, { text: `⏱️ *Turnaround Time*\n\nStandard turnaround is *2–3 business days* after artwork approval and payment.\n\nExpress 24-hour service is available at an extra cost – let me know if you need it!\n\n– ${BUSINESS_NAME} Team` });
+                        continue;
+                    }
+
+                // ── Intent: delivery / shipping ─────────────────────────────────────
+                    if (/\bdeliver(y|ies|ed|ing)?\b|\bshipping\b|\bcourier\b|\bcollect(ion)?\b|\bhow (do|can) (i|we) get\b/.test(text)) {
+                        await sock.sendMessage(jid, { text: `🚚 *Delivery*\n\nWe deliver across South Africa! Delivery cost depends on your location.\n\nTell me your suburb and I'll give you a rate, or you're welcome to *collect* from us. 😊\n\n– ${BUSINESS_NAME} Team` });
+                        continue;
+                    }
+
+                // ── Intent: complaint / issue ───────────────────────────────────────
+                    if (/\bcomplaint\b|\bproblem with\b|\bissue with\b|\bwrong order\b|\bdamaged\b|\bfaulty\b|\bnot happy\b|\bdisappointed\b/.test(text) && jid !== ADMIN_JID) {
+                        await activateHumanHandover(sock, jid, rawText);
+                        continue;
+                    }
+
+                // ── Intent: quote / price / how much ────────────────────────────────
+                    if (/\b(quote|estimate|how much|rate)\b/.test(text) || (/\b(price|cost)\b/.test(text) && !/products/.test(text))) {
+                        if (userState.step === 'idle') {
+                            fallbackCounts[jid] = 0;
+                            const qty = extractQuantityFromText(text);
+                            const matches = findProductsByKeyword(text);
+
+                            if (matches.length === 1) {
+                                const product = matches[0];
+                                if (product.PriceType === 'sqm') {
+                                    userStates[jid] = { step: 'awaiting_dimensions', pendingProduct: product };
+                                    await sock.sendMessage(jid, { text: `📐 *${product.Name}*\nTo give you an accurate quote, please send the *length x height in mm*, for example _${DIMENSION_FORMAT_EXAMPLE}_.\n\nType *cancel* to go back.` });
+                                    continue;
+                                }
+                                if (qty) {
+                                    const total = calcFixedQuoteForQty(product, qty);
+                                    const unitsPerPack = parseInt(product.UnitsPerProduct, 10) || 1;
+                                    const packs = Math.ceil(qty / unitsPerPack);
+                                    let quoteText = `💰 *Quote for ${qty.toLocaleString()} × ${product.Name}*\n`;
+                                    if (unitsPerPack > 1) quoteText += `(${packs} pack${packs > 1 ? 's' : ''} of ${unitsPerPack})\n`;
+                                    quoteText += `Estimated total: *${formatCurrency(total)}* (incl. VAT, excl. delivery)\n\nWould you like to add this to your cart? Reply *yes* or *no*.\n\n– ${BUSINESS_NAME} Team`;
+                                    userStates[jid] = { step: 'awaiting_quote_confirm', pendingProduct: product, pendingQty: qty, pendingTotal: total };
+                                    await sock.sendMessage(jid, { text: quoteText });
+                                    continue;
+                                }
+                                userStates[jid] = { step: 'awaiting_quote_quantity', pendingProduct: product };
+                                await sock.sendMessage(jid, { text: `Great! To give you an accurate quote – how many *${product.Name}* do you need?` });
+                                continue;
+                            }
+
+                            if (matches.length > 1) {
+                                const list = matches.map((p, i) => `${i + 1}) ${p.Name}`).join('\n');
+                                userStates[jid] = { step: 'awaiting_quote_product_selection', pendingMatches: matches };
+                                await sock.sendMessage(jid, { text: `We have a few options:\n${list}\n\nWhich one would you like a quote for?` });
+                                continue;
+                            }
+
+                            await sock.sendMessage(jid, { text: `To give you an accurate quote, I need:\n1) Product type (e.g. _flyers_, _banners_, _business cards_)\n2) Quantity\n3) Paper type / finishing (e.g. gloss/matte)\n\nCould you provide these?` });
+                            userStates[jid] = { step: 'awaiting_quote_product' };
+                            continue;
+                        }
+                    }
+
+                // ── Intent: add to cart (conversational) ────────────────────────────
+                    if ((/\b(add|adding)\b/.test(text) || text === '+') && userState.step === 'idle') {
+                        fallbackCounts[jid] = 0;
+                        const qty = extractQuantityFromText(text) || 1;
+                        const matches = findProductsByKeyword(text);
+
+                        if (matches.length === 1) {
+                            const product = matches[0];
+                            if (product.PriceType === 'sqm') {
+                                userStates[jid] = { step: 'awaiting_dimensions', pendingProduct: product };
+                                await sock.sendMessage(jid, { text: `📐 *${product.Name}*\nPlease send the *length x height in mm*, for example _${DIMENSION_FORMAT_EXAMPLE}_.\n\nType *cancel* to go back.` });
+                                continue;
+                            }
+                            const total = calcFixedQuoteForQty(product, qty);
+                            if (!userCarts[jid]) userCarts[jid] = [];
+                            userCarts[jid].push({ name: product.Name, sqmPrice: toNumber(product.FixedPrice), designFee: 0, polesCost: 0, poles: 0, installationFee: 0, total, qty });
+                            userStates[jid] = { step: 'idle' };
+                            await sock.sendMessage(jid, { text: `✅ Got it! I've added ${qty.toLocaleString()} × *${product.Name}* to your cart.\nWould you like to add anything else? (Type *cart* to view, *quote* for a price, or *checkout* to order.) 😊` });
+                            continue;
+                        }
+
+                        if (matches.length > 1) {
+                            const list = matches.map((p, i) => `${i + 1}) ${p.Name}`).join('\n');
+                            userStates[jid] = { step: 'awaiting_add_product_selection', pendingMatches: matches, pendingQty: qty };
+                            await sock.sendMessage(jid, { text: `We have a few options:\n${list}\n\nWhich one would you like to add?` });
+                            continue;
+                        }
+
+                        userStates[jid] = { step: 'awaiting_add_product', pendingQty: qty };
+                        await sock.sendMessage(jid, { text: `Which product would you like to add? E.g. _A5 flyers_, _business cards_, _banners_.\n\nType *cancel* to go back or *menu* to browse.` });
+                        continue;
+                    }
+
+                // ── Intent: remove from cart ─────────────────────────────────────────
+                    if (/\b(remove|delete|take out)\b/.test(text) || text === '-') {
+                        const cart = userCarts[jid] || [];
+                        if (cart.length === 0) {
+                            await sock.sendMessage(jid, { text: `🛒 Your cart is empty – nothing to remove.` });
+                            continue;
+                        }
+                        if (cart.length === 1) {
+                            const removedItem = cart[0];
+                            delete userCarts[jid];
+                            userStates[jid] = { step: 'idle' };
+                            await sock.sendMessage(jid, { text: `I've removed *${removedItem.name}* from your cart. Your cart is now empty. Type *menu* to continue shopping.` });
+                            continue;
+                        }
+                        // Try to match item name from the message
+                        const exactMatchIdx = cart.findIndex((item) => text.includes(normalizeText(item.name)));
+                        if (exactMatchIdx >= 0) {
+                            const removedItem = cart[exactMatchIdx];
+                            userCarts[jid].splice(exactMatchIdx, 1);
+                            userStates[jid] = { step: 'idle' };
+                            await sock.sendMessage(jid, { text: `I've removed *${removedItem.name}* from your cart. Your updated cart has ${userCarts[jid].length} item(s). Type *cart* to view.` });
+                            continue;
+                        }
+                        // Multiple items – ask which one
+                        const itemList = cart.map((item, i) => `${i + 1}) ${item.name}`).join('\n');
+                        userStates[jid] = { step: 'awaiting_remove_selection' };
+                        await sock.sendMessage(jid, { text: `You have ${cart.length} items in your cart. Which one would you like to remove? Reply with the number:\n${itemList}` });
+                        continue;
+                    }
+
                     const learnedResponse = findLearnedResponse(rawText);
                     if (learnedResponse) {
                         await sock.sendMessage(jid, { text: learnedResponse.response });
                         continue;
                     }
 
+                    // Default fallback – track count and escalate after 2 failed attempts
+                    fallbackCounts[jid] = (fallbackCounts[jid] || 0) + 1;
                     recordLearningLead(jid, rawText);
+                    if (fallbackCounts[jid] >= 3 && jid !== ADMIN_JID) {
+                        fallbackCounts[jid] = 0;
+                        await activateHumanHandover(sock, jid, `Bot could not understand repeated messages (last: "${rawText}")`);
+                        continue;
+                    }
                     await sock.sendMessage(jid, {
-                        text: `I want to make this easy for you. Send *menu* to browse, *products [category]* to see items, *buy [ID]* to order, or *human* if you would like a ${BUSINESS_NAME} team member to take over.`
+                        text: `I didn't quite catch that 😅. You can ask me about *quotes*, adding items to your *cart*, or *order status*. Or type *human* to speak with a real person.\n\n– ${BUSINESS_NAME}`
                     });
                 } catch (error) {
                     console.error('❌ Error while handling message:', {
