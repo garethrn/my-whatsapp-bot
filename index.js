@@ -105,6 +105,8 @@ function extractDisconnectStatusCode(error) {
 }
 
 function getRailwayQrUrl() {
+    // Railway commonly exposes the public hostname via RAILWAY_PUBLIC_DOMAIN or, on older setups,
+    // a full URL/hostname in RAILWAY_STATIC_URL. Accept either and normalize to an HTTPS origin.
     const rawHost = process.env.RAILWAY_PUBLIC_DOMAIN || process.env.RAILWAY_STATIC_URL;
     if (!rawHost) return null;
     try {
@@ -677,7 +679,13 @@ async function startBot() {
                 if (qr) {
                     setWhatsAppPhase('awaiting_qr');
                     // Store QR in memory as a data URI so /qr always serves the latest one
-                    currentQrDataUri = await qrcodeImg.toDataURL(qr);
+                    try {
+                        currentQrDataUri = await qrcodeImg.toDataURL(qr);
+                    } catch (qrError) {
+                        currentQrDataUri = null;
+                        console.error('❌ Failed to generate QR image for the /qr endpoint:', qrError?.message || qrError);
+                        console.error('ℹ️ The bot can keep running, but /qr will stay unavailable until QR image generation succeeds.');
+                    }
                     const railwayUrl = getRailwayQrUrl();
                     const qrUrl = railwayUrl || `http://localhost:${PORT}/qr`;
                     console.log('');
