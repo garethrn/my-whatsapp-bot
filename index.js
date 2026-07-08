@@ -986,12 +986,12 @@ const server = app.listen(PORT, () => {
 
 process.on('unhandledRejection', (reason) => {
     console.error('❌ Unhandled promise rejection:', reason);
-    setWhatsAppPhase('error', reason);
+    scheduleBotRestart(reason);
 });
 
 process.on('uncaughtException', (error) => {
     console.error('❌ Uncaught exception:', error);
-    setWhatsAppPhase('error', error);
+    scheduleBotRestart(error);
 });
 
 // Graceful shutdown on SIGTERM / SIGINT (e.g. Railway stopping the container)
