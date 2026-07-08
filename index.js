@@ -287,7 +287,7 @@ function getCategories() {
 }
 
 function toNumber(value, fallback = 0) {
-    const parsed = parseFloat(String(value ?? '').replace(/^[^0-9.-]+/, ''));
+    const parsed = parseFloat(String(value ?? '').replace(/^[^\d.-]+/, ''));
     return Number.isFinite(parsed) ? parsed : fallback;
 }
 
