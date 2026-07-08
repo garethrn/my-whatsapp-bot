@@ -170,25 +170,7 @@ function saveJsonFile(filePath, value) {
     }
 }
 
-const DEFAULT_CSV = [
-    'ID,Category,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvailable,PolePrice,InstallationFee',
-    '1,Banners,Vinyl Banner,Custom,Matt,Single,1,sqm,180.00,,150.00,250.00,no,,0.00',
-    '2,Banners,Pull-Up Banner (2m),850x2000mm,Satin,Single,1,fixed,,850.00,850.00,0.00,no,,0.00',
-    '3,Banners,Mesh Banner,Custom,Matt,Single,1,sqm,200.00,,200.00,0.00,no,,0.00',
-    '4,Signs,Aluminium Composite Sign,Custom,Gloss,Single,1,sqm,350.00,,300.00,350.00,yes,120.00,450.00',
-    '5,Signs,Corflute Sign,Custom,Matt,Single,1,sqm,220.00,,200.00,350.00,yes,80.00,350.00',
-    '6,Signs,Pavement / A-Frame Sign,600x900mm,Gloss,Double,1,fixed,,650.00,650.00,0.00,no,,0.00',
-    '7,Stickers,Cut Vinyl Stickers,Custom,Matt,Single,1,sqm,280.00,,120.00,0.00,no,,0.00',
-    '8,Stickers,Printed Vinyl Stickers,Custom,Gloss,Single,1,sqm,320.00,,150.00,0.00,no,,0.00',
-    '9,Stickers,Frosted Window Vinyl,Custom,Frosted,Single,1,sqm,350.00,,150.00,0.00,no,,0.00',
-    '10,Clothing,Custom T-Shirt (Print),S-XXL,Standard,Single,1,fixed,,85.00,85.00,0.00,no,,0.00',
-    '11,Clothing,Custom Hoodie (Print),S-XXL,Standard,Single,1,fixed,,150.00,150.00,0.00,no,,0.00',
-    '12,Print,Business Cards (100),90x50mm,Matt/Gloss,Double,100,fixed,,250.00,250.00,0.00,no,,0.00',
-    '13,Print,A5 Flyers (100),A5,Gloss,Double,100,fixed,,350.00,350.00,0.00,no,,0.00',
-    '14,Print,A4 Poster,A4,Gloss,Single,1,fixed,,25.00,25.00,0.00,no,,0.00',
-    '15,Vehicle Branding,Full Vehicle Wrap,Custom,Gloss,Single,1,sqm,450.00,,500.00,500.00,no,,0.00',
-    '16,Vehicle Branding,Car Decal / Door Sticker,Custom,Gloss,Single,1,sqm,380.00,,300.00,0.00,no,,0.00'
-].join('\n');
+const DEFAULT_CSV = 'ID,Category,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvailable,PolePrice,InstallationFee';
 
 function loadProducts() {
     const results = [];
@@ -205,41 +187,25 @@ function loadProducts() {
 }
 loadProducts();
 
-// Ordered from most-specific to least-specific so the first matching entry wins
-const PRODUCT_KEYWORD_MAP = [
-    { keywords: ['business card', 'biz card', 'visiting card', 'business cards', 'biz cards'], ids: ['12'] },
-    { keywords: ['a5 flyer', 'a5 leaflet', 'a5 flyers'], ids: ['13'] },
-    { keywords: ['a4 flyer', 'a4 poster', 'a4 flyers'], ids: ['14'] },
-    { keywords: ['flyer', 'leaflet', 'pamphlet'], ids: ['13'] },
-    { keywords: ['poster'], ids: ['14'] },
-    { keywords: ['pull-up banner', 'pull up banner', 'popup banner', 'retractable banner', 'roller banner'], ids: ['2'] },
-    { keywords: ['mesh banner'], ids: ['3'] },
-    { keywords: ['vinyl banner'], ids: ['1'] },
-    { keywords: ['banner'], ids: ['1', '2', '3'] },
-    { keywords: ['aluminium composite', 'acm sign', 'aluminium sign', 'alu composite'], ids: ['4'] },
-    { keywords: ['corflute sign', 'corflute'], ids: ['5'] },
-    { keywords: ['a-frame', 'pavement sign', 'sandwich board'], ids: ['6'] },
-    { keywords: ['frosted window', 'frosted vinyl', 'window vinyl', 'frosted glass'], ids: ['9'] },
-    { keywords: ['cut vinyl sticker', 'cut vinyl'], ids: ['7'] },
-    { keywords: ['printed vinyl sticker', 'vinyl sticker'], ids: ['8'] },
-    { keywords: ['sticker', 'label'], ids: ['7', '8', '9'] },
-    { keywords: ['t-shirt', 'tshirt', 't shirt', 'shirt'], ids: ['10'] },
-    { keywords: ['hoodie', 'hoody'], ids: ['11'] },
-    { keywords: ['full vehicle wrap', 'vehicle wrap', 'car wrap', 'full wrap'], ids: ['15'] },
-    { keywords: ['car decal', 'door sticker', 'door decal', 'vehicle decal'], ids: ['16'] },
-    { keywords: ['decal'], ids: ['16'] },
-];
-
 function findProductsByKeyword(text) {
     const normalized = text.toLowerCase().replace(/-/g, ' ');
-    for (const mapping of PRODUCT_KEYWORD_MAP) {
-        for (const kw of mapping.keywords) {
-            if (normalized.includes(kw)) {
-                return mapping.ids.map((id) => products.find((p) => p.ID === id)).filter(Boolean);
-            }
-        }
+    const searchWords = normalized.split(/\s+/).filter((w) => w.length > 2);
+    if (searchWords.length === 0) return [];
+    const matched = products.filter((p) => {
+        const target = `${p.Name || ''} ${p.Category || ''}`.toLowerCase().replace(/-/g, ' ');
+        return searchWords.some((word) => target.includes(word));
+    });
+    // If many results, collapse to one representative per category to keep the list manageable
+    if (matched.length > 5) {
+        const seen = new Set();
+        return matched.filter((p) => {
+            const cat = (p.Category || '').trim();
+            if (seen.has(cat)) return false;
+            seen.add(cat);
+            return true;
+        });
     }
-    return [];
+    return matched;
 }
 
 function extractQuantityFromText(text) {
@@ -266,20 +232,11 @@ function buildWelcomeText(jid) {
 }
 
 function buildProductListText() {
-    return [
-        `Here's what we print at *${BUSINESS_NAME}*:`,
-        '',
-        '• Business Cards',
-        '• Flyers & Leaflets',
-        '• Posters',
-        '• Banners (Vinyl, Pull-Up, Mesh)',
-        '• Stickers & Labels',
-        '• Signs (Aluminium, Corflute, A-Frame)',
-        '• Clothing (T-Shirts, Hoodies)',
-        '• Vehicle Branding & Decals',
-        '',
-        "Anything specific you're looking for? Type *menu* to browse our full catalogue or ask for a *quote*! 😊"
-    ].join('\n');
+    const categories = getCategories();
+    const lines = [`Here's what we print at *${BUSINESS_NAME}*:`, ''];
+    categories.forEach((cat) => lines.push(`• ${cat.trim()}`));
+    lines.push('', "Anything specific you're looking for? Type *menu* to browse our full catalogue or ask for a *quote*! 😊");
+    return lines.join('\n');
 }
 
 function getCategories() {
