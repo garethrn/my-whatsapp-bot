@@ -570,6 +570,7 @@ function extractMessageText(messageContent) {
 }
 
 function isAuthorizedQrRequest(token) {
+    // When no QR_ACCESS_TOKEN is configured, keep `/qr` publicly reachable and rely on rate limiting instead.
     if (!QR_ACCESS_TOKEN) return true;
     if (typeof token !== 'string') return false;
 
@@ -1548,7 +1549,7 @@ async function startBot() {
                         continue;
                     }
 
-                    // Default fallback – track count and escalate after 2 failed attempts
+                    // Default fallback – track count and escalate after 3 failed attempts
                     fallbackCounts[jid] = (fallbackCounts[jid] || 0) + 1;
                     recordLearningLead(jid, rawText);
                     if (fallbackCounts[jid] >= 3 && jid !== ADMIN_JID) {
