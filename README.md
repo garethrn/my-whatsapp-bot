@@ -266,6 +266,7 @@ In Railway, add these variables:
 - `ADMIN_JID`
 - `EMAIL_USER`
 - `EMAIL_PASS`
+- `QR_ACCESS_TOKEN` (optional but recommended for securing `/qr`)
 
 ### Step 4: Add persistent storage
 
@@ -296,6 +297,10 @@ After deploy:
 2. Wait for the bot to start
 3. If the logs show `WhatsApp status: awaiting_qr`, check Gmail for the QR code
 4. Scan it in WhatsApp on your phone
+
+If you set `QR_ACCESS_TOKEN`, open the QR page with:
+
+`https://your-app.up.railway.app/qr?token=your_token_here`
 
 Useful log meanings:
 

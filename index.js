@@ -99,7 +99,8 @@ function getRailwayQrUrl() {
         const hostWithProtocol = /^https?:\/\//i.test(rawHost) ? rawHost : `https://${rawHost}`;
         const url = new URL(hostWithProtocol);
         return `${url.origin}/qr`;
-    } catch {
+    } catch (error) {
+        console.warn('⚠️ Could not build Railway QR URL from RAILWAY_PUBLIC_DOMAIN / RAILWAY_STATIC_URL:', error?.message || error);
         return null;
     }
 }
@@ -155,7 +156,11 @@ function loadJsonFile(filePath, fallbackValue) {
 }
 
 function saveJsonFile(filePath, value) {
-    fs.writeFileSync(filePath, JSON.stringify(value, null, 2));
+    try {
+        fs.writeFileSync(filePath, JSON.stringify(value, null, 2));
+    } catch (error) {
+        console.error(`❌ Failed to write ${path.basename(filePath)}:`, error.message);
+    }
 }
 
 const DEFAULT_CSV = [
@@ -939,6 +944,7 @@ async function startBot() {
 // --- WEB SERVER FOR RAILWAY HEALTH CHECK AND QR ACCESS ---
 const app = express();
 const PORT = process.env.PORT || 3000;
+const QR_ACCESS_TOKEN = process.env.QR_ACCESS_TOKEN || '';
 const qrRouteLimiter = rateLimit({
     windowMs: 60 * 1000,
     limit: 10,
@@ -957,6 +963,10 @@ app.get('/health', (req, res) => {
 // Serve QR code image so it can be scanned directly from the Railway URL
 // (reliable fallback when email delivery fails)
 app.get('/qr', qrRouteLimiter, (req, res) => {
+    if (QR_ACCESS_TOKEN && req.query.token !== QR_ACCESS_TOKEN) {
+        return res.status(401).send('<p>Unauthorized. Missing or invalid token.</p>');
+    }
+
     const qrPath = path.join(STORAGE_DIR, 'bot-qr.png');
     if (!fs.existsSync(qrPath)) {
         const phase = whatsappRuntime.phase;
