@@ -56,6 +56,8 @@ const whatsappRuntime = {
     lastError: null
 };
 let botRestartTimer = null;
+// Current QR stored as a PNG data URI (base64); null when no QR is pending
+let currentQrDataUri = null;
 
 if (!fs.existsSync(STORAGE_DIR)) fs.mkdirSync(STORAGE_DIR, { recursive: true });
 
@@ -491,32 +493,34 @@ async function startBot() {
 
                 if (qr) {
                     setWhatsAppPhase('awaiting_qr');
-                    const qrPath = path.join(STORAGE_DIR, 'bot-qr.png');
-                    await qrcodeImg.toFile(qrPath, qr);
+                    // Store QR in memory as a data URI so /qr always serves the latest one
+                    currentQrDataUri = await qrcodeImg.toDataURL(qr);
                     const railwayUrl = getRailwayQrUrl();
-                    console.log('⚠️ QR Code generated.');
-                    if (railwayUrl) {
-                        console.log(`🔗 Scan QR directly at: ${railwayUrl}`);
-                    } else {
-                        console.log('🔗 Scan QR at: <your-railway-url>/qr');
-                    }
-                    console.log('📧 Sending QR to email...');
-                    try {
-                        await transporter.sendMail({
+                    const qrUrl = railwayUrl || `http://localhost:${PORT}/qr`;
+                    console.log('');
+                    console.log('⚠️  ================================================');
+                    console.log(`⚠️  QR READY — open this URL to scan: ${qrUrl}`);
+                    console.log('⚠️  ================================================');
+                    console.log('');
+                    // Fire-and-forget email — never block the connection handler on SMTP
+                    const qrPath = path.join(STORAGE_DIR, 'bot-qr.png');
+                    qrcodeImg.toFile(qrPath, qr).then(() => {
+                        return transporter.sendMail({
                             from: EMAIL_USER,
                             to: EMAIL_USER,
                             subject: 'WhatsApp Bot Login',
-                            text: `Scan the attached QR code to log in.\n\nAlternatively, open ${railwayUrl || '<your-railway-url>/qr'} in your browser.`,
+                            text: `Scan the attached QR code to log in.\n\nAlternatively, open ${qrUrl} in your browser.`,
                             attachments: [{ filename: 'bot-qr.png', path: qrPath }]
                         });
+                    }).then(() => {
                         console.log(`📧 QR code email sent to ${EMAIL_USER}`);
-                    } catch (error) {
-                        console.error('❌ Failed to email WhatsApp QR code:', error);
-                        setWhatsAppPhase('awaiting_qr', 'QR generated but email delivery failed. Visit /qr in your browser or check EMAIL_USER / EMAIL_PASS and Gmail app password settings.');
-                    }
+                    }).catch((err) => {
+                        console.error('❌ Failed to email WhatsApp QR code:', err.message);
+                    });
                 }
 
                 if (connection === 'close') {
+                    currentQrDataUri = null; // Clear stale QR on any disconnect
                     const disconnectError = lastDisconnect?.error;
                     const statusCode = extractDisconnectStatusCode(disconnectError);
                     const errorMessage = disconnectError?.message || `Disconnect status ${statusCode || 'unknown'}`;
@@ -536,6 +540,7 @@ async function startBot() {
                         scheduleBotRestart(errorMessage);
                     }
                 } else if (connection === 'open') {
+                    currentQrDataUri = null; // No longer needed once connected
                     clearBotRestartTimer();
                     setWhatsAppPhase('connected');
                     console.log('🚀 BOT IS CONNECTED AND LIVE!');
@@ -962,33 +967,67 @@ app.get('/health', (req, res) => {
         whatsapp: whatsappRuntime
     });
 });
-// Serve QR code image so it can be scanned directly from the Railway URL
-// (reliable fallback when email delivery fails)
+// Serve QR code as a self-refreshing HTML page so the user can scan it
+// even when email delivery fails. Always shows the latest in-memory QR.
 app.get('/qr', qrRouteLimiter, (req, res) => {
     if (QR_ACCESS_TOKEN && req.query.token !== QR_ACCESS_TOKEN) {
         return res.status(401).send('<p>Unauthorized. Missing or invalid token.</p>');
     }
 
-    const qrPath = path.join(STORAGE_DIR, 'bot-qr.png');
-    if (!fs.existsSync(qrPath)) {
-        const phase = whatsappRuntime.phase;
-        if (phase === 'connected') {
-            return res.status(200).send('<p>✅ Bot is already connected — no QR code needed.</p>');
-        }
-        return res.status(404).send('<p>⏳ QR code not yet available. Try again in a few seconds.</p>');
+    const phase = whatsappRuntime.phase;
+
+    if (phase === 'connected') {
+        return res.status(200).send(`<!DOCTYPE html>
+<html><head><title>WhatsApp Bot QR</title></head>
+<body style="font-family:sans-serif;text-align:center;padding:40px">
+<h2>✅ Bot is already connected — no QR needed.</h2>
+</body></html>`);
     }
-    res.setHeader('Cache-Control', 'no-store');
-    res.sendFile(qrPath);
+
+    if (currentQrDataUri) {
+        // Show QR; page auto-refreshes after 55 s in case the QR expires
+        return res.send(`<!DOCTYPE html>
+<html><head>
+<title>Scan WhatsApp QR</title>
+<meta http-equiv="refresh" content="55">
+</head>
+<body style="font-family:sans-serif;text-align:center;padding:40px">
+<h2>📱 Scan this QR code in WhatsApp</h2>
+<p>Open WhatsApp → <b>Linked Devices</b> → <b>Link a Device</b> → point camera here</p>
+<img src="${currentQrDataUri}" style="max-width:300px;border:1px solid #ccc;padding:8px">
+<p><small>QR expires in ~60 s. This page refreshes automatically.</small></p>
+</body></html>`);
+    }
+
+    // No QR yet — auto-refresh every 3 s until one is ready
+    return res.status(202).send(`<!DOCTYPE html>
+<html><head>
+<title>WhatsApp Bot QR</title>
+<meta http-equiv="refresh" content="3">
+</head>
+<body style="font-family:sans-serif;text-align:center;padding:40px">
+<h2>⏳ Waiting for QR code…</h2>
+<p>Status: <b>${phase}</b></p>
+<p>This page refreshes every 3 seconds. Keep it open.</p>
+</body></html>`);
 });
 const server = app.listen(PORT, () => {
+    const railwayUrl = getRailwayQrUrl();
+    const qrUrl = railwayUrl || `http://localhost:${PORT}/qr`;
     console.log(`📡 Health check server listening on port ${PORT}`);
-    console.log(`🔗 QR code available at /qr once WhatsApp login is needed`);
+    console.log(`🔗 QR code will be available at: ${qrUrl}`);
     startBot(); // Start the bot after the server is up
 });
 
 process.on('unhandledRejection', (reason) => {
     console.error('❌ Unhandled promise rejection:', reason);
-    scheduleBotRestart(reason);
+    // Only trigger a restart when not already connected; stream errors while
+    // connected are already handled by the connection.update 'close' handler.
+    if (whatsappRuntime.phase !== 'connected') {
+        scheduleBotRestart(reason);
+    } else {
+        setWhatsAppPhase('error', reason);
+    }
 });
 
 process.on('uncaughtException', (error) => {
