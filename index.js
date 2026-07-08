@@ -546,7 +546,9 @@ async function startBot() {
             }
         });
 
-        sock.ev.on('messages.upsert', async ({ messages }) => {
+        sock.ev.on('messages.upsert', async ({ messages, type }) => {
+            // 'append' carries historical messages replayed on reconnect; only 'notify' is a live incoming message
+            if (type !== 'notify') return;
             try {
                 const msg = messages[0];
                 if (!msg.message || msg.key.fromMe) return;
@@ -565,7 +567,7 @@ async function startBot() {
                         const buffer = await downloadMediaMessage(msg, 'buffer', {});
                         fs.writeFileSync(CSV_FILE, buffer);
                         loadProducts();
-                        return sock.sendMessage(jid, { text: '📦 Products updated!' });
+                        return await sock.sendMessage(jid, { text: '📦 Products updated!' });
                     }
                 }
 
@@ -573,7 +575,7 @@ async function startBot() {
                     const payload = rawText.slice(6);
                     const [question, answer] = payload.split(/\s*=>\s*/);
                     if (!question || !answer) {
-                        return sock.sendMessage(jid, { text: 'Use *teach question => response*. Example: *teach do you deliver => Yes, we deliver nationwide.*' });
+                        return await sock.sendMessage(jid, { text: 'Use *teach question => response*. Example: *teach do you deliver => Yes, we deliver nationwide.*' });
                     }
 
                     const normalizedQuestion = normalizeText(question);
@@ -591,12 +593,12 @@ async function startBot() {
                     }
 
                     saveJsonFile(LEARNED_RESPONSES_FILE, learnedResponses);
-                    return sock.sendMessage(jid, { text: `🧠 Learned reply saved for: *${question.trim()}*` });
+                    return await sock.sendMessage(jid, { text: `🧠 Learned reply saved for: *${question.trim()}*` });
                 }
 
                 if (jid === ADMIN_JID && text === 'leads') {
                     if (learningLeads.length === 0) {
-                        return sock.sendMessage(jid, { text: 'No learning leads captured yet.' });
+                        return await sock.sendMessage(jid, { text: 'No learning leads captured yet.' });
                     }
 
                     const topLeads = [...learningLeads]
@@ -604,33 +606,33 @@ async function startBot() {
                         .slice(0, 10)
                         .map((lead, index) => `${index + 1}. ${lead.example} (${lead.count} time(s))`)
                         .join('\n');
-                    return sock.sendMessage(jid, { text: `*Top unanswered messages:*\n\n${topLeads}` });
+                    return await sock.sendMessage(jid, { text: `*Top unanswered messages:*\n\n${topLeads}` });
                 }
 
                 if (jid === ADMIN_JID && text === 'handovers') {
                     const activeHandovers = Object.entries(handoverSessions).filter(([, session]) => session.active);
                     if (activeHandovers.length === 0) {
-                        return sock.sendMessage(jid, { text: 'There are no active human handovers right now.' });
+                        return await sock.sendMessage(jid, { text: 'There are no active human handovers right now.' });
                     }
 
                     const handoverList = activeHandovers
                         .map(([customerJid, session], index) => `${index + 1}. ${customerJid} — ${session.reason}`)
                         .join('\n');
-                    return sock.sendMessage(jid, { text: `*Active handovers:*\n\n${handoverList}` });
+                    return await sock.sendMessage(jid, { text: `*Active handovers:*\n\n${handoverList}` });
                 }
 
                 if (jid === ADMIN_JID && text.startsWith('resume ')) {
                     const targetJid = toWhatsAppJid(rawText.slice('resume '.length));
                     if (!targetJid) {
-                        return sock.sendMessage(jid, { text: 'Use *resume 27123456789* or *resume 27123456789@s.whatsapp.net*.' });
+                        return await sock.sendMessage(jid, { text: 'Use *resume 27123456789* or *resume 27123456789@s.whatsapp.net*.' });
                     }
                     if (!handoverSessions[targetJid]?.active) {
-                        return sock.sendMessage(jid, { text: `No active handover found for *${targetJid}*.` });
+                        return await sock.sendMessage(jid, { text: `No active handover found for *${targetJid}*.` });
                     }
 
                     delete handoverSessions[targetJid];
                     await sock.sendMessage(targetJid, { text: '✅ A team member has finished helping. I can assist you again now — send *menu* or *cart* when you are ready.' });
-                    return sock.sendMessage(jid, { text: `Bot control restored for *${targetJid}*.` });
+                    return await sock.sendMessage(jid, { text: `Bot control restored for *${targetJid}*.` });
                 }
 
                 if (handoverSessions[jid]?.active && jid !== ADMIN_JID) {
@@ -650,35 +652,35 @@ async function startBot() {
                         userStates[jid] = { step: 'idle' };
                     }
                     if (text === 'cancel') {
-                        return sock.sendMessage(jid, { text: '❌ Cancelled. Type *menu* to start over.' });
+                        return await sock.sendMessage(jid, { text: '❌ Cancelled. Type *menu* to start over.' });
                     }
-                    return sock.sendMessage(jid, { text: buildMenuText() });
+                    return await sock.sendMessage(jid, { text: buildMenuText() });
                 }
 
                 if (text === 'help') {
-                    return sock.sendMessage(jid, { text: buildHelpText() });
+                    return await sock.sendMessage(jid, { text: buildHelpText() });
                 }
 
                 // ── State: awaiting_dimensions ──────────────────────────────────────
                 if (userState.step === 'awaiting_dimensions') {
                     const dims = parseDimensions(rawText);
                     if (!dims) {
-                        return sock.sendMessage(jid, {
+                        return await sock.sendMessage(jid, {
                             text: `❓ I could not read a valid size from that message.\nPlease send *length x height in mm* (for example _${DIMENSION_FORMAT_EXAMPLE}_).\n\nType *cancel* to go back or *human* if you want a person to help.`
                         });
                     }
                     if (dims.error === 'non_positive') {
-                        return sock.sendMessage(jid, {
+                        return await sock.sendMessage(jid, {
                             text: `⚠️ Please use positive measurements only. Send the *length x height in mm* again, for example _${DIMENSION_FORMAT_EXAMPLE}_.`
                         });
                     }
                     if (dims.error === 'invalid_count') {
-                        return sock.sendMessage(jid, {
+                        return await sock.sendMessage(jid, {
                             text: `⚠️ Please send only *two* measurements: *length x height in mm*. Example: _${DIMENSION_FORMAT_EXAMPLE}_.`
                         });
                     }
                     if (dims.error === 'too_large') {
-                        return sock.sendMessage(jid, {
+                        return await sock.sendMessage(jid, {
                             text: `⚠️ Those dimensions exceed our maximum of ${MAX_DIMENSION_MM}mm. Please send the *length x height in mm* again, for example _${DIMENSION_FORMAT_EXAMPLE}_.`
                         });
                     }
@@ -709,12 +711,12 @@ async function startBot() {
                     if (product.PolesAvailable === 'yes') {
                         userStates[jid] = { step: 'awaiting_poles', pendingProduct: product, pendingItem };
                         reply += `\nWould you like to add *poles*?\nPrice per pole: ${formatCurrency(product.PolePrice)}\nReply *yes* or *no*.`;
-                        return sock.sendMessage(jid, { text: reply });
+                        return await sock.sendMessage(jid, { text: reply });
                     }
                     if (toNumber(product.InstallationFee) > 0) {
                         userStates[jid] = { step: 'awaiting_installation', pendingProduct: product, pendingItem };
                         reply += `\nWould you like *installation*? ${formatCurrency(product.InstallationFee)}\nReply *yes* or *no*.`;
-                        return sock.sendMessage(jid, { text: reply });
+                        return await sock.sendMessage(jid, { text: reply });
                     }
 
                     const total = sqmPrice + designFee;
@@ -723,14 +725,14 @@ async function startBot() {
                     userCarts[jid].push(pendingItem);
                     userStates[jid] = { step: 'idle' };
                     reply += `\n*Total: ${formatCurrency(total)}*\n✅ Added to cart! Type *cart* to view it or *checkout* when you are ready.`;
-                    return sock.sendMessage(jid, { text: reply });
+                    return await sock.sendMessage(jid, { text: reply });
                 }
 
                 // ── State: awaiting_poles ───────────────────────────────────────────
                 if (userState.step === 'awaiting_poles') {
                     if (text === 'yes') {
                         userStates[jid] = { ...userState, step: 'awaiting_pole_count' };
-                        return sock.sendMessage(jid, {
+                        return await sock.sendMessage(jid, {
                             text: `How many poles do you need?\nPrice per pole: ${formatCurrency(userState.pendingProduct.PolePrice)}\n\nType *cancel* to go back.`
                         });
                     }
@@ -738,7 +740,7 @@ async function startBot() {
                         const instFee = toNumber(userState.pendingProduct.InstallationFee);
                         if (instFee > 0) {
                             userStates[jid] = { ...userState, step: 'awaiting_installation' };
-                            return sock.sendMessage(jid, {
+                            return await sock.sendMessage(jid, {
                                 text: `Would you like *installation*? ${formatCurrency(instFee)}\nReply *yes* or *no*.`
                             });
                         }
@@ -747,18 +749,18 @@ async function startBot() {
                         if (!userCarts[jid]) userCarts[jid] = [];
                         userCarts[jid].push(item);
                         userStates[jid] = { step: 'idle' };
-                        return sock.sendMessage(jid, {
+                        return await sock.sendMessage(jid, {
                             text: `✅ Added to cart! *Total: ${formatCurrency(item.total)}*\nType *cart* to view it or *checkout* to order.`
                         });
                     }
-                    return sock.sendMessage(jid, { text: 'Please reply *yes* or *no*.' });
+                    return await sock.sendMessage(jid, { text: 'Please reply *yes* or *no*.' });
                 }
 
                 // ── State: awaiting_pole_count ──────────────────────────────────────
                 if (userState.step === 'awaiting_pole_count') {
                     const count = parseInt(text, 10);
                     if (Number.isNaN(count) || count < 1) {
-                        return sock.sendMessage(jid, { text: 'Please enter a valid number of poles (for example _2_).' });
+                        return await sock.sendMessage(jid, { text: 'Please enter a valid number of poles (for example _2_).' });
                     }
                     const polePrice = toNumber(userState.pendingProduct.PolePrice);
                     const polesCost = count * polePrice;
@@ -767,7 +769,7 @@ async function startBot() {
 
                     if (instFee > 0) {
                         userStates[jid] = { ...userState, step: 'awaiting_installation', pendingItem: updatedItem };
-                        return sock.sendMessage(jid, {
+                        return await sock.sendMessage(jid, {
                             text: `${count} pole(s) added: ${formatCurrency(polesCost)}\n\nWould you like *installation*? ${formatCurrency(instFee)}\nReply *yes* or *no*.`
                         });
                     }
@@ -776,7 +778,7 @@ async function startBot() {
                     if (!userCarts[jid]) userCarts[jid] = [];
                     userCarts[jid].push(updatedItem);
                     userStates[jid] = { step: 'idle' };
-                    return sock.sendMessage(jid, {
+                    return await sock.sendMessage(jid, {
                         text: `✅ Added to cart! *Total: ${formatCurrency(total)}*\nType *cart* to view it or *checkout* to order.`
                     });
                 }
@@ -790,11 +792,11 @@ async function startBot() {
                         if (!userCarts[jid]) userCarts[jid] = [];
                         userCarts[jid].push(item);
                         userStates[jid] = { step: 'idle' };
-                        return sock.sendMessage(jid, {
+                        return await sock.sendMessage(jid, {
                             text: `✅ Added to cart! *Total: ${formatCurrency(item.total)}*\nType *cart* to view it or *checkout* to order.`
                         });
                     }
-                    return sock.sendMessage(jid, { text: 'Please reply *yes* or *no*.' });
+                    return await sock.sendMessage(jid, { text: 'Please reply *yes* or *no*.' });
                 }
 
                 // ── State: awaiting_checkout_confirmation ───────────────────────────
@@ -803,32 +805,32 @@ async function startBot() {
                         const cart = userState.pendingCart || userCarts[jid] || [];
                         if (cart.length === 0) {
                             userStates[jid] = { step: 'idle' };
-                            return sock.sendMessage(jid, { text: '🛒 Your cart is empty.' });
+                            return await sock.sendMessage(jid, { text: '🛒 Your cart is empty.' });
                         }
 
                         await submitOrderForReview(sock, jid, cart);
                         delete userCarts[jid];
                         userStates[jid] = { step: 'idle' };
-                        return sock.sendMessage(jid, {
+                        return await sock.sendMessage(jid, {
                             text: `✅ Thank you. Your quote/request has been sent to ${BUSINESS_NAME} for follow-up. A team member will contact you if anything needs clarification.`
                         });
                     }
 
-                    return sock.sendMessage(jid, {
+                    return await sock.sendMessage(jid, {
                         text: 'Please reply *confirm* to accept the artwork disclaimer and submit your order, or send *human* if you want a person to assist.'
                     });
                 }
 
                 // ── Main menu / category browsing ───────────────────────────────────
                 if (text === 'products') {
-                    return sock.sendMessage(jid, { text: 'Please send *products [category]*, for example _products Signs_.' });
+                    return await sock.sendMessage(jid, { text: 'Please send *products [category]*, for example _products Signs_.' });
                 }
 
                 if (text.startsWith('products ')) {
                     const catName = rawText.substring(9).trim();
                     const catProducts = products.filter((p) => p.Category.toLowerCase() === catName.toLowerCase());
                     if (catProducts.length === 0) {
-                        return sock.sendMessage(jid, { text: `❓ Category "${catName}" not found. Type *menu* to see categories.` });
+                        return await sock.sendMessage(jid, { text: `❓ Category "${catName}" not found. Type *menu* to see categories.` });
                     }
 
                     let reply = `*${catName} Products:*\n\n`;
@@ -853,12 +855,12 @@ async function startBot() {
                         reply += '\n';
                     });
                     reply += `Type *buy [ID]* to order.\ne.g. _buy ${catProducts[0].ID}_`;
-                    return sock.sendMessage(jid, { text: reply });
+                    return await sock.sendMessage(jid, { text: reply });
                 }
 
                 // ── Buy command ─────────────────────────────────────────────────────
                 if (text === 'buy') {
-                    return sock.sendMessage(jid, { text: 'Please send *buy [ID]*, for example _buy 4_.' });
+                    return await sock.sendMessage(jid, { text: 'Please send *buy [ID]*, for example _buy 4_.' });
                 }
 
                 if (text.startsWith('buy ')) {
@@ -866,11 +868,11 @@ async function startBot() {
                     const id = parts[1];
                     const product = products.find((p) => p.ID === id);
                     if (!product) {
-                        return sock.sendMessage(jid, { text: `❓ Product ID *${id}* not found. Type *menu* to browse.` });
+                        return await sock.sendMessage(jid, { text: `❓ Product ID *${id}* not found. Type *menu* to browse.` });
                     }
                     if (product.PriceType === 'sqm') {
                         userStates[jid] = { step: 'awaiting_dimensions', pendingProduct: product };
-                        return sock.sendMessage(jid, {
+                        return await sock.sendMessage(jid, {
                             text: `📐 *${product.Name}*\nPlease send the *length x height in mm*\nfor example _${DIMENSION_FORMAT_EXAMPLE}_.\n\nType *cancel* to go back or *human* for a team member.`
                         });
                     }
@@ -878,7 +880,7 @@ async function startBot() {
                     const price = toNumber(product.FixedPrice);
                     const qty = parseInt(parts[2] || '1', 10);
                     if (Number.isNaN(qty) || qty < 1) {
-                        return sock.sendMessage(jid, { text: 'Please enter a valid quantity, for example _buy 12 2_.' });
+                        return await sock.sendMessage(jid, { text: 'Please enter a valid quantity, for example _buy 12 2_.' });
                     }
                     if (!userCarts[jid]) userCarts[jid] = [];
                     userCarts[jid].push({
@@ -891,7 +893,7 @@ async function startBot() {
                         total: price * qty,
                         qty
                     });
-                    return sock.sendMessage(jid, {
+                    return await sock.sendMessage(jid, {
                         text: `✅ Added ${qty} × *${product.Name}* @ ${formatCurrency(price)} each.\nType *cart* to view it or *checkout* when you are ready.`
                     });
                 }
@@ -899,36 +901,36 @@ async function startBot() {
                 // ── Cart ────────────────────────────────────────────────────────────
                 if (text === 'cart') {
                     const cart = userCarts[jid];
-                    if (!cart || cart.length === 0) return sock.sendMessage(jid, { text: '🛒 Your cart is empty.' });
-                    return sock.sendMessage(jid, { text: buildCartText(cart) });
+                    if (!cart || cart.length === 0) return await sock.sendMessage(jid, { text: '🛒 Your cart is empty.' });
+                    return await sock.sendMessage(jid, { text: buildCartText(cart) });
                 }
 
                 // ── Clear cart ──────────────────────────────────────────────────────
                 if (text === 'clear') {
                     delete userCarts[jid];
                     userStates[jid] = { step: 'idle' };
-                    return sock.sendMessage(jid, { text: '🗑️ Cart cleared. Type *menu* to start over.' });
+                    return await sock.sendMessage(jid, { text: '🗑️ Cart cleared. Type *menu* to start over.' });
                 }
 
                 // ── Checkout ────────────────────────────────────────────────────────
                 if (text === 'checkout') {
                     const cart = userCarts[jid];
-                    if (!cart || cart.length === 0) return sock.sendMessage(jid, { text: '🛒 Your cart is empty.' });
+                    if (!cart || cart.length === 0) return await sock.sendMessage(jid, { text: '🛒 Your cart is empty.' });
 
                     const { summary } = buildOrderSummary(cart, { includeDisclaimer: true });
                     userStates[jid] = { step: 'awaiting_checkout_confirmation', pendingCart: cart };
-                    return sock.sendMessage(jid, {
+                    return await sock.sendMessage(jid, {
                         text: `${summary}\n\nReply *confirm* to accept the artwork disclaimer and submit your order, or send *human* if you want a person to assist.`
                     });
                 }
 
                 const learnedResponse = findLearnedResponse(rawText);
                 if (learnedResponse) {
-                    return sock.sendMessage(jid, { text: learnedResponse.response });
+                    return await sock.sendMessage(jid, { text: learnedResponse.response });
                 }
 
                 recordLearningLead(jid, rawText);
-                return sock.sendMessage(jid, {
+                return await sock.sendMessage(jid, {
                     text: `I want to make this easy for you. Send *menu* to browse, *products [category]* to see items, *buy [ID]* to order, or *human* if you would like a ${BUSINESS_NAME} team member to take over.`
                 });
             } catch (error) {
