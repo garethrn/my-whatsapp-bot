@@ -154,6 +154,7 @@ const transporter = nodemailer.createTransport({
 let products = [];
 let userCarts = {};
 let userStates = {};
+let userProductContext = {};
 let learnedResponses = loadJsonFile(LEARNED_RESPONSES_FILE, []);
 let learningLeads = loadJsonFile(LEARNING_LEADS_FILE, []);
 let handoverSessions = {};
@@ -268,6 +269,67 @@ function calcFixedQuoteForQty(product, qty) {
     const packPrice = toNumber(product.FixedPrice);
     const packs = Math.ceil(qty / unitsPerPack);
     return packs * packPrice;
+}
+
+function pluralizeWord(word, count) {
+    return count === 1 ? word : `${word}s`;
+}
+
+function getProductQuantityProfile(product) {
+    const unitsPerPack = parseInt(product?.UnitsPerProduct, 10) || 1;
+    const context = normalizeSearchText([product?.Name, product?.Category].join(' '));
+    const isLabelProduct = /\blabels?\b/.test(context);
+    const isPageProduct = /\b(page|pager)\b/.test(context);
+    const isCardProduct = /\bcards?\b/.test(context);
+    const baseUnit = isLabelProduct ? 'label' : (isPageProduct ? 'page' : (isCardProduct ? 'card' : 'unit'));
+
+    if (isLabelProduct) return { mode: 'labels', unitsPerPack, baseUnit: 'label' };
+    if (unitsPerPack > 1) return { mode: 'sets', unitsPerPack, baseUnit };
+    if (isPageProduct) return { mode: 'pages', unitsPerPack: 1, baseUnit: 'page' };
+    return { mode: 'units', unitsPerPack: 1, baseUnit };
+}
+
+function getQuantityPrompt(product) {
+    const profile = getProductQuantityProfile(product);
+    if (profile.mode === 'labels') return 'How many labels do you need?';
+    if (profile.mode === 'sets') {
+        return `How many sets do you need?\n(1 set = ${profile.unitsPerPack.toLocaleString()} ${pluralizeWord(profile.baseUnit, profile.unitsPerPack)})`;
+    }
+    if (profile.mode === 'pages') return 'How many pages do you need?';
+    return `How many ${pluralizeWord(profile.baseUnit, 2)} do you need?`;
+}
+
+function getQuantityValidationPrompt(product) {
+    const profile = getProductQuantityProfile(product);
+    if (profile.mode === 'labels') return 'Please enter how many labels you need (e.g. _2500_).';
+    if (profile.mode === 'sets') return 'Please enter how many sets you need (e.g. _2_).';
+    if (profile.mode === 'pages') return 'Please enter how many pages you need (e.g. _100_).';
+    return `Please enter how many ${pluralizeWord(profile.baseUnit, 2)} you need (e.g. _500_).`;
+}
+
+function getPricedQuantity(product, requestedQty) {
+    const profile = getProductQuantityProfile(product);
+    if (profile.mode === 'sets') return requestedQty * profile.unitsPerPack;
+    return requestedQty;
+}
+
+function buildQuoteText(product, requestedQty, total) {
+    const profile = getProductQuantityProfile(product);
+    let quoteText = '';
+
+    if (profile.mode === 'labels') {
+        quoteText = `💰 *Quote for ${requestedQty.toLocaleString()} labels (${product.Name})*\n`;
+    } else if (profile.mode === 'sets') {
+        quoteText = `💰 *Quote for ${requestedQty.toLocaleString()} set${requestedQty === 1 ? '' : 's'} of ${product.Name}*\n`;
+        quoteText += `(1 set = ${profile.unitsPerPack.toLocaleString()} ${pluralizeWord(profile.baseUnit, profile.unitsPerPack)})\n`;
+    } else if (profile.mode === 'pages') {
+        quoteText = `💰 *Quote for ${requestedQty.toLocaleString()} page${requestedQty === 1 ? '' : 's'} of ${product.Name}*\n`;
+    } else {
+        quoteText = `💰 *Quote for ${requestedQty.toLocaleString()} ${pluralizeWord(profile.baseUnit, requestedQty)} of ${product.Name}*\n`;
+    }
+
+    quoteText += `Estimated total: *${formatCurrency(total)}* (incl. VAT, excl. delivery)\n\nWould you like to add this to your cart? Reply *yes* or *no*.\n\n– ${BUSINESS_NAME} Team`;
+    return quoteText;
 }
 
 function greetUser(jid) {
@@ -1089,13 +1151,14 @@ async function startBot() {
                         }
                         if (matches.length === 1) {
                             const product = matches[0];
+                            userProductContext[jid] = product;
                             if (product.PriceType === 'sqm') {
                                 userStates[jid] = { step: 'awaiting_dimensions', pendingProduct: product };
                                 await sock.sendMessage(jid, { text: `📐 *${product.Name}*\nTo give you an accurate quote, please send the *length x height in mm*, for example _${DIMENSION_FORMAT_EXAMPLE}_.\n\nType *cancel* to go back.` });
                                 continue;
                             }
                             userStates[jid] = { step: 'awaiting_quote_quantity', pendingProduct: product };
-                            await sock.sendMessage(jid, { text: `Got it – *${product.Name}*! How many do you need?` });
+                            await sock.sendMessage(jid, { text: `Got it – *${product.Name}*! ${getQuantityPrompt(product)}` });
                             continue;
                         }
                         userStates[jid] = { step: 'awaiting_quote_product_selection', pendingMatches: matches };
@@ -1120,30 +1183,28 @@ async function startBot() {
                             continue;
                         }
                         const product = matches[idx];
+                        userProductContext[jid] = product;
                         if (product.PriceType === 'sqm') {
                             userStates[jid] = { step: 'awaiting_dimensions', pendingProduct: product };
                             await sock.sendMessage(jid, { text: `📐 *${product.Name}*\nPlease send the *length x height in mm*, for example _${DIMENSION_FORMAT_EXAMPLE}_.\n\nType *cancel* to go back.` });
                             continue;
                         }
                         userStates[jid] = { step: 'awaiting_quote_quantity', pendingProduct: product };
-                        await sock.sendMessage(jid, { text: `Got it – *${product.Name}*! How many do you need?` });
+                        await sock.sendMessage(jid, { text: `Got it – *${product.Name}*! ${getQuantityPrompt(product)}` });
                         continue;
                     }
 
                 // ── State: awaiting_quote_quantity ──────────────────────────────────
                     if (userState.step === 'awaiting_quote_quantity') {
+                        const product = userState.pendingProduct;
                         const qty = extractQuantityFromText(text);
                         if (!qty) {
-                            await sock.sendMessage(jid, { text: `Please enter a valid quantity (e.g. _500_). Type *cancel* to go back.` });
+                            await sock.sendMessage(jid, { text: `${getQuantityValidationPrompt(product)} Type *cancel* to go back.` });
                             continue;
                         }
-                        const product = userState.pendingProduct;
-                        const total = calcFixedQuoteForQty(product, qty);
-                        const unitsPerPack = parseInt(product.UnitsPerProduct, 10) || 1;
-                        const packs = Math.ceil(qty / unitsPerPack);
-                        let quoteText = `💰 *Quote for ${qty.toLocaleString()} × ${product.Name}*\n`;
-                        if (unitsPerPack > 1) quoteText += `(${packs} pack${packs > 1 ? 's' : ''} of ${unitsPerPack})\n`;
-                        quoteText += `Estimated total: *${formatCurrency(total)}* (incl. VAT, excl. delivery)\n\nWould you like to add this to your cart? Reply *yes* or *no*.\n\n– ${BUSINESS_NAME} Team`;
+                        const total = calcFixedQuoteForQty(product, getPricedQuantity(product, qty));
+                        const quoteText = buildQuoteText(product, qty, total);
+                        userProductContext[jid] = product;
                         userStates[jid] = { step: 'awaiting_quote_confirm', pendingProduct: product, pendingQty: qty, pendingTotal: total };
                         await sock.sendMessage(jid, { text: quoteText });
                         continue;
@@ -1189,12 +1250,13 @@ async function startBot() {
                         }
                         if (matches.length === 1) {
                             const product = matches[0];
+                            userProductContext[jid] = product;
                             if (product.PriceType === 'sqm') {
                                 userStates[jid] = { step: 'awaiting_dimensions', pendingProduct: product };
                                 await sock.sendMessage(jid, { text: `📐 *${product.Name}*\nPlease send the *length x height in mm*, for example _${DIMENSION_FORMAT_EXAMPLE}_.\n\nType *cancel* to go back.` });
                                 continue;
                             }
-                            const total = calcFixedQuoteForQty(product, qty);
+                            const total = calcFixedQuoteForQty(product, getPricedQuantity(product, qty));
                             if (!userCarts[jid]) userCarts[jid] = [];
                             userCarts[jid].push({ name: product.Name, sqmPrice: toNumber(product.FixedPrice), designFee: 0, polesCost: 0, poles: 0, installationFee: 0, total, qty });
                             userStates[jid] = { step: 'idle' };
@@ -1218,12 +1280,13 @@ async function startBot() {
                             continue;
                         }
                         const product = matches[idx];
+                        userProductContext[jid] = product;
                         if (product.PriceType === 'sqm') {
                             userStates[jid] = { step: 'awaiting_dimensions', pendingProduct: product };
                             await sock.sendMessage(jid, { text: `📐 *${product.Name}*\nPlease send the *length x height in mm*, for example _${DIMENSION_FORMAT_EXAMPLE}_.\n\nType *cancel* to go back.` });
                             continue;
                         }
-                        const total = calcFixedQuoteForQty(product, qty);
+                        const total = calcFixedQuoteForQty(product, getPricedQuantity(product, qty));
                         if (!userCarts[jid]) userCarts[jid] = [];
                         userCarts[jid].push({ name: product.Name, sqmPrice: toNumber(product.FixedPrice), designFee: 0, polesCost: 0, poles: 0, installationFee: 0, total, qty });
                         userStates[jid] = { step: 'idle' };
@@ -1301,6 +1364,7 @@ async function startBot() {
                             await sock.sendMessage(jid, { text: `❓ Product ID *${id}* not found. Type *menu* to browse.` });
                             continue;
                     }
+                    userProductContext[jid] = product;
                     if (product.PriceType === 'sqm') {
                         userStates[jid] = { step: 'awaiting_dimensions', pendingProduct: product };
                             await sock.sendMessage(jid, {
@@ -1406,24 +1470,21 @@ async function startBot() {
 
                             if (matches.length === 1) {
                                 const product = matches[0];
+                                userProductContext[jid] = product;
                                 if (product.PriceType === 'sqm') {
                                     userStates[jid] = { step: 'awaiting_dimensions', pendingProduct: product };
                                     await sock.sendMessage(jid, { text: `📐 *${product.Name}*\nTo give you an accurate quote, please send the *length x height in mm*, for example _${DIMENSION_FORMAT_EXAMPLE}_.\n\nType *cancel* to go back.` });
                                     continue;
                                 }
                                 if (qty) {
-                                    const total = calcFixedQuoteForQty(product, qty);
-                                    const unitsPerPack = parseInt(product.UnitsPerProduct, 10) || 1;
-                                    const packs = Math.ceil(qty / unitsPerPack);
-                                    let quoteText = `💰 *Quote for ${qty.toLocaleString()} × ${product.Name}*\n`;
-                                    if (unitsPerPack > 1) quoteText += `(${packs} pack${packs > 1 ? 's' : ''} of ${unitsPerPack})\n`;
-                                    quoteText += `Estimated total: *${formatCurrency(total)}* (incl. VAT, excl. delivery)\n\nWould you like to add this to your cart? Reply *yes* or *no*.\n\n– ${BUSINESS_NAME} Team`;
+                                    const total = calcFixedQuoteForQty(product, getPricedQuantity(product, qty));
+                                    const quoteText = buildQuoteText(product, qty, total);
                                     userStates[jid] = { step: 'awaiting_quote_confirm', pendingProduct: product, pendingQty: qty, pendingTotal: total };
                                     await sock.sendMessage(jid, { text: quoteText });
                                     continue;
                                 }
                                 userStates[jid] = { step: 'awaiting_quote_quantity', pendingProduct: product };
-                                await sock.sendMessage(jid, { text: `Great! To give you an accurate quote – how many *${product.Name}* do you need?` });
+                                await sock.sendMessage(jid, { text: `Great! To give you an accurate quote for *${product.Name}* – ${getQuantityPrompt(product)}` });
                                 continue;
                             }
 
@@ -1441,6 +1502,20 @@ async function startBot() {
                                 continue;
                             }
 
+                            const previousProduct = userProductContext[jid];
+                            if (previousProduct) {
+                                if (qty) {
+                                    const total = calcFixedQuoteForQty(previousProduct, getPricedQuantity(previousProduct, qty));
+                                    const quoteText = buildQuoteText(previousProduct, qty, total);
+                                    userStates[jid] = { step: 'awaiting_quote_confirm', pendingProduct: previousProduct, pendingQty: qty, pendingTotal: total };
+                                    await sock.sendMessage(jid, { text: `Still on *${previousProduct.Name}*.\n\n${quoteText}` });
+                                    continue;
+                                }
+                                userStates[jid] = { step: 'awaiting_quote_quantity', pendingProduct: previousProduct };
+                                await sock.sendMessage(jid, { text: `Still on *${previousProduct.Name}*.\n${getQuantityPrompt(previousProduct)}` });
+                                continue;
+                            }
+
                             await sock.sendMessage(jid, { text: `To give you an accurate quote, I need:\n1) Product type (e.g. _flyers_, _banners_, _business cards_)\n2) Quantity\n3) Paper type / finishing (e.g. gloss/matte)\n\nCould you provide these?` });
                             userStates[jid] = { step: 'awaiting_quote_product' };
                             continue;
@@ -1455,6 +1530,7 @@ async function startBot() {
 
                             if (matches.length === 1) {
                                 const [product] = matches;
+                                userProductContext[jid] = product;
                                 if (product.PriceType === 'sqm') {
                                     userStates[jid] = { step: 'awaiting_dimensions', pendingProduct: product };
                                     await sock.sendMessage(jid, {
@@ -1468,7 +1544,7 @@ async function startBot() {
                                     text: buildProductMatchesText(
                                         matches,
                                         'I found this option:',
-                                        'Reply with the quantity you need and I’ll work out the price for you.'
+                                        getQuantityPrompt(product)
                                     )
                                 });
                                 continue;
@@ -1496,12 +1572,13 @@ async function startBot() {
 
                         if (matches.length === 1) {
                             const product = matches[0];
+                            userProductContext[jid] = product;
                             if (product.PriceType === 'sqm') {
                                 userStates[jid] = { step: 'awaiting_dimensions', pendingProduct: product };
                                 await sock.sendMessage(jid, { text: `📐 *${product.Name}*\nPlease send the *length x height in mm*, for example _${DIMENSION_FORMAT_EXAMPLE}_.\n\nType *cancel* to go back.` });
                                 continue;
                             }
-                            const total = calcFixedQuoteForQty(product, qty);
+                            const total = calcFixedQuoteForQty(product, getPricedQuantity(product, qty));
                             if (!userCarts[jid]) userCarts[jid] = [];
                             userCarts[jid].push({ name: product.Name, sqmPrice: toNumber(product.FixedPrice), designFee: 0, polesCost: 0, poles: 0, installationFee: 0, total, qty });
                             userStates[jid] = { step: 'idle' };
