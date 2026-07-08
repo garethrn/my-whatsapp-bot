@@ -450,11 +450,21 @@ function isAuthorizedQrRequest(token) {
     if (!QR_ACCESS_TOKEN) return true;
     if (typeof token !== 'string') return false;
 
-    const expected = Buffer.from(QR_ACCESS_TOKEN);
-    const received = Buffer.from(token);
+    const expected = Buffer.from(QR_ACCESS_TOKEN, 'utf8');
+    const received = Buffer.from(token, 'utf8');
     if (expected.length !== received.length) return false;
 
     return crypto.timingSafeEqual(expected, received);
+}
+
+function getQrAccessToken(req) {
+    const authorization = req.get('authorization') || '';
+    if (authorization.toLowerCase().startsWith('bearer ')) {
+        return authorization.slice(7).trim();
+    }
+
+    const headerToken = req.get('x-qr-access-token');
+    return typeof headerToken === 'string' ? headerToken.trim() : '';
 }
 
 async function activateHumanHandover(sock, jid, reason) {
@@ -1077,7 +1087,7 @@ app.get('/health', (req, res) => {
 // Serve QR code as a self-refreshing HTML page so the user can scan it
 // even when email delivery fails. Always shows the latest in-memory QR.
 app.get('/qr', qrRouteLimiter, (req, res) => {
-    if (!isAuthorizedQrRequest(req.query.token)) {
+    if (!isAuthorizedQrRequest(getQrAccessToken(req))) {
         return res.status(401).send('<p>Unauthorized. Missing or invalid token.</p>');
     }
 

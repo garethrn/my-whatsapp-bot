@@ -298,9 +298,17 @@ After deploy:
 3. If the logs show `WhatsApp status: awaiting_qr`, check Gmail for the QR code
 4. Scan it in WhatsApp on your phone
 
-If you set `QR_ACCESS_TOKEN`, open the QR page with:
+If you set `QR_ACCESS_TOKEN`, send it in a request header when opening the QR page:
 
-`https://your-app.up.railway.app/qr?token=your_token_here`
+```bash
+curl -H "Authorization: ******" https://your-app.up.railway.app/qr
+```
+
+Or use a custom header:
+
+```bash
+curl -H "X-QR-Access-Token: your_token_here" https://your-app.up.railway.app/qr
+```
 
 Useful log meanings:
 
