@@ -268,6 +268,23 @@ In Railway, add these variables:
 - `EMAIL_PASS`
 - `QR_ACCESS_TOKEN` (optional but recommended for securing `/qr`)
 
+#### Invoice Ninja (optional)
+
+To automatically create quotes in Invoice Ninja when customers check out, add:
+
+- `INVOICE_NINJA_URL` – base URL of your Invoice Ninja instance, e.g. `https://app.invoicing.co`
+- `INVOICE_NINJA_API_TOKEN` – API token from Invoice Ninja → Settings → API Tokens
+- `INVOICE_NINJA_TAX_NAME` – tax label used on quote line items (default: `VAT`)
+- `INVOICE_NINJA_TAX_RATE` – tax rate as a percentage (default: `15`)
+- `INVOICE_NINJA_WEBHOOK_SECRET` – optional secret for verifying webhook requests from Invoice Ninja
+
+When `INVOICE_NINJA_URL` and `INVOICE_NINJA_API_TOKEN` are set, the bot will:
+1. Ask customers for their email address at checkout (they can type `skip` to omit it)
+2. Find or create a client record in Invoice Ninja
+3. Create a quote with itemised line items (material, design, poles, installation)
+4. Send the customer a link to view and approve their quote
+5. Notify admin when a quote is approved or paid (via webhook)
+
 ### Step 4: Add persistent storage
 
 This is important.
@@ -278,8 +295,18 @@ The bot stores these items in `/storage`:
 - QR image files
 - learned replies
 - unanswered learning leads
+- confirmed orders (for Invoice Ninja linkage)
 
 On Railway, add a persistent volume and mount it to **`/app/storage`**. This keeps the bot data between restarts and deploys. Railway/Nixpacks normally runs this app from `/app`, which is why `./storage` maps to `/app/storage` there. If you do not use persistent storage, the bot may need to be linked again and may lose its learned responses.
+
+### Invoice Ninja webhook (optional)
+
+To receive status notifications (quote approved, payment received), register a webhook in Invoice Ninja:
+
+1. In Invoice Ninja go to **Settings → Webhooks → New Webhook**
+2. Set the URL to `https://your-app.up.railway.app/webhook/invoice-ninja`
+3. Select events: **Quote Updated**, **Quote Approved**, **Invoice Updated**, **Payment Created**
+4. Copy the webhook secret (if offered) and set it as `INVOICE_NINJA_WEBHOOK_SECRET` in Railway
 
 ### Step 5: Deploy
 
@@ -396,6 +423,8 @@ Check that:
 - `1200 x 600 mm`
 - `cart`
 - `checkout`
+- `you@example.com` (email prompt when Invoice Ninja is configured)
+- `skip` (skip the email prompt)
 - `confirm`
 - `human`
 - `help`

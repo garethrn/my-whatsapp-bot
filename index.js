@@ -9,6 +9,7 @@ const {
 } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 const crypto = require('crypto');
+const invoiceNinja = require('./invoiceNinja');
 const fs = require('fs');
 const csv = require('csv-parser');
 const pino = require('pino');
@@ -28,6 +29,7 @@ const CSV_FILE = path.join(__dirname, 'products.csv');
 const AUTH_DIR = path.join(STORAGE_DIR, 'auth_info');
 const LEARNED_RESPONSES_FILE = path.join(STORAGE_DIR, 'learned_responses.json');
 const LEARNING_LEADS_FILE = path.join(STORAGE_DIR, 'learning_leads.json');
+const ORDERS_FILE = path.join(STORAGE_DIR, 'orders.json');
 const MAX_HISTORY = 10;
 const MAX_LEARNING_LEADS = 200;
 const BUSINESS_NAME = 'Duzi Signs';
@@ -58,6 +60,8 @@ const PRODUCT_SEARCH_STOP_WORDS = new Set([
 ]);
 const DEFAULT_RESTART_DELAY_MS = 5000;
 const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 10000;
+// Optional webhook secret for verifying Invoice Ninja webhook requests
+const INVOICE_NINJA_WEBHOOK_SECRET = process.env.INVOICE_NINJA_WEBHOOK_SECRET || '';
 
 const whatsappRuntime = {
     phase: 'booting',
@@ -68,6 +72,8 @@ let botRestartTimer = null;
 let activeSocketGeneration = 0;
 // Current QR stored as a PNG data URI (base64); null when no QR is pending
 let currentQrDataUri = null;
+// The most recent connected WhatsApp socket; used by the webhook handler
+let activeSock = null;
 
 if (!fs.existsSync(STORAGE_DIR)) fs.mkdirSync(STORAGE_DIR, { recursive: true });
 
@@ -161,6 +167,8 @@ let handoverSessions = {};
 let conversationHistory = {};
 let userNames = {};
 let fallbackCounts = {};
+let userEmails = {};
+let orders = loadJsonFile(ORDERS_FILE, []);
 
 function loadJsonFile(filePath, fallbackValue) {
     try {
@@ -655,6 +663,29 @@ function getQrAccessToken(req) {
     return typeof headerToken === 'string' ? headerToken.trim() : '';
 }
 
+/**
+ * Extract the international phone number from a WhatsApp JID.
+ * e.g. "27123456789@s.whatsapp.net" → "+27123456789"
+ */
+function getPhoneFromJid(jid) {
+    return '+' + (jid || '').replace('@s.whatsapp.net', '').replace(/\D/g, '');
+}
+
+/**
+ * Append an order record to the persistent orders store.
+ */
+function saveOrder(record) {
+    orders.push(record);
+    saveJsonFile(ORDERS_FILE, orders);
+}
+
+/**
+ * Find a persisted order record by its Invoice Ninja quote ID.
+ */
+function findOrderByQuoteId(quoteId) {
+    return orders.find((o) => o.invoiceNinjaQuoteId === quoteId) || null;
+}
+
 async function activateHumanHandover(sock, jid, reason) {
     handoverSessions[jid] = {
         active: true,
@@ -696,16 +727,76 @@ async function requestHumanHandoverConfirmation(sock, jid, reason) {
 }
 
 async function submitOrderForReview(sock, jid, cart) {
-    const { summary } = buildOrderSummary(cart);
+    const { summary, grandTotal } = buildOrderSummary(cart);
+    const customerName = userNames[jid] || '';
+    const customerPhone = getPhoneFromJid(jid);
+    const customerEmail = userEmails[jid] || '';
+
+    const orderId = crypto.randomBytes(6).toString('hex');
+    const orderRecord = {
+        id: orderId,
+        jid,
+        customerName,
+        customerPhone,
+        customerEmail,
+        cart: JSON.parse(JSON.stringify(cart)),
+        grandTotal,
+        createdAt: new Date().toISOString(),
+        invoiceNinjaQuoteId: null,
+        invoiceNinjaQuoteNumber: null,
+        invoiceNinjaLink: null,
+        status: 'pending',
+        error: null
+    };
+
+    let quoteInfo = null;
+    if (invoiceNinja.isConfigured()) {
+        try {
+            const client = await invoiceNinja.findOrCreateClient({
+                name: customerName,
+                phone: customerPhone,
+                email: customerEmail
+            });
+            const quote = await invoiceNinja.createQuote(client.id, cart, ARTWORK_DISCLAIMER);
+            const quoteUrl = invoiceNinja.getQuoteUrl(quote);
+            quoteInfo = { id: quote.id, number: quote.number, url: quoteUrl };
+            orderRecord.invoiceNinjaQuoteId = quote.id;
+            orderRecord.invoiceNinjaQuoteNumber = quote.number;
+            orderRecord.invoiceNinjaLink = quoteUrl;
+            orderRecord.status = 'quoted';
+        } catch (inError) {
+            console.error('❌ Invoice Ninja quote creation failed:', inError.message);
+            orderRecord.status = 'pending';
+            orderRecord.error = inError.message;
+        }
+    }
+    saveOrder(orderRecord);
+
+    const quoteNote = quoteInfo
+        ? `\n\n📄 Quote *${quoteInfo.number}* created: ${quoteInfo.url || '(no link)'}`
+        : (invoiceNinja.isConfigured() ? '\n\n⚠️ Quote creation failed – manual follow-up needed.' : '');
+
     const adminMessage = [
         '🆕 *New order request*',
         `Customer: ${jid}`,
+        `Name: ${customerName || '(unknown)'}`,
+        `Phone: ${customerPhone}`,
+        `Email: ${customerEmail || '(not provided)'}`,
         'Artwork disclaimer accepted: Yes',
         '',
-        summary
+        summary,
+        quoteNote
     ].join('\n');
 
     await sock.sendMessage(ADMIN_JID, { text: adminMessage });
+
+    if (quoteInfo?.url) {
+        await sock.sendMessage(jid, {
+            text: `📄 Your quote *${quoteInfo.number}* has been created!\n\nView and approve it here:\n${quoteInfo.url}\n\nA ${BUSINESS_NAME} team member will follow up with you shortly.`
+        });
+    }
+
+    return { quoteCreated: !!(quoteInfo?.url) };
 }
 
 async function startBot() {
@@ -774,6 +865,7 @@ async function startBot() {
 
                 if (connection === 'close') {
                     currentQrDataUri = null; // Clear stale QR on any disconnect
+                    activeSock = null;
                     const disconnectError = lastDisconnect?.error;
                     const statusCode = extractDisconnectStatusCode(disconnectError);
                     const errorMessage = disconnectError?.message || `Disconnect status ${statusCode || 'unknown'}`;
@@ -794,6 +886,7 @@ async function startBot() {
                     }
                 } else if (connection === 'open') {
                     currentQrDataUri = null; // No longer needed once connected
+                    activeSock = sock;
                     clearBotRestartTimer();
                     setWhatsAppPhase('connected');
                     console.log('🚀 BOT IS CONNECTED AND LIVE!');
@@ -1117,6 +1210,32 @@ async function startBot() {
                         continue;
                     }
 
+                // ── State: awaiting_customer_email ─────────────────────────────────
+                    if (userState.step === 'awaiting_customer_email') {
+                        const cart = userState.pendingCart || userCarts[jid] || [];
+                        if (cart.length === 0) {
+                            userStates[jid] = { step: 'idle' };
+                            await sock.sendMessage(jid, { text: '🛒 Your cart is empty.' });
+                            continue;
+                        }
+                        if (text === 'skip') {
+                            // Proceed without email
+                        } else if (/.+@.+\..+/.test(text)) {
+                            userEmails[jid] = rawText.trim();
+                        } else {
+                            await sock.sendMessage(jid, {
+                                text: `Please send a valid email address (for example _you@example.com_).\n\nOr type *skip* to continue without one.`
+                            });
+                            continue;
+                        }
+                        const { summary } = buildOrderSummary(cart, { includeDisclaimer: true });
+                        userStates[jid] = { step: 'awaiting_checkout_confirmation', pendingCart: cart };
+                        await sock.sendMessage(jid, {
+                            text: `${summary}\n\nReply *confirm* to accept the artwork disclaimer and submit your order, or send *human* if you want a person to assist.`
+                        });
+                        continue;
+                    }
+
                 // ── State: awaiting_checkout_confirmation ───────────────────────────
                     if (userState.step === 'awaiting_checkout_confirmation') {
                     if (['confirm', 'yes', 'submit', 'place order'].includes(text)) {
@@ -1127,12 +1246,14 @@ async function startBot() {
                             continue;
                         }
 
-                        await submitOrderForReview(sock, jid, cart);
+                        const { quoteCreated } = await submitOrderForReview(sock, jid, cart);
                         delete userCarts[jid];
                         userStates[jid] = { step: 'idle' };
-                        await sock.sendMessage(jid, {
-                            text: `✅ Thank you. Your quote/request has been sent to ${BUSINESS_NAME} for follow-up. A team member will contact you if anything needs clarification.`
-                        });
+                        if (!quoteCreated) {
+                            await sock.sendMessage(jid, {
+                                text: `✅ Thank you. Your quote/request has been sent to ${BUSINESS_NAME} for follow-up. A team member will contact you if anything needs clarification.`
+                            });
+                        }
                         continue;
                     }
 
@@ -1420,6 +1541,16 @@ async function startBot() {
                         const cart = userCarts[jid];
                         if (!cart || cart.length === 0) {
                             await sock.sendMessage(jid, { text: '🛒 Your cart is empty.' });
+                            continue;
+                        }
+
+                        // When Invoice Ninja is configured, collect an email address first
+                        // (skip if we already have one for this session)
+                        if (invoiceNinja.isConfigured() && !userEmails[jid]) {
+                            userStates[jid] = { step: 'awaiting_customer_email', pendingCart: cart };
+                            await sock.sendMessage(jid, {
+                                text: `📧 To generate your quote, please send your *email address*.\n\nOr type *skip* to continue without one.`
+                            });
                             continue;
                         }
 
@@ -1731,6 +1862,105 @@ app.get('/qr', qrRouteLimiter, (req, res) => {
 <p>This page refreshes every 3 seconds. Keep it open.</p>
 </body></html>`);
 });
+
+// --- INVOICE NINJA WEBHOOK ---
+// Configure this URL in Invoice Ninja → Settings → Webhooks
+// POST https://your-app.up.railway.app/webhook/invoice-ninja
+app.post('/webhook/invoice-ninja', (req, res, next) => {
+    // Capture raw body so we can verify the HMAC signature when a secret is configured
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => {
+        req.rawBody = Buffer.concat(chunks).toString('utf8');
+        try {
+            req.body = JSON.parse(req.rawBody);
+        } catch {
+            req.body = {};
+        }
+        next();
+    });
+}, (req, res) => {
+    if (INVOICE_NINJA_WEBHOOK_SECRET) {
+        const signature = req.get('x-ninja-signature') || '';
+        const expected = crypto
+            .createHmac('sha256', INVOICE_NINJA_WEBHOOK_SECRET)
+            .update(req.rawBody)
+            .digest('hex');
+        const sigBuf = Buffer.from(signature.padEnd(expected.length, '\0'));
+        const expBuf = Buffer.from(expected);
+        if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+            return res.status(401).json({ error: 'Invalid signature' });
+        }
+    }
+
+    // Acknowledge immediately; process the event asynchronously
+    res.json({ ok: true });
+
+    (async () => {
+        try {
+            const event = req.body;
+            // Invoice Ninja v5 webhook payload: { action: '...', data: { ...entity... } }
+            const action = (event?.action || '').toLowerCase();
+            const entityData = event?.data || {};
+            const quoteId = entityData?.id;
+
+            if (!quoteId) return;
+
+            const order = findOrderByQuoteId(quoteId);
+            if (!order) return; // Not one of our orders
+
+            const jid = order.jid;
+            if (!activeSock || whatsappRuntime.phase !== 'connected') {
+                console.warn('⚠️ Invoice Ninja webhook received but WhatsApp not connected. Event:', action, 'Order:', order.id);
+                return;
+            }
+
+            // Quote approved (status_id 3 in Invoice Ninja v5)
+            const isApproved = action === 'approve' ||
+                (action === 'update' && entityData?.status_id === 3);
+
+            // Quote / invoice paid
+            const isPaid = action === 'paid' ||
+                (action === 'update' && (entityData?.status_id === 5 || entityData?.status_id === 6));
+
+            // Quote expired (status_id 4)
+            const isExpired = action === 'update' && entityData?.status_id === 4;
+
+            if (isApproved) {
+                // Update our order record
+                const idx = orders.findIndex((o) => o.id === order.id);
+                if (idx >= 0) { orders[idx].status = 'approved'; saveJsonFile(ORDERS_FILE, orders); }
+
+                await activeSock.sendMessage(jid, {
+                    text: `✅ Great news! Your quote *${order.invoiceNinjaQuoteNumber}* has been approved.\n\nA ${BUSINESS_NAME} team member will be in touch to confirm production details.`
+                });
+                await activeSock.sendMessage(ADMIN_JID, {
+                    text: `✅ *Quote approved*\nCustomer: ${jid}\nQuote: ${order.invoiceNinjaQuoteNumber}`
+                });
+            } else if (isPaid) {
+                const idx = orders.findIndex((o) => o.id === order.id);
+                if (idx >= 0) { orders[idx].status = 'paid'; saveJsonFile(ORDERS_FILE, orders); }
+
+                await activeSock.sendMessage(jid, {
+                    text: `💳 Payment received for quote *${order.invoiceNinjaQuoteNumber}*. Thank you!\n\nWe will begin production shortly. 😊\n\n– ${BUSINESS_NAME} Team`
+                });
+                await activeSock.sendMessage(ADMIN_JID, {
+                    text: `💳 *Payment received*\nCustomer: ${jid}\nQuote: ${order.invoiceNinjaQuoteNumber}`
+                });
+            } else if (isExpired) {
+                const idx = orders.findIndex((o) => o.id === order.id);
+                if (idx >= 0) { orders[idx].status = 'expired'; saveJsonFile(ORDERS_FILE, orders); }
+
+                await activeSock.sendMessage(jid, {
+                    text: `⚠️ Your quote *${order.invoiceNinjaQuoteNumber}* has expired. Please type *checkout* to generate a new one, or send *human* to speak with a team member.`
+                });
+            }
+        } catch (err) {
+            console.error('❌ Error processing Invoice Ninja webhook:', err);
+        }
+    })();
+});
+
 const server = app.listen(PORT, () => {
     const railwayUrl = getRailwayQrUrl();
     const qrUrl = railwayUrl || `http://localhost:${PORT}/qr`;
