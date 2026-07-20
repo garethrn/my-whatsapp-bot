@@ -18,6 +18,7 @@ const qrcodeImg = require('qrcode');
 const path = require('path');
 const express = require('express');
 const { rateLimit } = require('express-rate-limit');
+const multer = require('multer');
 
 // --- YOUR CONFIGURATION ---
 const ADMIN_JID = process.env.ADMIN_JID;
@@ -189,6 +190,7 @@ function saveJsonFile(filePath, value) {
 }
 
 const DEFAULT_CSV = 'ID,Category,Subcategory,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvailable,PolePrice,InstallationFee';
+const CSV_SAMPLE_ROW = '1,Paper Printing,Business Cards,Business Cards 300GSM,Standard 90x55mm,Semi Gloss,Single sided,100,fixed,,R120.00,,0,no,,0';
 
 function loadProducts() {
     const results = [];
@@ -1965,9 +1967,109 @@ app.post('/webhook/invoice-ninja', (req, res, next) => {
     })();
 });
 
+// --- PRODUCTS CSV DOWNLOAD / UPLOAD ---
+// All three endpoints are protected by the same QR_ACCESS_TOKEN auth used for /qr.
+const csvUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB max
+    fileFilter: (_req, file, cb) => {
+        if (file.originalname.toLowerCase().endsWith('.csv') || file.mimetype === 'text/csv') {
+            cb(null, true);
+        } else {
+            cb(new Error('Only .csv files are accepted.'));
+        }
+    }
+});
+
+function productsAuthMiddleware(req, res, next) {
+    if (!isAuthorizedQrRequest(getQrAccessToken(req))) {
+        return res.status(401).send('<p>Unauthorized. Missing or invalid token.</p>');
+    }
+    next();
+}
+
+// GET /products/template — blank CSV with headers and one sample row
+app.get('/products/template', productsAuthMiddleware, (_req, res) => {
+    const template = DEFAULT_CSV + '\n' + CSV_SAMPLE_ROW + '\n';
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="products_template.csv"');
+    res.send(template);
+});
+
+// GET /products/csv — current products.csv
+app.get('/products/csv', productsAuthMiddleware, (_req, res) => {
+    if (!fs.existsSync(CSV_FILE)) {
+        return res.status(404).send('<p>No products file found.</p>');
+    }
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="products.csv"');
+    res.sendFile(CSV_FILE);
+});
+
+// POST /products/upload — replace products.csv with the uploaded file
+app.post('/products/upload', productsAuthMiddleware, (req, res) => {
+    csvUpload.single('file')(req, res, (err) => {
+        if (err) {
+            return res.status(400).send(`<p>Upload failed: ${err.message}</p>`);
+        }
+        if (!req.file) {
+            return res.status(400).send('<p>No file provided. Please attach a .csv file with field name "file".</p>');
+        }
+        fs.writeFileSync(CSV_FILE, req.file.buffer);
+        loadProducts();
+        res.send('<!DOCTYPE html><html><head><title>Upload complete</title></head><body style="font-family:sans-serif;padding:40px;text-align:center"><h2>✅ Products updated!</h2><p>The products CSV has been replaced and reloaded.</p><p><a href="products">← Back to Products Admin</a></p></body></html>');
+    });
+});
+
+// GET /products — HTML admin page for downloading/uploading the products CSV
+app.get('/products', productsAuthMiddleware, (req, res) => {
+    const token = getQrAccessToken(req);
+    const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
+    res.send(`<!DOCTYPE html>
+<html>
+<head>
+  <title>Products CSV Admin</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font-family: sans-serif; max-width: 600px; margin: 60px auto; padding: 0 20px; }
+    h1 { font-size: 1.4rem; }
+    .card { border: 1px solid #ddd; border-radius: 8px; padding: 20px; margin-bottom: 24px; }
+    .card h2 { margin-top: 0; font-size: 1.1rem; }
+    a.btn, button.btn { display: inline-block; padding: 10px 18px; background: #25d366; color: #fff; text-decoration: none; border: none; border-radius: 6px; cursor: pointer; font-size: 0.95rem; }
+    a.btn.secondary { background: #444; }
+    input[type=file] { display: block; margin: 12px 0; }
+    p.hint { color: #666; font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <h1>📦 Products CSV Admin</h1>
+
+  <div class="card">
+    <h2>1. Download template</h2>
+    <p class="hint">A blank CSV with headers and one sample row so you know the required format.</p>
+    <a class="btn secondary" href="products/template${tokenParam}">⬇ Download template</a>
+  </div>
+
+  <div class="card">
+    <h2>2. Download current products</h2>
+    <p class="hint">Download the live products file to edit it.</p>
+    <a class="btn secondary" href="products/csv${tokenParam}">⬇ Download products.csv</a>
+  </div>
+
+  <div class="card">
+    <h2>3. Upload updated CSV</h2>
+    <p class="hint">Upload your edited CSV to replace the current products file. The bot will reload products immediately.</p>
+    <form method="POST" action="products/upload${tokenParam}" enctype="multipart/form-data">
+      <input type="file" name="file" accept=".csv">
+      <button class="btn" type="submit">⬆ Upload</button>
+    </form>
+  </div>
+</body>
+</html>`);
+});
+
 const server = app.listen(PORT, () => {
     const railwayUrl = getRailwayQrUrl();
-    const qrUrl = railwayUrl || `http://localhost:${PORT}/qr`;
     console.log(`📡 Health check server listening on port ${PORT}`);
     console.log(`🔗 QR code will be available at: ${qrUrl}`);
     startBot(); // Start the bot after the server is up
