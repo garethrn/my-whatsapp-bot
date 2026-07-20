@@ -1968,7 +1968,7 @@ app.post('/webhook/invoice-ninja', (req, res, next) => {
 });
 
 // --- PRODUCTS CSV DOWNLOAD / UPLOAD ---
-// All three endpoints are protected by the same QR_ACCESS_TOKEN auth used for /qr.
+// All endpoints are protected by the same QR_ACCESS_TOKEN auth used for /qr, and rate-limited.
 const csvUpload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB max
@@ -1981,6 +1981,14 @@ const csvUpload = multer({
     }
 });
 
+const productsRouteLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: '<p>Too many requests. Please wait a minute.</p>'
+});
+
 function productsAuthMiddleware(req, res, next) {
     if (!isAuthorizedQrRequest(getQrAccessToken(req))) {
         return res.status(401).send('<p>Unauthorized. Missing or invalid token.</p>');
@@ -1989,7 +1997,7 @@ function productsAuthMiddleware(req, res, next) {
 }
 
 // GET /products/template — blank CSV with headers and one sample row
-app.get('/products/template', productsAuthMiddleware, (_req, res) => {
+app.get('/products/template', productsRouteLimiter, productsAuthMiddleware, (_req, res) => {
     const template = DEFAULT_CSV + '\n' + CSV_SAMPLE_ROW + '\n';
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', 'attachment; filename="products_template.csv"');
@@ -1997,7 +2005,7 @@ app.get('/products/template', productsAuthMiddleware, (_req, res) => {
 });
 
 // GET /products/csv — current products.csv
-app.get('/products/csv', productsAuthMiddleware, (_req, res) => {
+app.get('/products/csv', productsRouteLimiter, productsAuthMiddleware, (_req, res) => {
     if (!fs.existsSync(CSV_FILE)) {
         return res.status(404).send('<p>No products file found.</p>');
     }
@@ -2007,7 +2015,7 @@ app.get('/products/csv', productsAuthMiddleware, (_req, res) => {
 });
 
 // POST /products/upload — replace products.csv with the uploaded file
-app.post('/products/upload', productsAuthMiddleware, (req, res) => {
+app.post('/products/upload', productsRouteLimiter, productsAuthMiddleware, (req, res) => {
     csvUpload.single('file')(req, res, (err) => {
         if (err) {
             return res.status(400).send(`<p>Upload failed: ${err.message}</p>`);
@@ -2022,7 +2030,7 @@ app.post('/products/upload', productsAuthMiddleware, (req, res) => {
 });
 
 // GET /products — HTML admin page for downloading/uploading the products CSV
-app.get('/products', productsAuthMiddleware, (req, res) => {
+app.get('/products', productsRouteLimiter, productsAuthMiddleware, (req, res) => {
     const token = getQrAccessToken(req);
     const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
     res.send(`<!DOCTYPE html>
