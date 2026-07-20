@@ -188,7 +188,7 @@ function saveJsonFile(filePath, value) {
     }
 }
 
-const DEFAULT_CSV = 'ID,Category,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvailable,PolePrice,InstallationFee';
+const DEFAULT_CSV = 'ID,Category,Subcategory,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvailable,PolePrice,InstallationFee';
 
 function loadProducts() {
     const results = [];
@@ -228,9 +228,11 @@ function findProductsByKeyword(text) {
         .map((product) => {
             const name = normalizeSearchText(product.Name);
             const category = normalizeSearchText(product.Category);
+            const subcategory = normalizeSearchText(product.Subcategory);
             const detail = normalizeSearchText([
                 product.Name,
                 product.Category,
+                product.Subcategory,
                 product.Size,
                 product.Finish,
                 product.SingleOrDoubleSided
@@ -239,16 +241,19 @@ function findProductsByKeyword(text) {
             let score = 0;
             if (name && normalized.includes(name)) score += 18;
             if (name && name.includes(normalized)) score += 14;
+            if (subcategory && subcategory.includes(normalized)) score += 12;
             if (category && category.includes(normalized)) score += 10;
             if (detail.includes(normalized)) score += 8;
 
             const nameMatches = searchWords.filter((word) => name.includes(word)).length;
+            const subcategoryMatches = searchWords.filter((word) => subcategory.includes(word)).length;
             const categoryMatches = searchWords.filter((word) => category.includes(word)).length;
             const detailMatches = searchWords.filter((word) => detail.includes(word)).length;
 
             score += nameMatches * 5;
+            score += subcategoryMatches * 4;
             score += categoryMatches * 3;
-            score += Math.max(0, detailMatches - nameMatches - categoryMatches);
+            score += Math.max(0, detailMatches - nameMatches - subcategoryMatches - categoryMatches);
 
             if (searchWords.length > 0 && searchWords.every((word) => name.includes(word))) score += 8;
             if (searchWords.length > 1 && searchWords.every((word) => detail.includes(word))) score += 4;
@@ -260,6 +265,10 @@ function findProductsByKeyword(text) {
             if (b.score !== a.score) return b.score - a.score;
             const nameCompare = String(a.product.Name || '').localeCompare(String(b.product.Name || ''));
             if (nameCompare !== 0) return nameCompare;
+            // Within same product name, sort by price ascending (lowest first)
+            const priceA = a.product.PriceType === 'sqm' ? toNumber(a.product.PricePerSqm) : toNumber(a.product.FixedPrice);
+            const priceB = b.product.PriceType === 'sqm' ? toNumber(b.product.PricePerSqm) : toNumber(b.product.FixedPrice);
+            if (priceA !== priceB) return priceA - priceB;
             return String(a.product.ID || '').localeCompare(String(b.product.ID || ''));
         })
         .map(({ product }) => product);
@@ -358,20 +367,17 @@ function buildProductListText() {
 }
 
 function buildProductOptionSummary(product, index) {
-    const details = [];
-    if (product.Size) details.push(product.Size.trim());
-    if (product.Finish) details.push(product.Finish.trim());
-    if (product.SingleOrDoubleSided) details.push(product.SingleOrDoubleSided.trim());
-    if (product.PriceType !== 'sqm' && product.UnitsPerProduct) details.push(`${product.UnitsPerProduct.trim()} units`);
-
     const pricing = product.PriceType === 'sqm'
         ? `${formatCurrency(product.PricePerSqm)}/m²${toNumber(product.MinPrice) > 0 ? ` (min ${formatCurrency(product.MinPrice)})` : ''}`
         : formatCurrency(product.FixedPrice);
 
-    const parts = [`${index + 1}) *${String(product.Name || '').trim()}*`];
-    if (details.length > 0) parts.push(details.join(' • '));
-    parts.push(pricing);
-    return parts.join(' — ');
+    const qualifier = [];
+    if (product.Size && product.Size.trim()) qualifier.push(product.Size.trim());
+    if (product.PriceType !== 'sqm' && product.UnitsPerProduct && product.UnitsPerProduct.trim()) qualifier.push(`${product.UnitsPerProduct.trim()} units`);
+
+    const name = String(product.Name || '').trim();
+    const displayName = qualifier.length > 0 ? `${name} (${qualifier.join(', ')})` : name;
+    return `${index + 1}. ${displayName} - ${pricing}`;
 }
 
 function buildProductMatchesText(matches, intro, outro) {
@@ -1439,34 +1445,32 @@ async function startBot() {
 
                     if (text.startsWith('products ')) {
                     const catName = rawText.substring(9).trim();
-                    const catProducts = products.filter((p) => p.Category.toLowerCase() === catName.toLowerCase());
+                    const catProducts = products.filter((p) => p.Category.toLowerCase().trim() === catName.toLowerCase().trim() ||
+                        (p.Subcategory && p.Subcategory.toLowerCase().trim() === catName.toLowerCase().trim()));
                     if (catProducts.length === 0) {
                             await sock.sendMessage(jid, { text: `❓ Category "${catName}" not found. Type *menu* to see categories.` });
                             continue;
                     }
 
-                    let reply = `*${catName} Products:*\n\n`;
-                    catProducts.forEach((p) => {
-                        if (p.PriceType === 'sqm') {
-                            reply += `*ID ${p.ID}*: ${p.Name}\n`;
-                            if (p.Size) reply += `  📏 Size: ${p.Size}\n`;
-                            if (p.Finish) reply += `  ✨ Finish: ${p.Finish}\n`;
-                            if (p.SingleOrDoubleSided) reply += `  ↔️ Sides: ${p.SingleOrDoubleSided}\n`;
-                            if (p.UnitsPerProduct) reply += `  📦 Units per product: ${p.UnitsPerProduct}\n`;
-                            reply += `  📐 ${formatCurrency(p.PricePerSqm)}/m² (min ${formatCurrency(p.MinPrice)})\n`;
-                            if (toNumber(p.DesignFee) > 0) reply += `  🎨 Design fee: ${formatCurrency(p.DesignFee)}\n`;
-                            if (p.PolesAvailable === 'yes') reply += `  🪧 Poles: ${formatCurrency(p.PolePrice)}/pole\n`;
-                            if (toNumber(p.InstallationFee) > 0) reply += `  🔧 Installation: ${formatCurrency(p.InstallationFee)}\n`;
-                        } else {
-                            reply += `*ID ${p.ID}*: ${p.Name} — ${formatCurrency(p.FixedPrice)}\n`;
-                            if (p.Size) reply += `  📏 Size: ${p.Size}\n`;
-                            if (p.Finish) reply += `  ✨ Finish: ${p.Finish}\n`;
-                            if (p.SingleOrDoubleSided) reply += `  ↔️ Sides: ${p.SingleOrDoubleSided}\n`;
-                            if (p.UnitsPerProduct) reply += `  📦 Units per product: ${p.UnitsPerProduct}\n`;
-                        }
-                        reply += '\n';
+                    // Sort by price ascending (lowest first)
+                    const sorted = [...catProducts].sort((a, b) => {
+                        const priceA = a.PriceType === 'sqm' ? toNumber(a.PricePerSqm) : toNumber(a.FixedPrice);
+                        const priceB = b.PriceType === 'sqm' ? toNumber(b.PricePerSqm) : toNumber(b.FixedPrice);
+                        return priceA - priceB;
                     });
-                    reply += `Type *buy [ID]* to order.\ne.g. _buy ${catProducts[0].ID}_`;
+
+                    let reply = `*${catName} Products:*\n\n`;
+                    sorted.forEach((p, i) => {
+                        const qualifier = [];
+                        if (p.Size && p.Size.trim()) qualifier.push(p.Size.trim());
+                        if (p.PriceType !== 'sqm' && p.UnitsPerProduct && p.UnitsPerProduct.trim()) qualifier.push(`${p.UnitsPerProduct.trim()} units`);
+                        const displayName = qualifier.length > 0 ? `${p.Name.trim()} (${qualifier.join(', ')})` : p.Name.trim();
+                        const pricing = p.PriceType === 'sqm'
+                            ? `${formatCurrency(p.PricePerSqm)}/m²${toNumber(p.MinPrice) > 0 ? ` (min ${formatCurrency(p.MinPrice)})` : ''}`
+                            : formatCurrency(p.FixedPrice);
+                        reply += `${i + 1}. ${displayName} - ${pricing} [ID: ${p.ID}]\n`;
+                    });
+                    reply += `\nType *buy [ID]* to order.\ne.g. _buy ${sorted[0].ID}_`;
                         await sock.sendMessage(jid, { text: reply });
                         continue;
                     }
