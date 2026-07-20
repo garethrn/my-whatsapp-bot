@@ -189,8 +189,8 @@ function saveJsonFile(filePath, value) {
     }
 }
 
-const DEFAULT_CSV = 'ID,Category,Subcategory,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvailable,PolePrice,InstallationFee';
-const CSV_SAMPLE_ROW = '1,Paper Printing,Business Cards,Business Cards 300GSM,Standard 90x55mm,Semi Gloss,Single sided,100,fixed,,R120.00,,0,no,,0';
+const DEFAULT_CSV = 'ID,Category,Subcategory,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvailable,PolePrice,InstallationFee,Aliases';
+const CSV_SAMPLE_ROW = '1,Paper Printing,Business Cards,Business Cards 300GSM,Standard 90x55mm,Semi Gloss,Single sided,100,fixed,,R120.00,,0,no,,0,visiting cards|biz cards';
 
 function loadProducts() {
     const results = [];
@@ -231,13 +231,15 @@ function findProductsByKeyword(text) {
             const name = normalizeSearchText(product.Name);
             const category = normalizeSearchText(product.Category);
             const subcategory = normalizeSearchText(product.Subcategory);
+            const aliases = normalizeSearchText(product.Aliases || '');
             const detail = normalizeSearchText([
                 product.Name,
                 product.Category,
                 product.Subcategory,
                 product.Size,
                 product.Finish,
-                product.SingleOrDoubleSided
+                product.SingleOrDoubleSided,
+                product.Aliases
             ].join(' '));
 
             let score = 0;
@@ -245,17 +247,20 @@ function findProductsByKeyword(text) {
             if (name && name.includes(normalized)) score += 14;
             if (subcategory && subcategory.includes(normalized)) score += 12;
             if (category && category.includes(normalized)) score += 10;
+            if (aliases && aliases.includes(normalized)) score += 14;
             if (detail.includes(normalized)) score += 8;
 
             const nameMatches = searchWords.filter((word) => name.includes(word)).length;
             const subcategoryMatches = searchWords.filter((word) => subcategory.includes(word)).length;
             const categoryMatches = searchWords.filter((word) => category.includes(word)).length;
+            const aliasMatches = aliases ? searchWords.filter((word) => aliases.includes(word)).length : 0;
             const detailMatches = searchWords.filter((word) => detail.includes(word)).length;
 
             score += nameMatches * 5;
             score += subcategoryMatches * 4;
             score += categoryMatches * 3;
-            score += Math.max(0, detailMatches - nameMatches - subcategoryMatches - categoryMatches);
+            score += aliasMatches * 5;
+            score += Math.max(0, detailMatches - nameMatches - subcategoryMatches - categoryMatches - aliasMatches);
 
             if (searchWords.length > 0 && searchWords.every((word) => name.includes(word))) score += 8;
             if (searchWords.length > 1 && searchWords.every((word) => detail.includes(word))) score += 4;
@@ -1128,12 +1133,8 @@ async function startBot() {
                         continue;
                     }
 
-                    const total = sqmPrice + designFee;
-                    pendingItem.total = total;
-                    if (!userCarts[jid]) userCarts[jid] = [];
-                    userCarts[jid].push(pendingItem);
-                    userStates[jid] = { step: 'idle' };
-                    reply += `\n*Total: ${formatCurrency(total)}*\n✅ Added to cart! Type *cart* to view it or *checkout* when you are ready.`;
+                    userStates[jid] = { step: 'awaiting_sqm_quantity', pendingProduct: product, pendingItem };
+                    reply += `\n${getQuantityPrompt(product)}\n\nType *cancel* to go back.`;
                         await sock.sendMessage(jid, { text: reply });
                         continue;
                     }
@@ -1157,12 +1158,9 @@ async function startBot() {
                             continue;
                         }
                         const item = userState.pendingItem;
-                        item.total = item.sqmPrice + item.designFee;
-                        if (!userCarts[jid]) userCarts[jid] = [];
-                        userCarts[jid].push(item);
-                        userStates[jid] = { step: 'idle' };
+                        userStates[jid] = { step: 'awaiting_sqm_quantity', pendingProduct: userState.pendingProduct, pendingItem: item };
                         await sock.sendMessage(jid, {
-                            text: `✅ Added to cart! *Total: ${formatCurrency(item.total)}*\nType *cart* to view it or *checkout* to order.`
+                            text: getQuantityPrompt(userState.pendingProduct) + '\n\nType *cancel* to go back.'
                         });
                         continue;
                     }
@@ -1189,13 +1187,9 @@ async function startBot() {
                         });
                         continue;
                     }
-                    const total = updatedItem.sqmPrice + updatedItem.designFee + polesCost;
-                    updatedItem.total = total;
-                    if (!userCarts[jid]) userCarts[jid] = [];
-                    userCarts[jid].push(updatedItem);
-                    userStates[jid] = { step: 'idle' };
+                    userStates[jid] = { step: 'awaiting_sqm_quantity', pendingProduct: userState.pendingProduct, pendingItem: updatedItem };
                         await sock.sendMessage(jid, {
-                        text: `✅ Added to cart! *Total: ${formatCurrency(total)}*\nType *cart* to view it or *checkout* to order.`
+                        text: `${count} pole(s) added: ${formatCurrency(polesCost)}\n\n${getQuantityPrompt(userState.pendingProduct)}\n\nType *cancel* to go back.`
                     });
                         continue;
                     }
@@ -1205,16 +1199,60 @@ async function startBot() {
                     if (text === 'yes' || text === 'no') {
                         const item = userState.pendingItem;
                         item.installationFee = text === 'yes' ? toNumber(userState.pendingProduct.InstallationFee) : 0;
-                        item.total = item.sqmPrice + item.designFee + item.polesCost + item.installationFee;
-                        if (!userCarts[jid]) userCarts[jid] = [];
-                        userCarts[jid].push(item);
-                        userStates[jid] = { step: 'idle' };
+                        userStates[jid] = { step: 'awaiting_sqm_quantity', pendingProduct: userState.pendingProduct, pendingItem: item };
                         await sock.sendMessage(jid, {
-                            text: `✅ Added to cart! *Total: ${formatCurrency(item.total)}*\nType *cart* to view it or *checkout* to order.`
+                            text: getQuantityPrompt(userState.pendingProduct) + '\n\nType *cancel* to go back.'
                         });
                         continue;
                     }
                         await sock.sendMessage(jid, { text: 'Please reply *yes* or *no*.' });
+                        continue;
+                    }
+
+                // ── State: awaiting_sqm_quantity ────────────────────────────────────
+                    if (userState.step === 'awaiting_sqm_quantity') {
+                        const product = userState.pendingProduct;
+                        const item = userState.pendingItem;
+                        const qty = extractQuantityFromText(text);
+                        if (!qty) {
+                            await sock.sendMessage(jid, { text: `${getQuantityValidationPrompt(product)} Type *cancel* to go back.` });
+                            continue;
+                        }
+                        item.qty = qty;
+                        item.total = (item.sqmPrice * qty) + item.designFee + item.polesCost + item.installationFee;
+                        if (!userCarts[jid]) userCarts[jid] = [];
+                        userCarts[jid].push(item);
+                        userStates[jid] = { step: 'idle' };
+                        await sock.sendMessage(jid, {
+                            text: `✅ Added ${qty.toLocaleString()} × *${product.Name}* to your cart! *Total: ${formatCurrency(item.total)}*\nType *cart* to view it or *checkout* to order.`
+                        });
+                        continue;
+                    }
+
+                // ── State: awaiting_buy_quantity ─────────────────────────────────────
+                    if (userState.step === 'awaiting_buy_quantity') {
+                        const product = userState.pendingProduct;
+                        const qty = extractQuantityFromText(text);
+                        if (!qty) {
+                            await sock.sendMessage(jid, { text: `${getQuantityValidationPrompt(product)} Type *cancel* to go back.` });
+                            continue;
+                        }
+                        const total = calcFixedQuoteForQty(product, getPricedQuantity(product, qty));
+                        if (!userCarts[jid]) userCarts[jid] = [];
+                        userCarts[jid].push({
+                            name: product.Name,
+                            sqmPrice: toNumber(product.FixedPrice),
+                            designFee: 0,
+                            polesCost: 0,
+                            poles: 0,
+                            installationFee: 0,
+                            total,
+                            qty
+                        });
+                        userStates[jid] = { step: 'idle' };
+                        await sock.sendMessage(jid, {
+                            text: `✅ Added ${qty.toLocaleString()} × *${product.Name}* to your cart! *Total: ${formatCurrency(total)}*\nType *cart* to view it or *checkout* when you are ready.`
+                        });
                         continue;
                     }
 
@@ -1501,24 +1539,32 @@ async function startBot() {
                     }
 
                     const price = toNumber(product.FixedPrice);
-                    const qty = parseInt(parts[2] || '1', 10);
-                    if (Number.isNaN(qty) || qty < 1) {
-                            await sock.sendMessage(jid, { text: 'Please enter a valid quantity, for example _buy 12 2_.' });
+                    if (parts.length > 2) {
+                        const qty = parseInt(parts[2], 10);
+                        if (Number.isNaN(qty) || qty < 1) {
+                                await sock.sendMessage(jid, { text: 'Please enter a valid quantity, for example _buy 12 2_.' });
+                                continue;
+                        }
+                        const total = calcFixedQuoteForQty(product, getPricedQuantity(product, qty));
+                        if (!userCarts[jid]) userCarts[jid] = [];
+                        userCarts[jid].push({
+                            name: product.Name,
+                            sqmPrice: price,
+                            designFee: 0,
+                            polesCost: 0,
+                            poles: 0,
+                            installationFee: 0,
+                            total,
+                            qty
+                        });
+                            await sock.sendMessage(jid, {
+                            text: `✅ Added ${qty.toLocaleString()} × *${product.Name}* @ ${formatCurrency(price)} each.\nType *cart* to view it or *checkout* when you are ready.`
+                        });
                             continue;
                     }
-                    if (!userCarts[jid]) userCarts[jid] = [];
-                    userCarts[jid].push({
-                        name: product.Name,
-                        sqmPrice: price,
-                        designFee: 0,
-                        polesCost: 0,
-                        poles: 0,
-                        installationFee: 0,
-                        total: price * qty,
-                        qty
-                    });
+                    userStates[jid] = { step: 'awaiting_buy_quantity', pendingProduct: product };
                         await sock.sendMessage(jid, {
-                        text: `✅ Added ${qty} × *${product.Name}* @ ${formatCurrency(price)} each.\nType *cart* to view it or *checkout* when you are ready.`
+                        text: `*${product.Name}*\nPrice: ${formatCurrency(price)} per unit\n\n${getQuantityPrompt(product)}\n\nType *cancel* to go back.`
                     });
                         continue;
                     }
