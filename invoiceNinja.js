@@ -123,7 +123,7 @@ function cartToLineItems(cart) {
         const label = item.dimensions ? `${item.name} (${item.dimensions})` : item.name;
         const qty = item.qty || 1;
         // sqmPrice is the total material cost for the item; derive the unit cost
-        const unitCost = qty > 1 ? parseFloat((item.sqmPrice / qty).toFixed(4)) : parseFloat((item.sqmPrice || 0).toFixed(4));
+        const unitCost = parseFloat(((item.sqmPrice || 0) / qty).toFixed(4));
 
         lines.push({
             product_key: item.name,

@@ -488,7 +488,7 @@ function buildOrderSummary(cart, options = {}) {
         if (item.dimensions) summary += ` (${item.dimensions})`;
         if (item.qty > 1) summary += ` ×${item.qty}`;
         summary += '\n';
-        summary += `   Material: ${formatCurrency((item.sqmPrice || 0) * (item.qty || 1))}\n`;
+        summary += `   Material: ${formatCurrency(item.total - (item.designFee || 0) - (item.polesCost || 0) - (item.installationFee || 0))}\n`;
         if (item.designFee > 0) summary += `   Design/Layout Fee: ${formatCurrency(item.designFee)}\n`;
         if (item.polesCost > 0) summary += `   Poles (×${item.poles}): ${formatCurrency(item.polesCost)}\n`;
         if (item.installationFee > 0) summary += `   Installation: ${formatCurrency(item.installationFee)}\n`;
@@ -1112,6 +1112,8 @@ async function startBot() {
                     const pendingItem = {
                         name: product.Name,
                         dimensions: `${dims.length}×${dims.height}mm`,
+                        dimLength: dims.length,
+                        dimHeight: dims.height,
                         sqmPrice,
                         designFee,
                         polesCost: 0,
@@ -1219,7 +1221,15 @@ async function startBot() {
                             continue;
                         }
                         item.qty = qty;
-                        item.total = (item.sqmPrice * qty) + item.designFee + item.polesCost + item.installationFee;
+                        const labelProfile = getProductQuantityProfile(product);
+                        if (labelProfile.mode === 'labels' && item.dimLength && item.dimHeight) {
+                            // For labels: total area = L × B × Qty; apply min price to the full order
+                            const totalSqm = (item.dimLength / MM_PER_METER) * (item.dimHeight / MM_PER_METER) * qty;
+                            item.sqmPrice = Math.max(totalSqm * toNumber(product.PricePerSqm), toNumber(product.MinPrice));
+                            item.total = item.sqmPrice + item.designFee + item.polesCost + item.installationFee;
+                        } else {
+                            item.total = (item.sqmPrice * qty) + item.designFee + item.polesCost + item.installationFee;
+                        }
                         if (!userCarts[jid]) userCarts[jid] = [];
                         userCarts[jid].push(item);
                         userStates[jid] = { step: 'idle' };
