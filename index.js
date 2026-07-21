@@ -279,8 +279,27 @@ function findProductsByKeyword(text) {
             const priceB = b.product.PriceType === 'sqm' ? toNumber(b.product.PricePerSqm) : toNumber(b.product.FixedPrice);
             if (priceA !== priceB) return priceA - priceB;
             return String(a.product.ID || '').localeCompare(String(b.product.ID || ''));
-        })
-        .map(({ product }) => product);
+        });
+
+    // If the top result's subcategory contains every word of the search query,
+    // narrow the results to that subcategory only to avoid showing unrelated products.
+    if (scored.length > 0) {
+        const topSubcat = scored[0].product.Subcategory;
+        if (topSubcat) {
+            const topSubcatWords = normalizeSearchText(topSubcat).split(' ').filter(Boolean);
+            if (topSubcatWords.length > 0 && topSubcatWords.every((w) => normalized.includes(w))) {
+                const subcatNorm = topSubcat.toLowerCase().trim();
+                const subcatFiltered = scored.filter(({ product }) =>
+                    (product.Subcategory || '').toLowerCase().trim() === subcatNorm
+                );
+                if (subcatFiltered.length > 0 && subcatFiltered.length < scored.length) {
+                    return subcatFiltered.map(({ product }) => product);
+                }
+            }
+        }
+    }
+
+    return scored.map(({ product }) => product);
 }
 
 function extractQuantityFromText(text) {
@@ -354,7 +373,7 @@ function buildQuoteText(product, requestedQty, total) {
         quoteText = `💰 *Quote for ${requestedQty.toLocaleString()} ${pluralizeWord(profile.baseUnit, requestedQty)} of ${product.Name}*\n`;
     }
 
-    quoteText += `Estimated total: *${formatCurrency(total)}* (incl. VAT, excl. delivery)\n\nWould you like to add this to your cart? Reply *yes* or *no*.\n\n– ${BUSINESS_NAME} Team`;
+    quoteText += `Estimated total: *${formatCurrency(total)}* (incl. VAT, excl. delivery)\n\n1. Yes – add to cart\n2. No – cancel\n\n– ${BUSINESS_NAME} Team`;
     return quoteText;
 }
 
@@ -423,6 +442,41 @@ function buildProductMatchesText(matches, intro, outro) {
 
 function getCategories() {
     return [...new Set(products.map((p) => p.Category))];
+}
+
+function getSubcategories(categoryName) {
+    return [...new Set(
+        products
+            .filter((p) => p.Category.toLowerCase().trim() === categoryName.toLowerCase().trim())
+            .map((p) => p.Subcategory)
+            .filter(Boolean)
+    )];
+}
+
+function buildSubcategoryMenuText(categoryName, subcategories) {
+    let reply = `*${categoryName.trim()} – Choose a subcategory:*\n\n`;
+    subcategories.forEach((sub, i) => {
+        reply += `${i + 1}. ${sub.trim()}\n`;
+    });
+    reply += '\nReply with a *number* to see products in that subcategory.';
+    reply += '\nType *menu* to go back to categories.';
+    return reply;
+}
+
+function buildSubcategoryProductListText(subcategoryName, sortedProducts) {
+    let reply = `*${subcategoryName.trim()} Products:*\n\n`;
+    sortedProducts.forEach((p, i) => {
+        const qualifier = [];
+        if (p.Size && p.Size.trim()) qualifier.push(p.Size.trim());
+        if (p.PriceType !== 'sqm' && p.UnitsPerProduct && p.UnitsPerProduct.trim()) qualifier.push(`${p.UnitsPerProduct.trim()} units`);
+        const displayName = qualifier.length > 0 ? `${p.Name.trim()} (${qualifier.join(', ')})` : p.Name.trim();
+        const pricing = p.PriceType === 'sqm'
+            ? `${formatCurrency(p.PricePerSqm)}/m²${toNumber(p.MinPrice) > 0 ? ` (min ${formatCurrency(p.MinPrice)})` : ''}`
+            : formatCurrency(p.FixedPrice);
+        reply += `${i + 1}. ${displayName} - ${pricing} [ID: ${p.ID}]\n`;
+    });
+    reply += `\nType *buy [ID]* to order.\ne.g. _buy ${sortedProducts[0].ID}_`;
+    return reply;
 }
 
 function toNumber(value, fallback = 0) {
@@ -773,7 +827,7 @@ async function requestHumanHandoverConfirmation(sock, jid, reason) {
     };
 
     await sock.sendMessage(jid, {
-        text: `🤝 I can ask a ${BUSINESS_NAME} team member to take over.\nIf you confirm, I will pause my automated replies so a person can assist you.\n\nReply *yes* to confirm or *no* to keep chatting with me.`
+        text: `🤝 I can ask a ${BUSINESS_NAME} team member to take over.\nIf you confirm, I will pause my automated replies so a person can assist you.\n\n1. Yes – hand over to a team member\n2. No – keep chatting with me`
     });
 }
 
@@ -1135,9 +1189,16 @@ async function startBot() {
                             selectedCat = categories.find((c) => normalizeText(c) === normalizeText(text)) || null;
                         }
                         if (selectedCat) {
+                            const subcategories = getSubcategories(selectedCat);
+                            if (subcategories.length > 1) {
+                                // Show subcategory menu first
+                                userStates[jid] = { step: 'awaiting_subcategory_selection', pendingCategory: selectedCat, pendingSubcategories: subcategories };
+                                await sock.sendMessage(jid, { text: buildSubcategoryMenuText(selectedCat, subcategories) });
+                                continue;
+                            }
+                            // Only one subcategory (or none) — go straight to products
                             const catProducts = products.filter((p) =>
-                                p.Category.toLowerCase().trim() === selectedCat.toLowerCase().trim() ||
-                                (p.Subcategory && p.Subcategory.toLowerCase().trim() === selectedCat.toLowerCase().trim())
+                                p.Category.toLowerCase().trim() === selectedCat.toLowerCase().trim()
                             );
                             if (catProducts.length === 0) {
                                 await sock.sendMessage(jid, { text: `❓ No products found in "${selectedCat}". Type *menu* to try again.` });
@@ -1149,38 +1210,59 @@ async function startBot() {
                                 const priceB = b.PriceType === 'sqm' ? toNumber(b.PricePerSqm) : toNumber(b.FixedPrice);
                                 return priceA - priceB;
                             });
-                            let catReply = `*${selectedCat} Products:*\n\n`;
-                            sorted.forEach((p, i) => {
-                                const qualifier = [];
-                                if (p.Size && p.Size.trim()) qualifier.push(p.Size.trim());
-                                if (p.PriceType !== 'sqm' && p.UnitsPerProduct && p.UnitsPerProduct.trim()) qualifier.push(`${p.UnitsPerProduct.trim()} units`);
-                                const displayName = qualifier.length > 0 ? `${p.Name.trim()} (${qualifier.join(', ')})` : p.Name.trim();
-                                const pricing = p.PriceType === 'sqm'
-                                    ? `${formatCurrency(p.PricePerSqm)}/m²${toNumber(p.MinPrice) > 0 ? ` (min ${formatCurrency(p.MinPrice)})` : ''}`
-                                    : formatCurrency(p.FixedPrice);
-                                catReply += `${i + 1}. ${displayName} - ${pricing} [ID: ${p.ID}]\n`;
-                            });
-                            catReply += `\nType *buy [ID]* to order.\ne.g. _buy ${sorted[0].ID}_`;
                             userStates[jid] = { step: 'idle' };
-                            await sock.sendMessage(jid, { text: catReply });
+                            await sock.sendMessage(jid, { text: buildSubcategoryProductListText(selectedCat, sorted) });
                             continue;
                         }
                         // Input doesn't match a category number or name — reset and fall through to normal processing
                         userStates[jid] = { step: 'idle' };
                     }
 
+                // ── State: awaiting_subcategory_selection ──────────────────────────
+                    if (userState.step === 'awaiting_subcategory_selection') {
+                        const subcategories = userState.pendingSubcategories || [];
+                        const subIdx = parseInt(text, 10) - 1;
+                        let selectedSub = null;
+                        if (!Number.isNaN(subIdx) && subIdx >= 0 && subIdx < subcategories.length) {
+                            selectedSub = subcategories[subIdx];
+                        } else {
+                            selectedSub = subcategories.find((s) => normalizeText(s) === normalizeText(text)) || null;
+                        }
+                        if (selectedSub) {
+                            const subProducts = products.filter((p) =>
+                                (p.Subcategory || '').toLowerCase().trim() === selectedSub.toLowerCase().trim()
+                            );
+                            if (subProducts.length === 0) {
+                                await sock.sendMessage(jid, { text: `❓ No products found in "${selectedSub}". Type *menu* to try again.` });
+                                userStates[jid] = { step: 'idle' };
+                                continue;
+                            }
+                            const sorted = [...subProducts].sort((a, b) => {
+                                const priceA = a.PriceType === 'sqm' ? toNumber(a.PricePerSqm) : toNumber(a.FixedPrice);
+                                const priceB = b.PriceType === 'sqm' ? toNumber(b.PricePerSqm) : toNumber(b.FixedPrice);
+                                return priceA - priceB;
+                            });
+                            userStates[jid] = { step: 'idle' };
+                            await sock.sendMessage(jid, { text: buildSubcategoryProductListText(selectedSub, sorted) });
+                            continue;
+                        }
+                        // Invalid input — re-show the subcategory menu
+                        await sock.sendMessage(jid, { text: `Please reply with a number between 1 and ${subcategories.length}.\n\n${buildSubcategoryMenuText(userState.pendingCategory, subcategories)}` });
+                        continue;
+                    }
+
                 // ── State: awaiting_handover_confirmation ─────────────────────────────
                     if (userState.step === 'awaiting_handover_confirmation') {
-                        if (['yes', 'y', 'confirm', 'ok', 'okay', 'please do'].includes(text)) {
+                        if (text === '1' || ['yes', 'y', 'confirm', 'ok', 'okay', 'please do'].includes(text)) {
                             await activateHumanHandover(sock, jid, userState.pendingHandoverReason || rawText);
                             continue;
                         }
-                        if (['no', 'n', 'cancel', 'keep chatting', 'keep going'].includes(text)) {
+                        if (text === '2' || ['no', 'n', 'cancel', 'keep chatting', 'keep going'].includes(text)) {
                             userStates[jid] = { step: 'idle' };
                             await sock.sendMessage(jid, { text: `No problem 👍 I'll keep assisting you here. Tell me what product or quote you need.` });
                             continue;
                         }
-                        await sock.sendMessage(jid, { text: 'Please reply *yes* to hand over to a team member or *no* to keep chatting with me.' });
+                        await sock.sendMessage(jid, { text: 'Please reply *1* (yes, hand over) or *2* (no, keep chatting with me).' });
                         continue;
                     }
 
@@ -1239,13 +1321,13 @@ async function startBot() {
 
                     if (product.PolesAvailable === 'yes') {
                         userStates[jid] = { step: 'awaiting_poles', pendingProduct: product, pendingItem };
-                        reply += `\nWould you like to add *poles*?\nPrice per pole: ${formatCurrency(product.PolePrice)}\nReply *yes* or *no*.`;
+                        reply += `\nWould you like to add *poles*?\nPrice per pole: ${formatCurrency(product.PolePrice)}\n\n1. Yes\n2. No`;
                         await sock.sendMessage(jid, { text: reply });
                         continue;
                     }
                     if (toNumber(product.InstallationFee) > 0) {
                         userStates[jid] = { step: 'awaiting_installation', pendingProduct: product, pendingItem };
-                        reply += `\nWould you like *installation*? ${formatCurrency(product.InstallationFee)}\nReply *yes* or *no*.`;
+                        reply += `\nWould you like *installation*? ${formatCurrency(product.InstallationFee)}\n\n1. Yes\n2. No`;
                         await sock.sendMessage(jid, { text: reply });
                         continue;
                     }
@@ -1258,19 +1340,19 @@ async function startBot() {
 
                 // ── State: awaiting_poles ───────────────────────────────────────────
                     if (userState.step === 'awaiting_poles') {
-                    if (text === 'yes') {
+                    if (text === 'yes' || text === '1') {
                         userStates[jid] = { ...userState, step: 'awaiting_pole_count' };
                         await sock.sendMessage(jid, {
                             text: `How many poles do you need?\nPrice per pole: ${formatCurrency(userState.pendingProduct.PolePrice)}\n\nType *cancel* to go back.`
                         });
                         continue;
                     }
-                    if (text === 'no') {
+                    if (text === 'no' || text === '2') {
                         const instFee = toNumber(userState.pendingProduct.InstallationFee);
                         if (instFee > 0) {
                             userStates[jid] = { ...userState, step: 'awaiting_installation' };
                             await sock.sendMessage(jid, {
-                                text: `Would you like *installation*? ${formatCurrency(instFee)}\nReply *yes* or *no*.`
+                                text: `Would you like *installation*? ${formatCurrency(instFee)}\n\n1. Yes\n2. No`
                             });
                             continue;
                         }
@@ -1281,7 +1363,7 @@ async function startBot() {
                         });
                         continue;
                     }
-                        await sock.sendMessage(jid, { text: 'Please reply *yes* or *no*.' });
+                        await sock.sendMessage(jid, { text: 'Please reply *1* (yes) or *2* (no).' });
                         continue;
                     }
 
@@ -1300,7 +1382,7 @@ async function startBot() {
                     if (instFee > 0) {
                         userStates[jid] = { ...userState, step: 'awaiting_installation', pendingItem: updatedItem };
                         await sock.sendMessage(jid, {
-                            text: `${count} pole(s) added: ${formatCurrency(polesCost)}\n\nWould you like *installation*? ${formatCurrency(instFee)}\nReply *yes* or *no*.`
+                            text: `${count} pole(s) added: ${formatCurrency(polesCost)}\n\nWould you like *installation*? ${formatCurrency(instFee)}\n\n1. Yes\n2. No`
                         });
                         continue;
                     }
@@ -1313,16 +1395,16 @@ async function startBot() {
 
                 // ── State: awaiting_installation ────────────────────────────────────
                     if (userState.step === 'awaiting_installation') {
-                    if (text === 'yes' || text === 'no') {
+                    if (text === 'yes' || text === '1' || text === 'no' || text === '2') {
                         const item = userState.pendingItem;
-                        item.installationFee = text === 'yes' ? toNumber(userState.pendingProduct.InstallationFee) : 0;
+                        item.installationFee = (text === 'yes' || text === '1') ? toNumber(userState.pendingProduct.InstallationFee) : 0;
                         userStates[jid] = { step: 'awaiting_sqm_quantity', pendingProduct: userState.pendingProduct, pendingItem: item };
                         await sock.sendMessage(jid, {
                             text: getQuantityPrompt(userState.pendingProduct) + '\n\nType *cancel* to go back.'
                         });
                         continue;
                     }
-                        await sock.sendMessage(jid, { text: 'Please reply *yes* or *no*.' });
+                        await sock.sendMessage(jid, { text: 'Please reply *1* (yes) or *2* (no).' });
                         continue;
                     }
 
@@ -1518,7 +1600,7 @@ async function startBot() {
 
                 // ── State: awaiting_checkout_confirmation ───────────────────────────
                     if (userState.step === 'awaiting_checkout_confirmation') {
-                    if (['confirm', 'yes', 'submit', 'place order'].includes(text)) {
+                    if (['1', 'confirm', 'yes', 'submit', 'place order'].includes(text)) {
                         const cart = userState.pendingCart || userCarts[jid] || [];
                         if (cart.length === 0) {
                             userStates[jid] = { step: 'idle' };
@@ -1613,7 +1695,7 @@ async function startBot() {
 
                 // ── State: awaiting_quote_confirm ───────────────────────────────────
                     if (userState.step === 'awaiting_quote_confirm') {
-                        if (['yes', 'y', 'add', 'yes add', 'yeah', 'yep', 'sure'].includes(text)) {
+                        if (text === '1' || ['yes', 'y', 'add', 'yes add', 'yeah', 'yep', 'sure'].includes(text)) {
                             const product = userState.pendingProduct;
                             const qty = userState.pendingQty;
                             const materialTotal = userState.pendingTotal;
@@ -1641,12 +1723,12 @@ async function startBot() {
                             await sock.sendMessage(jid, { text: `✅ Added to your cart! *Total: ${formatCurrency(item.total)}*\n\n${buildPostCartText(userCarts[jid].length)}` });
                             continue;
                         }
-                        if (['no', 'n', 'nope', 'nah'].includes(text)) {
+                        if (text === '2' || ['no', 'n', 'nope', 'nah'].includes(text)) {
                             userStates[jid] = { step: 'idle' };
                             await sock.sendMessage(jid, { text: `No problem! Let me know if you need anything else. Type *menu* or ask for another *quote*. 😊` });
                             continue;
                         }
-                        await sock.sendMessage(jid, { text: `Please reply *yes* to add to cart or *no* to cancel.` });
+                        await sock.sendMessage(jid, { text: `Please reply *1* (yes, add to cart) or *2* (no, cancel).` });
                         continue;
                     }
 
