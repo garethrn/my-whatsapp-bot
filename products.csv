@@ -85,10 +85,10 @@ ID,Category,Subcategory,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,Pri
 84,Paper Printing,Photocopies,Photocopies Black and white ,A3 (297 x 210) mm,300gsm - Laminated ,Double Sided ,1,fixed,,R16.00,,0,no,,0
 85,Paper Printing,Photocopies,Photocopies Color ,A4 (210 x 297) mm,300gsm - Laminated ,Double Sided ,1,fixed,,R13.00,,0,no,,0
 86,Paper Printing,Photocopies,Photocopies Color ,A3 (297 x 210) mm,300gsm - Laminated ,Double Sided ,1,fixed,,R25.00,,0,no,,0
-87,Paper Printing,Bookmarks,BookMarks ,190 x 60mm,300 GSM ,Single sided ,>50,fixed,,R3.00,,120,no,,0
-88,Paper Printing,Bookmarks,BookMarks ,191 x 60mm,300 GSM,Double Sided ,>50,fixed,,R5.00,,120,no,,0
-89,Paper Printing,Bookmarks,BookMarks ,192 x 60mm,300 GSM - Laminated ,Single sided ,>50,fixed,,R4.00,,120,no,,0
-90,Paper Printing,Bookmarks,BookMarks ,193 x 60mm,300 GSM - Laminated,Double Sided ,>50,fixed,,R6.00,,120,no,,0
+87,Paper Printing,Bookmarks,Bookmarks ,190 x 60mm,300 GSM ,Single sided ,>50,fixed,,R3.00,,120,no,,0
+88,Paper Printing,Bookmarks,Bookmarks ,191 x 60mm,300 GSM,Double Sided ,>50,fixed,,R5.00,,120,no,,0
+89,Paper Printing,Bookmarks,Bookmarks ,192 x 60mm,300 GSM - Laminated ,Single sided ,>50,fixed,,R4.00,,120,no,,0
+90,Paper Printing,Bookmarks,Bookmarks ,193 x 60mm,300 GSM - Laminated,Double Sided ,>50,fixed,,R6.00,,120,no,,0
 91,Paper Printing,Folders,SRA3 Company folders ,450 x 320mm ,300GSM Semi gloss ,Single sided ,>20,fixed,,R12.00,,120,no,,0
 92,Paper Printing,Folders,SRA3 Company folders with sleeve ,450 x 320mm,300GSM Semi gloss ,Single sided ,>20,fixed,,R15.00,,120,no,,0
 93,Paper Printing,Folders,SRA3 Company folders ,450 x 320mm ,300GSM Semi gloss ,Double Sided ,>20,fixed,,R17.00,,240,no,,0
@@ -304,4 +304,4 @@ ID,Category,Subcategory,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,Pri
 303,Laser Cutting ,Cake Toppers,Cake toppers - Mirror 2 color ,A5,Gloss ,,1,fixed,,R180.00,,,,,
 304,Laser Cutting ,Cake Toppers,Cake toppers - Full color with image ,A5,Gloss ,,1,fixed,,R180.00,,,,,
 305,Laser Cutting ,MDF Cutting,3mm MDF wood cutting ,Custom,Standard,,1,,400,,,,,,
-306,Laser Cutting ,MDF Cutting,3mm MDF wood cutting & Engarving ,Custom,Standard,,1,,1200,,,,,,
+306,Laser Cutting ,MDF Cutting,3mm MDF wood cutting & Engraving ,Custom,Standard,,1,,1200,,,,,,
