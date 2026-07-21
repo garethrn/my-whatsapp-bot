@@ -40,6 +40,8 @@ const MAX_DIMENSION_MM = 50000;
 // Minimum similarity score (0-1) for a stored learned reply to be reused.
 const LEARNING_MATCH_THRESHOLD = 0.45;
 const DIMENSION_FORMAT_EXAMPLE = '1200 x 600 mm';
+const TRACKING_URL = process.env.TRACKING_URL || 'https://www.trackyourparcel.co.za';
+const OWN_DESIGN_DISCLAIMER = 'If the supplied design is incorrect, unusable, or the layout requires changes, design/layout fees will apply.';
 const ARTWORK_DISCLAIMER = [
     'Artwork Disclaimer',
     '',
@@ -358,11 +360,36 @@ function buildQuoteText(product, requestedQty, total) {
 
 function greetUser(jid) {
     const name = userNames[jid];
-    return name ? `Hi ${name}! 👋` : 'Hi there! 👋';
+    return name ? `Hi there ${name}! 👋` : 'Hi there! 👋';
 }
 
 function buildWelcomeText(jid) {
-    return `${greetUser(jid)} Welcome to *${BUSINESS_NAME}* 🖨️\nHow can I help with your printing today – quotes, orders, or info?\n\nSend *menu* to browse our products, or just tell me what you need! 😊`;
+    return [
+        greetUser(jid),
+        `Thank you for contacting *${BUSINESS_NAME}*. I'm AutoBot, your virtual assistant. Let me know how I can assist you today:`,
+        '',
+        '1. Place a new order',
+        '2. Product List',
+        '3. Track My Order',
+        '4. Store Contact Details',
+        '',
+        'Reply with the number of your choice.'
+    ].join('\n');
+}
+
+function buildContactDetailsText() {
+    return [
+        `📍 *${BUSINESS_NAME}*`,
+        '62 Naidoo Rd,',
+        'Raisethorpe,',
+        'Pietermaritzburg, 3201',
+        '',
+        '📞 Telephone: 033 811 5277'
+    ].join('\n');
+}
+
+function buildTrackingText() {
+    return `🔍 *Track Your Order*\n\nYou can track your order using the link below:\n${TRACKING_URL}\n\nIf you need further assistance, type *human* to speak with a team member or *4* for our store contact details.\n\n– ${BUSINESS_NAME} Team`;
 }
 
 function buildProductListText() {
@@ -437,12 +464,12 @@ function buildMenuText() {
         return '⏳ The product catalogue is still loading. Please send *menu* again in a moment.';
     }
 
-    let reply = '*Welcome! 👋 Our Product Categories:*\n\n';
+    let reply = '*📋 Our Product Categories:*\n\n';
     categories.forEach((cat, i) => {
         reply += `${i + 1}. ${cat}\n`;
     });
-    reply += '\nType *products [category]* to browse a category\ne.g. _products Signs_';
-    reply += '\nType *buy [ID]* to order an item';
+    reply += '\nReply with a *number* to browse that category.';
+    reply += '\nType *buy [ID]* to order an item directly';
     reply += '\nType *cart* to review your basket';
     reply += '\nType *human* if you would like a team member to take over.';
     return reply;
@@ -459,6 +486,17 @@ function buildHelpText() {
         '- Send *cart* to see your basket',
         '- Send *checkout* to review your total and confirm the order',
         '- Send *human* any time if you want a person to take over'
+    ].join('\n');
+}
+
+function buildPostCartText(cartCount) {
+    return [
+        `You now have ${cartCount} item(s) in your cart.`,
+        '',
+        'Would you like to:',
+        '1. Add more items',
+        '2. View cart',
+        '3. Checkout'
     ].join('\n');
 }
 
@@ -1033,18 +1071,19 @@ async function startBot() {
 
                 // Cancel / escape from any mid-flow state
                     if (text === 'cancel' || text === 'menu' || /^(hello|hi|hey)\b/.test(text)) {
-                        if (userState.step !== 'idle') {
-                            userStates[jid] = { step: 'idle' };
-                        }
                         if (text === 'cancel') {
+                            userStates[jid] = { step: 'idle' };
                             await sock.sendMessage(jid, { text: '❌ Cancelled. Type *menu* to start over.' });
                             continue;
                         }
                         if (/^(hello|hi|hey)\b/.test(text)) {
                             fallbackCounts[jid] = 0;
+                            userStates[jid] = { step: 'awaiting_main_menu' };
                             await sock.sendMessage(jid, { text: buildWelcomeText(jid) });
                             continue;
                         }
+                        // menu
+                        userStates[jid] = { step: 'awaiting_category_selection' };
                         await sock.sendMessage(jid, { text: buildMenuText() });
                         continue;
                     }
@@ -1052,6 +1091,82 @@ async function startBot() {
                     if (text === 'help') {
                         await sock.sendMessage(jid, { text: buildHelpText() });
                         continue;
+                    }
+
+                // ── State: awaiting_main_menu ──────────────────────────────────────
+                    if (userState.step === 'awaiting_main_menu') {
+                        if (text === '1' || /place.*(new\s+)?order|new order/.test(text)) {
+                            userStates[jid] = { step: 'awaiting_quote_product' };
+                            await sock.sendMessage(jid, {
+                                text: `Tell us what you require and I'll find the closest options for you.\n\nFor example: _banners_, _flyers_, _business cards_, _vehicle graphics_\n\nOr type *menu* to browse our full product catalogue.`
+                            });
+                            continue;
+                        }
+                        if (text === '2' || /product\s*list|catalogue|browse|products/.test(text)) {
+                            userStates[jid] = { step: 'awaiting_category_selection' };
+                            await sock.sendMessage(jid, { text: buildMenuText() });
+                            continue;
+                        }
+                        if (text === '3' || /track|my order/.test(text)) {
+                            userStates[jid] = { step: 'idle' };
+                            await sock.sendMessage(jid, { text: buildTrackingText() });
+                            continue;
+                        }
+                        if (text === '4' || /contact|address|store|location|phone|telephone/.test(text)) {
+                            userStates[jid] = { step: 'idle' };
+                            await sock.sendMessage(jid, { text: buildContactDetailsText() });
+                            continue;
+                        }
+                        await sock.sendMessage(jid, {
+                            text: 'Please reply with a number:\n\n1. Place a new order\n2. Product List\n3. Track My Order\n4. Store Contact Details'
+                        });
+                        continue;
+                    }
+
+                // ── State: awaiting_category_selection ─────────────────────────────
+                    if (userState.step === 'awaiting_category_selection') {
+                        const categories = getCategories();
+                        const catIdx = parseInt(text, 10) - 1;
+                        let selectedCat = null;
+                        if (!Number.isNaN(catIdx) && catIdx >= 0 && catIdx < categories.length) {
+                            selectedCat = categories[catIdx];
+                        } else {
+                            // try matching by name
+                            selectedCat = categories.find((c) => normalizeText(c) === normalizeText(text)) || null;
+                        }
+                        if (selectedCat) {
+                            const catProducts = products.filter((p) =>
+                                p.Category.toLowerCase().trim() === selectedCat.toLowerCase().trim() ||
+                                (p.Subcategory && p.Subcategory.toLowerCase().trim() === selectedCat.toLowerCase().trim())
+                            );
+                            if (catProducts.length === 0) {
+                                await sock.sendMessage(jid, { text: `❓ No products found in "${selectedCat}". Type *menu* to try again.` });
+                                userStates[jid] = { step: 'idle' };
+                                continue;
+                            }
+                            const sorted = [...catProducts].sort((a, b) => {
+                                const priceA = a.PriceType === 'sqm' ? toNumber(a.PricePerSqm) : toNumber(a.FixedPrice);
+                                const priceB = b.PriceType === 'sqm' ? toNumber(b.PricePerSqm) : toNumber(b.FixedPrice);
+                                return priceA - priceB;
+                            });
+                            let catReply = `*${selectedCat} Products:*\n\n`;
+                            sorted.forEach((p, i) => {
+                                const qualifier = [];
+                                if (p.Size && p.Size.trim()) qualifier.push(p.Size.trim());
+                                if (p.PriceType !== 'sqm' && p.UnitsPerProduct && p.UnitsPerProduct.trim()) qualifier.push(`${p.UnitsPerProduct.trim()} units`);
+                                const displayName = qualifier.length > 0 ? `${p.Name.trim()} (${qualifier.join(', ')})` : p.Name.trim();
+                                const pricing = p.PriceType === 'sqm'
+                                    ? `${formatCurrency(p.PricePerSqm)}/m²${toNumber(p.MinPrice) > 0 ? ` (min ${formatCurrency(p.MinPrice)})` : ''}`
+                                    : formatCurrency(p.FixedPrice);
+                                catReply += `${i + 1}. ${displayName} - ${pricing} [ID: ${p.ID}]\n`;
+                            });
+                            catReply += `\nType *buy [ID]* to order.\ne.g. _buy ${sorted[0].ID}_`;
+                            userStates[jid] = { step: 'idle' };
+                            await sock.sendMessage(jid, { text: catReply });
+                            continue;
+                        }
+                        // Input doesn't match a category number or name — reset and fall through to normal processing
+                        userStates[jid] = { step: 'idle' };
                     }
 
                 // ── State: awaiting_handover_confirmation ─────────────────────────────
@@ -1062,7 +1177,7 @@ async function startBot() {
                         }
                         if (['no', 'n', 'cancel', 'keep chatting', 'keep going'].includes(text)) {
                             userStates[jid] = { step: 'idle' };
-                            await sock.sendMessage(jid, { text: `No problem 👍 I’ll keep assisting you here. Tell me what product or quote you need.` });
+                            await sock.sendMessage(jid, { text: `No problem 👍 I'll keep assisting you here. Tell me what product or quote you need.` });
                             continue;
                         }
                         await sock.sendMessage(jid, { text: 'Please reply *yes* to hand over to a team member or *no* to keep chatting with me.' });
@@ -1211,6 +1326,99 @@ async function startBot() {
                         continue;
                     }
 
+                // ── State: awaiting_design_choice ────────────────────────────────────
+                    if (userState.step === 'awaiting_design_choice') {
+                        const item = userState.pendingItem;
+                        const product = userState.pendingProduct;
+                        const originalDesignFee = toNumber(product.DesignFee);
+
+                        const isYes = text === '1' || ['yes', 'y', 'own', 'i have', 'have design', 'my design'].some((k) => text.includes(k));
+                        const isNo = text === '2' || ['no', 'n', 'need design', 'no design', 'create'].some((k) => text.includes(k));
+
+                        if (isYes) {
+                            // Customer has own design — remove design fee from total
+                            item.total = item.total - item.designFee;
+                            item.designFee = 0;
+                            if (!userCarts[jid]) userCarts[jid] = [];
+                            userCarts[jid].push(item);
+                            userStates[jid] = { step: 'awaiting_post_cart_add' };
+                            await sock.sendMessage(jid, {
+                                text: `✅ Added *${item.name}* to your cart! *Total: ${formatCurrency(item.total)}*\n\n⚠️ *Design Disclaimer:* ${OWN_DESIGN_DISCLAIMER}\n\n${buildPostCartText(userCarts[jid].length)}`
+                            });
+                            continue;
+                        }
+                        if (isNo) {
+                            // Customer needs design — keep design fee
+                            // item.designFee and item.total already include the fee
+                            if (item.designFee === 0 && originalDesignFee > 0) {
+                                item.designFee = originalDesignFee;
+                                item.total += originalDesignFee;
+                            }
+                            if (!userCarts[jid]) userCarts[jid] = [];
+                            userCarts[jid].push(item);
+                            userStates[jid] = { step: 'awaiting_post_cart_add' };
+                            await sock.sendMessage(jid, {
+                                text: `✅ Added *${item.name}* to your cart! Design/Layout fee of ${formatCurrency(item.designFee)} included.\n*Total: ${formatCurrency(item.total)}*\n\n${buildPostCartText(userCarts[jid].length)}`
+                            });
+                            continue;
+                        }
+                        await sock.sendMessage(jid, {
+                            text: `Do you have your own design/artwork ready?\n\n1. Yes – I have my own design\n2. No – I need design work done (Design/Layout fee: ${formatCurrency(originalDesignFee)})\n\nReply *1* or *2*.`
+                        });
+                        continue;
+                    }
+
+                // ── State: awaiting_post_cart_add ────────────────────────────────────
+                    if (userState.step === 'awaiting_post_cart_add') {
+                        if (text === '1' || ['yes', 'y', 'more', 'add', 'another'].some((k) => text.includes(k))) {
+                            userStates[jid] = { step: 'awaiting_add_product' };
+                            await sock.sendMessage(jid, {
+                                text: `What else would you like to add? E.g. _A5 flyers_, _business cards_, _banners_.\n\nType *cancel* to go back or *menu* to browse.`
+                            });
+                            continue;
+                        }
+                        if (text === '2' || text === 'cart' || text === 'view cart') {
+                            const cart = userCarts[jid] || [];
+                            userStates[jid] = { step: 'idle' };
+                            if (cart.length === 0) {
+                                await sock.sendMessage(jid, { text: '🛒 Your cart is empty.' });
+                            } else {
+                                await sock.sendMessage(jid, { text: buildCartText(cart) });
+                            }
+                            continue;
+                        }
+                        if (text === '3' || text === 'checkout' || text === 'order') {
+                            userStates[jid] = { step: 'idle' };
+                            const cart = userCarts[jid];
+                            if (!cart || cart.length === 0) {
+                                await sock.sendMessage(jid, { text: '🛒 Your cart is empty.' });
+                                continue;
+                            }
+                            if (invoiceNinja.isConfigured() && !userEmails[jid]) {
+                                userStates[jid] = { step: 'awaiting_customer_email', pendingCart: cart };
+                                await sock.sendMessage(jid, {
+                                    text: `📧 To generate your quote, please send your *email address*.\n\nOr type *skip* to continue without one.`
+                                });
+                                continue;
+                            }
+                            const { summary } = buildOrderSummary(cart, { includeDisclaimer: true });
+                            userStates[jid] = { step: 'awaiting_checkout_confirmation', pendingCart: cart };
+                            await sock.sendMessage(jid, {
+                                text: `${summary}\n\nReply *confirm* to accept the artwork disclaimer and submit your order, or send *human* if you want a person to assist.`
+                            });
+                            continue;
+                        }
+                        if (['no', 'n', 'done', 'nothing'].some((k) => text === k)) {
+                            userStates[jid] = { step: 'idle' };
+                            await sock.sendMessage(jid, { text: `No problem! Type *cart* to view your basket or *checkout* to place your order. 😊` });
+                            continue;
+                        }
+                        await sock.sendMessage(jid, {
+                            text: buildPostCartText(userCarts[jid]?.length || 0)
+                        });
+                        continue;
+                    }
+
                 // ── State: awaiting_sqm_quantity ────────────────────────────────────
                     if (userState.step === 'awaiting_sqm_quantity') {
                         const product = userState.pendingProduct;
@@ -1230,11 +1438,18 @@ async function startBot() {
                         } else {
                             item.total = (item.sqmPrice * qty) + item.designFee + item.polesCost + item.installationFee;
                         }
+                        if (item.designFee > 0) {
+                            userStates[jid] = { step: 'awaiting_design_choice', pendingProduct: product, pendingItem: item };
+                            await sock.sendMessage(jid, {
+                                text: `Do you have your own design/artwork ready?\n\n1. Yes – I have my own design\n2. No – I need design work done (Design/Layout fee: ${formatCurrency(item.designFee)})\n\nReply *1* or *2*.`
+                            });
+                            continue;
+                        }
                         if (!userCarts[jid]) userCarts[jid] = [];
                         userCarts[jid].push(item);
-                        userStates[jid] = { step: 'idle' };
+                        userStates[jid] = { step: 'awaiting_post_cart_add' };
                         await sock.sendMessage(jid, {
-                            text: `✅ Added ${qty.toLocaleString()} × *${product.Name}* to your cart! *Total: ${formatCurrency(item.total)}*\nType *cart* to view it or *checkout* to order.`
+                            text: `✅ Added ${qty.toLocaleString()} × *${product.Name}* to your cart! *Total: ${formatCurrency(item.total)}*\n\n${buildPostCartText(userCarts[jid].length)}`
                         });
                         continue;
                     }
@@ -1247,21 +1462,30 @@ async function startBot() {
                             await sock.sendMessage(jid, { text: `${getQuantityValidationPrompt(product)} Type *cancel* to go back.` });
                             continue;
                         }
-                        const total = calcFixedQuoteForQty(product, getPricedQuantity(product, qty));
-                        if (!userCarts[jid]) userCarts[jid] = [];
-                        userCarts[jid].push({
+                        const materialTotal = calcFixedQuoteForQty(product, getPricedQuantity(product, qty));
+                        const designFee = toNumber(product.DesignFee);
+                        const item = {
                             name: product.Name,
                             sqmPrice: toNumber(product.FixedPrice),
-                            designFee: 0,
+                            designFee,
                             polesCost: 0,
                             poles: 0,
                             installationFee: 0,
-                            total,
+                            total: materialTotal + designFee,
                             qty
-                        });
-                        userStates[jid] = { step: 'idle' };
+                        };
+                        if (designFee > 0) {
+                            userStates[jid] = { step: 'awaiting_design_choice', pendingProduct: product, pendingItem: item };
+                            await sock.sendMessage(jid, {
+                                text: `Do you have your own design/artwork ready?\n\n1. Yes – I have my own design\n2. No – I need design work done (Design/Layout fee: ${formatCurrency(designFee)})\n\nReply *1* or *2*.`
+                            });
+                            continue;
+                        }
+                        if (!userCarts[jid]) userCarts[jid] = [];
+                        userCarts[jid].push(item);
+                        userStates[jid] = { step: 'awaiting_post_cart_add' };
                         await sock.sendMessage(jid, {
-                            text: `✅ Added ${qty.toLocaleString()} × *${product.Name}* to your cart! *Total: ${formatCurrency(total)}*\nType *cart* to view it or *checkout* when you are ready.`
+                            text: `✅ Added ${qty.toLocaleString()} × *${product.Name}* to your cart! *Total: ${formatCurrency(item.total)}*\n\n${buildPostCartText(userCarts[jid].length)}`
                         });
                         continue;
                     }
@@ -1392,20 +1616,29 @@ async function startBot() {
                         if (['yes', 'y', 'add', 'yes add', 'yeah', 'yep', 'sure'].includes(text)) {
                             const product = userState.pendingProduct;
                             const qty = userState.pendingQty;
-                            const total = userState.pendingTotal;
-                            if (!userCarts[jid]) userCarts[jid] = [];
-                            userCarts[jid].push({
+                            const materialTotal = userState.pendingTotal;
+                            const designFee = toNumber(product.DesignFee);
+                            const item = {
                                 name: product.Name,
                                 sqmPrice: toNumber(product.FixedPrice),
-                                designFee: 0,
+                                designFee,
                                 polesCost: 0,
                                 poles: 0,
                                 installationFee: 0,
-                                total,
+                                total: materialTotal + designFee,
                                 qty
-                            });
-                            userStates[jid] = { step: 'idle' };
-                            await sock.sendMessage(jid, { text: `✅ Added to your cart! You have ${userCarts[jid].length} item(s). Type *cart* to view or *checkout* to order. 😊\n\n– ${BUSINESS_NAME} Team` });
+                            };
+                            if (designFee > 0) {
+                                userStates[jid] = { step: 'awaiting_design_choice', pendingProduct: product, pendingItem: item };
+                                await sock.sendMessage(jid, {
+                                    text: `Do you have your own design/artwork ready?\n\n1. Yes – I have my own design\n2. No – I need design work done (Design/Layout fee: ${formatCurrency(designFee)})\n\nReply *1* or *2*.`
+                                });
+                                continue;
+                            }
+                            if (!userCarts[jid]) userCarts[jid] = [];
+                            userCarts[jid].push(item);
+                            userStates[jid] = { step: 'awaiting_post_cart_add' };
+                            await sock.sendMessage(jid, { text: `✅ Added to your cart! *Total: ${formatCurrency(item.total)}*\n\n${buildPostCartText(userCarts[jid].length)}` });
                             continue;
                         }
                         if (['no', 'n', 'nope', 'nah'].includes(text)) {
@@ -1433,11 +1666,20 @@ async function startBot() {
                                 await sock.sendMessage(jid, { text: `📐 *${product.Name}*\nPlease send the *length x height in mm*, for example _${DIMENSION_FORMAT_EXAMPLE}_.\n\nType *cancel* to go back.` });
                                 continue;
                             }
-                            const total = calcFixedQuoteForQty(product, getPricedQuantity(product, qty));
+                            const materialTotal = calcFixedQuoteForQty(product, getPricedQuantity(product, qty));
+                            const designFee = toNumber(product.DesignFee);
+                            const item = { name: product.Name, sqmPrice: toNumber(product.FixedPrice), designFee, polesCost: 0, poles: 0, installationFee: 0, total: materialTotal + designFee, qty };
+                            if (designFee > 0) {
+                                userStates[jid] = { step: 'awaiting_design_choice', pendingProduct: product, pendingItem: item };
+                                await sock.sendMessage(jid, {
+                                    text: `Do you have your own design/artwork ready?\n\n1. Yes – I have my own design\n2. No – I need design work done (Design/Layout fee: ${formatCurrency(designFee)})\n\nReply *1* or *2*.`
+                                });
+                                continue;
+                            }
                             if (!userCarts[jid]) userCarts[jid] = [];
-                            userCarts[jid].push({ name: product.Name, sqmPrice: toNumber(product.FixedPrice), designFee: 0, polesCost: 0, poles: 0, installationFee: 0, total, qty });
-                            userStates[jid] = { step: 'idle' };
-                            await sock.sendMessage(jid, { text: `✅ Got it! I've added ${qty.toLocaleString()} × *${product.Name}* to your cart.\nWould you like to add anything else? (Type *cart* to view, *quote* for a price, or *checkout* to order.) 😊` });
+                            userCarts[jid].push(item);
+                            userStates[jid] = { step: 'awaiting_post_cart_add' };
+                            await sock.sendMessage(jid, { text: `✅ Got it! I've added ${qty.toLocaleString()} × *${product.Name}* to your cart.\n\n${buildPostCartText(userCarts[jid].length)}` });
                             continue;
                         }
                         userStates[jid] = { step: 'awaiting_add_product_selection', pendingMatches: matches, pendingQty: qty };
@@ -1463,11 +1705,20 @@ async function startBot() {
                             await sock.sendMessage(jid, { text: `📐 *${product.Name}*\nPlease send the *length x height in mm*, for example _${DIMENSION_FORMAT_EXAMPLE}_.\n\nType *cancel* to go back.` });
                             continue;
                         }
-                        const total = calcFixedQuoteForQty(product, getPricedQuantity(product, qty));
+                        const materialTotal = calcFixedQuoteForQty(product, getPricedQuantity(product, qty));
+                        const designFee = toNumber(product.DesignFee);
+                        const item = { name: product.Name, sqmPrice: toNumber(product.FixedPrice), designFee, polesCost: 0, poles: 0, installationFee: 0, total: materialTotal + designFee, qty };
+                        if (designFee > 0) {
+                            userStates[jid] = { step: 'awaiting_design_choice', pendingProduct: product, pendingItem: item };
+                            await sock.sendMessage(jid, {
+                                text: `Do you have your own design/artwork ready?\n\n1. Yes – I have my own design\n2. No – I need design work done (Design/Layout fee: ${formatCurrency(designFee)})\n\nReply *1* or *2*.`
+                            });
+                            continue;
+                        }
                         if (!userCarts[jid]) userCarts[jid] = [];
-                        userCarts[jid].push({ name: product.Name, sqmPrice: toNumber(product.FixedPrice), designFee: 0, polesCost: 0, poles: 0, installationFee: 0, total, qty });
-                        userStates[jid] = { step: 'idle' };
-                        await sock.sendMessage(jid, { text: `✅ Got it! I've added ${qty.toLocaleString()} × *${product.Name}* to your cart.\nWould you like to add anything else? (Type *cart* to view, *quote* for a price, or *checkout* to order.) 😊` });
+                        userCarts[jid].push(item);
+                        userStates[jid] = { step: 'awaiting_post_cart_add' };
+                        await sock.sendMessage(jid, { text: `✅ Got it! I've added ${qty.toLocaleString()} × *${product.Name}* to your cart.\n\n${buildPostCartText(userCarts[jid].length)}` });
                         continue;
                     }
 
@@ -1555,20 +1806,30 @@ async function startBot() {
                                 await sock.sendMessage(jid, { text: 'Please enter a valid quantity, for example _buy 12 2_.' });
                                 continue;
                         }
-                        const total = calcFixedQuoteForQty(product, getPricedQuantity(product, qty));
-                        if (!userCarts[jid]) userCarts[jid] = [];
-                        userCarts[jid].push({
+                        const materialTotal = calcFixedQuoteForQty(product, getPricedQuantity(product, qty));
+                        const designFee = toNumber(product.DesignFee);
+                        const item = {
                             name: product.Name,
                             sqmPrice: price,
-                            designFee: 0,
+                            designFee,
                             polesCost: 0,
                             poles: 0,
                             installationFee: 0,
-                            total,
+                            total: materialTotal + designFee,
                             qty
-                        });
+                        };
+                        if (designFee > 0) {
+                            userStates[jid] = { step: 'awaiting_design_choice', pendingProduct: product, pendingItem: item };
                             await sock.sendMessage(jid, {
-                            text: `✅ Added ${qty.toLocaleString()} × *${product.Name}* @ ${formatCurrency(price)} each.\nType *cart* to view it or *checkout* when you are ready.`
+                                text: `Do you have your own design/artwork ready?\n\n1. Yes – I have my own design\n2. No – I need design work done (Design/Layout fee: ${formatCurrency(designFee)})\n\nReply *1* or *2*.`
+                            });
+                            continue;
+                        }
+                        if (!userCarts[jid]) userCarts[jid] = [];
+                        userCarts[jid].push(item);
+                        userStates[jid] = { step: 'awaiting_post_cart_add' };
+                            await sock.sendMessage(jid, {
+                            text: `✅ Added ${qty.toLocaleString()} × *${product.Name}* @ ${formatCurrency(price)} each.\n\n${buildPostCartText(userCarts[jid].length)}`
                         });
                             continue;
                     }
@@ -1771,18 +2032,27 @@ async function startBot() {
                                 await sock.sendMessage(jid, { text: `📐 *${product.Name}*\nPlease send the *length x height in mm*, for example _${DIMENSION_FORMAT_EXAMPLE}_.\n\nType *cancel* to go back.` });
                                 continue;
                             }
-                            const total = calcFixedQuoteForQty(product, getPricedQuantity(product, qty));
+                            const materialTotal = calcFixedQuoteForQty(product, getPricedQuantity(product, qty));
+                            const designFee = toNumber(product.DesignFee);
+                            const item = { name: product.Name, sqmPrice: toNumber(product.FixedPrice), designFee, polesCost: 0, poles: 0, installationFee: 0, total: materialTotal + designFee, qty };
+                            if (designFee > 0) {
+                                userStates[jid] = { step: 'awaiting_design_choice', pendingProduct: product, pendingItem: item };
+                                await sock.sendMessage(jid, {
+                                    text: `Do you have your own design/artwork ready?\n\n1. Yes – I have my own design\n2. No – I need design work done (Design/Layout fee: ${formatCurrency(designFee)})\n\nReply *1* or *2*.`
+                                });
+                                continue;
+                            }
                             if (!userCarts[jid]) userCarts[jid] = [];
-                            userCarts[jid].push({ name: product.Name, sqmPrice: toNumber(product.FixedPrice), designFee: 0, polesCost: 0, poles: 0, installationFee: 0, total, qty });
-                            userStates[jid] = { step: 'idle' };
-                            await sock.sendMessage(jid, { text: `✅ Got it! I've added ${qty.toLocaleString()} × *${product.Name}* to your cart.\nWould you like to add anything else? (Type *cart* to view, *quote* for a price, or *checkout* to order.) 😊` });
+                            userCarts[jid].push(item);
+                            userStates[jid] = { step: 'awaiting_post_cart_add' };
+                            await sock.sendMessage(jid, { text: `✅ Got it! I've added ${qty.toLocaleString()} × *${product.Name}* to your cart.\n\n${buildPostCartText(userCarts[jid].length)}` });
                             continue;
                         }
 
                         if (matches.length > 1) {
-                            const list = matches.map((p, i) => `${i + 1}) ${p.Name}`).join('\n');
+                            const list = matches.map((p, i) => `${i + 1}. ${p.Name}`).join('\n');
                             userStates[jid] = { step: 'awaiting_add_product_selection', pendingMatches: matches, pendingQty: qty };
-                            await sock.sendMessage(jid, { text: `We have a few options:\n${list}\n\nWhich one would you like to add?` });
+                            await sock.sendMessage(jid, { text: `We have a few options:\n${list}\n\nReply with the number to add it to your cart.` });
                             continue;
                         }
 
