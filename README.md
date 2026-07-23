@@ -169,10 +169,14 @@ Send these messages to the connected WhatsApp bot:
 - `help` — shows guidance
 - `clear` — empties the cart
 - `cancel` — exits the current step
+- `back` — returns to the previous bot step
+- `home` or `main menu` — restarts at the main menu
 
 Expected result:
 
 - the bot responds with clear next steps
+- `back` returns the customer to the previous prompt without losing the earlier flow state
+- `home` or `main menu` restarts from the welcome menu
 - square-metre products ask for **length × height in mm** and return a price
 - design, poles, and installation are added correctly when applicable
 - `checkout` shows totals and the artwork disclaimer

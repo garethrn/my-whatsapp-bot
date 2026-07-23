@@ -33,6 +33,7 @@ const LEARNED_RESPONSES_FILE = path.join(STORAGE_DIR, 'learned_responses.json');
 const LEARNING_LEADS_FILE = path.join(STORAGE_DIR, 'learning_leads.json');
 const ORDERS_FILE = path.join(STORAGE_DIR, 'orders.json');
 const MAX_HISTORY = 10;
+const MAX_NAVIGATION_HISTORY = 25;
 const MAX_LEARNING_LEADS = 200;
 const BUSINESS_NAME = 'Duzi Signs';
 const MM_PER_METER = 1000;
@@ -42,6 +43,7 @@ const MAX_DIMENSION_MM = 50000;
 const LEARNING_MATCH_THRESHOLD = 0.45;
 const DIMENSION_FORMAT_EXAMPLE = '1200 x 600 mm';
 const TRACKING_URL = process.env.TRACKING_URL || 'https://www.trackyourparcel.co.za';
+const NAVIGATION_HINT = 'Type *back* to go to the previous step or *home* for the main menu.';
 const OWN_DESIGN_DISCLAIMER = 'If the supplied design is incorrect, unusable, or the layout requires changes, design/layout fees will apply.';
 const ARTWORK_DISCLAIMER = [
     'Artwork Disclaimer',
@@ -169,6 +171,7 @@ let learnedResponses = loadJsonFile(LEARNED_RESPONSES_FILE, []);
 let learningLeads = loadJsonFile(LEARNING_LEADS_FILE, []);
 let handoverSessions = {};
 let conversationHistory = {};
+let userNavigationHistory = {};
 let userNames = {};
 let fallbackCounts = {};
 let userEmails = {};
@@ -505,7 +508,8 @@ function buildWelcomeText(jid) {
         '3. Track My Order',
         '4. Store Contact Details',
         '',
-        'Reply with the number of your choice.'
+        'Reply with the number of your choice.',
+        NAVIGATION_HINT
     ].join('\n');
 }
 
@@ -516,12 +520,14 @@ function buildContactDetailsText() {
         'Raisethorpe,',
         'Pietermaritzburg, 3201',
         '',
-        '📞 Telephone: 033 811 5277'
+        '📞 Telephone: 033 811 5277',
+        '',
+        NAVIGATION_HINT
     ].join('\n');
 }
 
 function buildTrackingText() {
-    return `🔍 *Track Your Order*\n\nYou can track your order using the link below:\n${TRACKING_URL}\n\nIf you need further assistance, type *human* to speak with a team member or *4* for our store contact details.\n\n– ${BUSINESS_NAME} Team`;
+    return `🔍 *Track Your Order*\n\nYou can track your order using the link below:\n${TRACKING_URL}\n\nIf you need further assistance, type *human* to speak with a team member or *4* for our store contact details.\n\n${NAVIGATION_HINT}\n\n– ${BUSINESS_NAME} Team`;
 }
 
 function buildProductListText() {
@@ -574,7 +580,8 @@ function buildSubcategoryMenuText(categoryName, subcategories) {
         reply += `${i + 1}. ${sub.trim()}\n`;
     });
     reply += '\nReply with a *number* to see products in that subcategory.';
-    reply += '\nType *menu* to go back to categories.';
+    reply += '\nType *back* to return to categories.';
+    reply += `\n${NAVIGATION_HINT}`;
     return reply;
 }
 
@@ -637,6 +644,7 @@ function buildMenuText() {
     reply += '\nWhen a product list is shown, reply with the *number* of the item you want.';
     reply += '\nType *cart* to review your basket';
     reply += '\nType *human* if you would like a team member to take over.';
+    reply += `\n${NAVIGATION_HINT}`;
     return reply;
 }
 
@@ -650,6 +658,8 @@ function buildHelpText() {
         '- For sqm products, send *length x height in mm* (example: _1200 x 600 mm_)',
         '- Send *cart* to see your basket',
         '- Send *checkout* to review your total and confirm the order',
+        '- Send *back* to return to the previous step',
+        '- Send *home* or *main menu* to restart from the main menu',
         '- Send *human* any time if you want a person to take over'
     ].join('\n');
 }
@@ -661,7 +671,9 @@ function buildPostCartText(cartCount) {
         'Would you like to:',
         '1. Add more items',
         '2. View cart',
-        '3. Checkout'
+        '3. Checkout',
+        '',
+        NAVIGATION_HINT
     ].join('\n');
 }
 
@@ -677,7 +689,7 @@ function buildCartText(cart) {
         grandTotal += item.total;
     });
 
-    reply += `\n*Total: ${formatCurrency(grandTotal)}*\nType *checkout* to confirm or *clear* to empty the cart.`;
+    reply += `\n*Total: ${formatCurrency(grandTotal)}*\nType *checkout* to confirm or *clear* to empty the cart.\n${NAVIGATION_HINT}`;
     return reply;
 }
 
@@ -798,6 +810,76 @@ function getConversationPreview(jid) {
         .slice(-5)
         .map((entry, index) => `${index + 1}. ${entry}`)
         .join('\n');
+}
+
+function cloneNavigationValue(value) {
+    if (value === undefined || value === null) return null;
+    return JSON.parse(JSON.stringify(value));
+}
+
+function captureNavigationSnapshot(jid, responseText) {
+    return {
+        state: cloneNavigationValue(userStates[jid] || { step: 'idle' }) || { step: 'idle' },
+        cart: cloneNavigationValue(userCarts[jid] || null),
+        productContext: cloneNavigationValue(userProductContext[jid] || null),
+        email: userEmails[jid] || null,
+        responseText: String(responseText || '').trim()
+    };
+}
+
+function snapshotsMatch(previousSnapshot, nextSnapshot) {
+    return JSON.stringify(previousSnapshot) === JSON.stringify(nextSnapshot);
+}
+
+function pushNavigationSnapshot(jid, responseText) {
+    const trimmedText = String(responseText || '').trim();
+    if (!trimmedText) return;
+
+    const history = userNavigationHistory[jid] || [];
+    const snapshot = captureNavigationSnapshot(jid, trimmedText);
+    if (history.length > 0 && snapshotsMatch(history[history.length - 1], snapshot)) return;
+
+    history.push(snapshot);
+    userNavigationHistory[jid] = history.slice(-MAX_NAVIGATION_HISTORY);
+}
+
+function applyNavigationSnapshot(jid, snapshot) {
+    userStates[jid] = cloneNavigationValue(snapshot?.state) || { step: 'idle' };
+
+    if (snapshot?.cart) userCarts[jid] = cloneNavigationValue(snapshot.cart);
+    else delete userCarts[jid];
+
+    if (snapshot?.productContext) userProductContext[jid] = cloneNavigationValue(snapshot.productContext);
+    else delete userProductContext[jid];
+
+    if (snapshot?.email) userEmails[jid] = snapshot.email;
+    else delete userEmails[jid];
+}
+
+function resetNavigationHistory(jid, responseText) {
+    userNavigationHistory[jid] = [];
+    pushNavigationSnapshot(jid, responseText);
+}
+
+function restorePreviousNavigationSnapshot(jid) {
+    const history = userNavigationHistory[jid] || [];
+    if (history.length < 2) return null;
+
+    history.pop();
+    const previousSnapshot = history[history.length - 1] || null;
+    if (!previousSnapshot) return null;
+
+    applyNavigationSnapshot(jid, previousSnapshot);
+    userNavigationHistory[jid] = history;
+    return previousSnapshot.responseText;
+}
+
+function isBackCommand(text) {
+    return /^(back|go back|previous)$/i.test(text || '');
+}
+
+function isHomeCommand(text) {
+    return /^(home|main menu|main)$/i.test(text || '');
 }
 
 function isHumanRequest(text) {
@@ -1036,6 +1118,18 @@ async function startBot() {
             browser: Browsers.appropriate('Desktop'),
             ...(version ? { version } : {})
         });
+        const rawSendMessage = sock.sendMessage.bind(sock);
+        sock.sendMessage = async (targetJid, content, options) => {
+            const payload = content && typeof content === 'object' ? { ...content } : content;
+            const skipNavigation = Boolean(payload?.__skipNavigation);
+            if (payload && typeof payload === 'object' && '__skipNavigation' in payload) delete payload.__skipNavigation;
+
+            if (!skipNavigation && targetJid !== ADMIN_JID && typeof payload?.text === 'string' && payload.text.trim()) {
+                pushNavigationSnapshot(targetJid, payload.text);
+            }
+
+            return rawSendMessage(targetJid, payload, options);
+        };
         const socketGeneration = ++activeSocketGeneration;
 
         sock.ev.on('creds.update', saveCreds);
@@ -1238,6 +1332,29 @@ async function startBot() {
                     }
 
                     const userState = userStates[jid] || { step: 'idle' };
+
+                    if (isBackCommand(text)) {
+                        fallbackCounts[jid] = 0;
+                        const previousResponse = restorePreviousNavigationSnapshot(jid);
+                        if (previousResponse) {
+                            await sock.sendMessage(jid, { text: previousResponse, __skipNavigation: true });
+                        } else {
+                            const welcomeText = buildWelcomeText(jid);
+                            userStates[jid] = { step: 'awaiting_main_menu' };
+                            resetNavigationHistory(jid, welcomeText);
+                            await sock.sendMessage(jid, { text: welcomeText, __skipNavigation: true });
+                        }
+                        continue;
+                    }
+
+                    if (isHomeCommand(text)) {
+                        fallbackCounts[jid] = 0;
+                        const welcomeText = buildWelcomeText(jid);
+                        userStates[jid] = { step: 'awaiting_main_menu' };
+                        resetNavigationHistory(jid, welcomeText);
+                        await sock.sendMessage(jid, { text: welcomeText, __skipNavigation: true });
+                        continue;
+                    }
 
                 // Cancel / escape from any mid-flow state
                     if (text === 'cancel' || text === 'menu' || /^(hello|hi|hey)\b/.test(text)) {
