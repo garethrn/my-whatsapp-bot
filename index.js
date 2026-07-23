@@ -466,21 +466,17 @@ function buildSubcategoryMenuText(categoryName, subcategories) {
 function buildSubcategoryProductListText(subcategoryName, sortedProducts) {
     let reply = `*${subcategoryName.trim()} Products:*\n\n`;
     sortedProducts.forEach((p, i) => {
-        const qualifier = [];
-        if (p.Size && p.Size.trim()) qualifier.push(p.Size.trim());
-        if (p.PriceType !== 'sqm' && p.UnitsPerProduct && p.UnitsPerProduct.trim()) qualifier.push(`${p.UnitsPerProduct.trim()} units`);
-        const displayName = qualifier.length > 0 ? `${p.Name.trim()} (${qualifier.join(', ')})` : p.Name.trim();
-        const pricing = p.PriceType === 'sqm'
-            ? `${formatCurrency(p.PricePerSqm)}/m²${toNumber(p.MinPrice) > 0 ? ` (min ${formatCurrency(p.MinPrice)})` : ''}`
-            : formatCurrency(p.FixedPrice);
-        reply += `${i + 1}. ${displayName} - ${pricing} [ID: ${p.ID}]\n`;
+        reply += `${buildProductOptionSummary(p, i)}\n`;
     });
-    reply += `\nType *buy [ID]* to order.\ne.g. _buy ${sortedProducts[0].ID}_`;
+    reply += '\nReply with the *number* of the product you want and I’ll help you price it or add it to your cart.';
     return reply;
 }
 
 function toNumber(value, fallback = 0) {
-    const parsed = parseFloat(String(value ?? '').replace(/^[^\d.-]+/, ''));
+    const normalized = String(value ?? '')
+        .replace(/[^\d,.-]+/g, '')
+        .replace(/,/g, '');
+    const parsed = parseFloat(normalized);
     return Number.isFinite(parsed) ? parsed : fallback;
 }
 
@@ -523,7 +519,7 @@ function buildMenuText() {
         reply += `${i + 1}. ${cat}\n`;
     });
     reply += '\nReply with a *number* to browse that category.';
-    reply += '\nType *buy [ID]* to order an item directly';
+    reply += '\nWhen a product list is shown, reply with the *number* of the item you want.';
     reply += '\nType *cart* to review your basket';
     reply += '\nType *human* if you would like a team member to take over.';
     return reply;
@@ -535,7 +531,7 @@ function buildHelpText() {
         '',
         '- Send *menu* to see categories',
         '- Send *products Signs* (or another category) to browse',
-        '- Send *buy [ID]* to start an order',
+        '- When a product list is shown, reply with the *number* of the item you want',
         '- For sqm products, send *length x height in mm* (example: _1200 x 600 mm_)',
         '- Send *cart* to see your basket',
         '- Send *checkout* to review your total and confirm the order',
@@ -1210,7 +1206,7 @@ async function startBot() {
                                 const priceB = b.PriceType === 'sqm' ? toNumber(b.PricePerSqm) : toNumber(b.FixedPrice);
                                 return priceA - priceB;
                             });
-                            userStates[jid] = { step: 'idle' };
+                            userStates[jid] = { step: 'awaiting_quote_product_selection', pendingMatches: sorted };
                             await sock.sendMessage(jid, { text: buildSubcategoryProductListText(selectedCat, sorted) });
                             continue;
                         }
@@ -1242,7 +1238,7 @@ async function startBot() {
                                 const priceB = b.PriceType === 'sqm' ? toNumber(b.PricePerSqm) : toNumber(b.FixedPrice);
                                 return priceA - priceB;
                             });
-                            userStates[jid] = { step: 'idle' };
+                            userStates[jid] = { step: 'awaiting_quote_product_selection', pendingMatches: sorted };
                             await sock.sendMessage(jid, { text: buildSubcategoryProductListText(selectedSub, sorted) });
                             continue;
                         }
@@ -1842,19 +1838,8 @@ async function startBot() {
                         return priceA - priceB;
                     });
 
-                    let reply = `*${catName} Products:*\n\n`;
-                    sorted.forEach((p, i) => {
-                        const qualifier = [];
-                        if (p.Size && p.Size.trim()) qualifier.push(p.Size.trim());
-                        if (p.PriceType !== 'sqm' && p.UnitsPerProduct && p.UnitsPerProduct.trim()) qualifier.push(`${p.UnitsPerProduct.trim()} units`);
-                        const displayName = qualifier.length > 0 ? `${p.Name.trim()} (${qualifier.join(', ')})` : p.Name.trim();
-                        const pricing = p.PriceType === 'sqm'
-                            ? `${formatCurrency(p.PricePerSqm)}/m²${toNumber(p.MinPrice) > 0 ? ` (min ${formatCurrency(p.MinPrice)})` : ''}`
-                            : formatCurrency(p.FixedPrice);
-                        reply += `${i + 1}. ${displayName} - ${pricing} [ID: ${p.ID}]\n`;
-                    });
-                    reply += `\nType *buy [ID]* to order.\ne.g. _buy ${sorted[0].ID}_`;
-                        await sock.sendMessage(jid, { text: reply });
+                        userStates[jid] = { step: 'awaiting_quote_product_selection', pendingMatches: sorted };
+                        await sock.sendMessage(jid, { text: buildSubcategoryProductListText(catName, sorted) });
                         continue;
                     }
 
@@ -2093,7 +2078,7 @@ async function startBot() {
                                     'I found these options:',
                                     matches.every((product) => product.PriceType === 'sqm')
                                         ? 'Reply with the option number and then I’ll ask for the size in mm to calculate the price.'
-                                        : 'Reply with the option number for pricing, or send *buy [ID]* to order directly.'
+                                        : 'Reply with the option number and I’ll help you price it or add it to your cart.'
                                 )
                             });
                             continue;
