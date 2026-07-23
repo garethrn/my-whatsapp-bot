@@ -1176,7 +1176,8 @@ async function startBot() {
                 // ── State: awaiting_category_selection ─────────────────────────────
                     if (userState.step === 'awaiting_category_selection') {
                         const categories = getCategories();
-                        const catIdx = parseInt(text, 10) - 1;
+                        const selectedNumber = extractQuantityFromText(text);
+                        const catIdx = selectedNumber ? selectedNumber - 1 : -1;
                         let selectedCat = null;
                         if (!Number.isNaN(catIdx) && catIdx >= 0 && catIdx < categories.length) {
                             selectedCat = categories[catIdx];
@@ -1217,7 +1218,8 @@ async function startBot() {
                 // ── State: awaiting_subcategory_selection ──────────────────────────
                     if (userState.step === 'awaiting_subcategory_selection') {
                         const subcategories = userState.pendingSubcategories || [];
-                        const subIdx = parseInt(text, 10) - 1;
+                        const selectedNumber = extractQuantityFromText(text);
+                        const subIdx = selectedNumber ? selectedNumber - 1 : -1;
                         let selectedSub = null;
                         if (!Number.isNaN(subIdx) && subIdx >= 0 && subIdx < subcategories.length) {
                             selectedSub = subcategories[subIdx];
@@ -1655,7 +1657,8 @@ async function startBot() {
 
                 // ── State: awaiting_quote_product_selection ─────────────────────────
                     if (userState.step === 'awaiting_quote_product_selection') {
-                        const idx = parseInt(text, 10) - 1;
+                        const selectedNumber = extractQuantityFromText(text);
+                        const idx = selectedNumber ? selectedNumber - 1 : -1;
                         const matches = userState.pendingMatches || [];
                         if (Number.isNaN(idx) || idx < 0 || idx >= matches.length) {
                             await sock.sendMessage(jid, { text: `Please reply with a number between 1 and ${matches.length}.` });
@@ -1763,7 +1766,8 @@ async function startBot() {
 
                 // ── State: awaiting_add_product_selection ───────────────────────────
                     if (userState.step === 'awaiting_add_product_selection') {
-                        const idx = parseInt(text, 10) - 1;
+                        const selectedNumber = extractQuantityFromText(text);
+                        const idx = selectedNumber ? selectedNumber - 1 : -1;
                         const matches = userState.pendingMatches || [];
                         const qty = userState.pendingQty || null;
                         if (Number.isNaN(idx) || idx < 0 || idx >= matches.length) {
@@ -1790,7 +1794,8 @@ async function startBot() {
 
                 // ── State: awaiting_remove_selection ───────────────────────────────
                     if (userState.step === 'awaiting_remove_selection') {
-                        const idx = parseInt(text, 10) - 1;
+                        const selectedNumber = extractQuantityFromText(text);
+                        const idx = selectedNumber ? selectedNumber - 1 : -1;
                         const cart = userCarts[jid] || [];
                         if (Number.isNaN(idx) || idx < 0 || idx >= cart.length) {
                             await sock.sendMessage(jid, { text: `Please reply with a number between 1 and ${cart.length}.` });
