@@ -1730,7 +1730,7 @@ async function startBot() {
 
                 // ── State: awaiting_add_product ─────────────────────────────────────
                     if (userState.step === 'awaiting_add_product') {
-                        const qty = extractQuantityFromText(text) || userState.pendingQty || 1;
+                        const qty = extractQuantityFromText(text) || userState.pendingQty || null;
                         const matches = findProductsByKeyword(text);
                         if (matches.length === 0) {
                             await sock.sendMessage(jid, { text: `I couldn't find that product. What would you like to add? E.g. _500 A5 flyers_, _100 business cards_.\n\nType *cancel* to go back.` });
@@ -1744,25 +1744,19 @@ async function startBot() {
                                 await sock.sendMessage(jid, { text: `📐 *${product.Name}*\nPlease send the *length x height in mm*, for example _${DIMENSION_FORMAT_EXAMPLE}_.\n\nType *cancel* to go back.` });
                                 continue;
                             }
-                            const materialTotal = calcFixedQuoteForQty(product, getPricedQuantity(product, qty));
-                            const designFee = toNumber(product.DesignFee);
-                            const item = { name: product.Name, sqmPrice: toNumber(product.FixedPrice), designFee, polesCost: 0, poles: 0, installationFee: 0, total: materialTotal + designFee, qty };
-                            if (designFee > 0) {
-                                userStates[jid] = { step: 'awaiting_design_choice', pendingProduct: product, pendingItem: item };
-                                await sock.sendMessage(jid, {
-                                    text: `Do you have your own design/artwork ready?\n\n1. Yes – I have my own design\n2. No – I need design work done (Design/Layout fee: ${formatCurrency(designFee)})\n\nReply *1* or *2*.`
-                                });
+                            if (qty) {
+                                const materialTotal = calcFixedQuoteForQty(product, getPricedQuantity(product, qty));
+                                userStates[jid] = { step: 'awaiting_quote_confirm', pendingProduct: product, pendingQty: qty, pendingTotal: materialTotal };
+                                await sock.sendMessage(jid, { text: buildQuoteText(product, qty, materialTotal) });
                                 continue;
                             }
-                            if (!userCarts[jid]) userCarts[jid] = [];
-                            userCarts[jid].push(item);
-                            userStates[jid] = { step: 'awaiting_post_cart_add' };
-                            await sock.sendMessage(jid, { text: `✅ Got it! I've added ${qty.toLocaleString()} × *${product.Name}* to your cart.\n\n${buildPostCartText(userCarts[jid].length)}` });
+                            userStates[jid] = { step: 'awaiting_quote_quantity', pendingProduct: product };
+                            await sock.sendMessage(jid, { text: `Got it – *${product.Name}*! ${getQuantityPrompt(product)}` });
                             continue;
                         }
                         userStates[jid] = { step: 'awaiting_add_product_selection', pendingMatches: matches, pendingQty: qty };
                         await sock.sendMessage(jid, {
-                            text: buildProductMatchesText(matches, 'I found these options:', 'Reply with the option number to add it to your cart.')
+                            text: buildProductMatchesText(matches, 'I found these options:', 'Reply with the option number to select a product.')
                         });
                         continue;
                     }
@@ -1771,7 +1765,7 @@ async function startBot() {
                     if (userState.step === 'awaiting_add_product_selection') {
                         const idx = parseInt(text, 10) - 1;
                         const matches = userState.pendingMatches || [];
-                        const qty = userState.pendingQty || 1;
+                        const qty = userState.pendingQty || null;
                         if (Number.isNaN(idx) || idx < 0 || idx >= matches.length) {
                             await sock.sendMessage(jid, { text: `Please reply with a number between 1 and ${matches.length}.` });
                             continue;
@@ -1783,20 +1777,14 @@ async function startBot() {
                             await sock.sendMessage(jid, { text: `📐 *${product.Name}*\nPlease send the *length x height in mm*, for example _${DIMENSION_FORMAT_EXAMPLE}_.\n\nType *cancel* to go back.` });
                             continue;
                         }
-                        const materialTotal = calcFixedQuoteForQty(product, getPricedQuantity(product, qty));
-                        const designFee = toNumber(product.DesignFee);
-                        const item = { name: product.Name, sqmPrice: toNumber(product.FixedPrice), designFee, polesCost: 0, poles: 0, installationFee: 0, total: materialTotal + designFee, qty };
-                        if (designFee > 0) {
-                            userStates[jid] = { step: 'awaiting_design_choice', pendingProduct: product, pendingItem: item };
-                            await sock.sendMessage(jid, {
-                                text: `Do you have your own design/artwork ready?\n\n1. Yes – I have my own design\n2. No – I need design work done (Design/Layout fee: ${formatCurrency(designFee)})\n\nReply *1* or *2*.`
-                            });
+                        if (qty) {
+                            const materialTotal = calcFixedQuoteForQty(product, getPricedQuantity(product, qty));
+                            userStates[jid] = { step: 'awaiting_quote_confirm', pendingProduct: product, pendingQty: qty, pendingTotal: materialTotal };
+                            await sock.sendMessage(jid, { text: buildQuoteText(product, qty, materialTotal) });
                             continue;
                         }
-                        if (!userCarts[jid]) userCarts[jid] = [];
-                        userCarts[jid].push(item);
-                        userStates[jid] = { step: 'awaiting_post_cart_add' };
-                        await sock.sendMessage(jid, { text: `✅ Got it! I've added ${qty.toLocaleString()} × *${product.Name}* to your cart.\n\n${buildPostCartText(userCarts[jid].length)}` });
+                        userStates[jid] = { step: 'awaiting_quote_quantity', pendingProduct: product };
+                        await sock.sendMessage(jid, { text: `Got it – *${product.Name}*! ${getQuantityPrompt(product)}` });
                         continue;
                     }
 
@@ -2088,7 +2076,7 @@ async function startBot() {
                 // ── Intent: add to cart (conversational) ────────────────────────────
                     if ((/\b(add|adding)\b/.test(text) || text === '+') && userState.step === 'idle') {
                         fallbackCounts[jid] = 0;
-                        const qty = extractQuantityFromText(text) || 1;
+                        const qty = extractQuantityFromText(text);
                         const matches = findProductsByKeyword(text);
 
                         if (matches.length === 1) {
@@ -2099,27 +2087,21 @@ async function startBot() {
                                 await sock.sendMessage(jid, { text: `📐 *${product.Name}*\nPlease send the *length x height in mm*, for example _${DIMENSION_FORMAT_EXAMPLE}_.\n\nType *cancel* to go back.` });
                                 continue;
                             }
-                            const materialTotal = calcFixedQuoteForQty(product, getPricedQuantity(product, qty));
-                            const designFee = toNumber(product.DesignFee);
-                            const item = { name: product.Name, sqmPrice: toNumber(product.FixedPrice), designFee, polesCost: 0, poles: 0, installationFee: 0, total: materialTotal + designFee, qty };
-                            if (designFee > 0) {
-                                userStates[jid] = { step: 'awaiting_design_choice', pendingProduct: product, pendingItem: item };
-                                await sock.sendMessage(jid, {
-                                    text: `Do you have your own design/artwork ready?\n\n1. Yes – I have my own design\n2. No – I need design work done (Design/Layout fee: ${formatCurrency(designFee)})\n\nReply *1* or *2*.`
-                                });
+                            if (qty) {
+                                const materialTotal = calcFixedQuoteForQty(product, getPricedQuantity(product, qty));
+                                userStates[jid] = { step: 'awaiting_quote_confirm', pendingProduct: product, pendingQty: qty, pendingTotal: materialTotal };
+                                await sock.sendMessage(jid, { text: buildQuoteText(product, qty, materialTotal) });
                                 continue;
                             }
-                            if (!userCarts[jid]) userCarts[jid] = [];
-                            userCarts[jid].push(item);
-                            userStates[jid] = { step: 'awaiting_post_cart_add' };
-                            await sock.sendMessage(jid, { text: `✅ Got it! I've added ${qty.toLocaleString()} × *${product.Name}* to your cart.\n\n${buildPostCartText(userCarts[jid].length)}` });
+                            userStates[jid] = { step: 'awaiting_quote_quantity', pendingProduct: product };
+                            await sock.sendMessage(jid, { text: `Got it – *${product.Name}*! ${getQuantityPrompt(product)}` });
                             continue;
                         }
 
                         if (matches.length > 1) {
                             const list = matches.map((p, i) => `${i + 1}. ${p.Name}`).join('\n');
                             userStates[jid] = { step: 'awaiting_add_product_selection', pendingMatches: matches, pendingQty: qty };
-                            await sock.sendMessage(jid, { text: `We have a few options:\n${list}\n\nReply with the number to add it to your cart.` });
+                            await sock.sendMessage(jid, { text: `We have a few options:\n${list}\n\nReply with the number to select a product.` });
                             continue;
                         }
 
