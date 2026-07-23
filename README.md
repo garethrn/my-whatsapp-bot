@@ -200,16 +200,17 @@ Open:
 
 `./products.csv`
 
-The CSV has 15 columns:
+The CSV has 17 columns:
 
 ```csv
-ID,Category,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvailable,PolePrice,InstallationFee
+ID,Category,Subcategory,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvailable,PolePrice,InstallationFee,Aliases
 ```
 
 | Column | Description |
 |---|---|
 | `ID` | Unique numeric ID |
 | `Category` | Product category (for example `Banners`, `Signs`, `Stickers`) |
+| `Subcategory` | Product family within the category (for example `Business Cards`, `Flyers`) |
 | `Name` | Display name |
 | `Size` | Product size or note (for example `A5`, `600x900mm`, `Custom`) |
 | `Finish` | Product finish |
@@ -223,6 +224,9 @@ ID,Category,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,PriceType,Price
 | `PolesAvailable` | `yes` or `no` |
 | `PolePrice` | Price per pole in Rands |
 | `InstallationFee` | Installation fee in Rands |
+| `Aliases` | Optional extra search words separated by `|` (for example `visiting cards|biz cards`) |
+
+If you are unsure about the format, download the template from the products admin page or use `/products/template`.
 
 **sqm pricing:** when a client provides length and height in mm, the bot calculates:
 

@@ -16,6 +16,7 @@ const pino = require('pino');
 const nodemailer = require('nodemailer');
 const qrcodeImg = require('qrcode');
 const path = require('path');
+const { Readable } = require('stream');
 const express = require('express');
 const { rateLimit } = require('express-rate-limit');
 const multer = require('multer');
@@ -194,18 +195,130 @@ function saveJsonFile(filePath, value) {
 const DEFAULT_CSV = 'ID,Category,Subcategory,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvailable,PolePrice,InstallationFee,Aliases';
 const CSV_SAMPLE_ROW = '1,Paper Printing,Business Cards,Business Cards 300GSM,Standard 90x55mm,Semi Gloss,Single sided,100,fixed,,R120.00,,0,no,,0,visiting cards|biz cards';
 
-function loadProducts() {
-    const results = [];
+const PRODUCT_FIELD_ALIASES = {
+    ID: ['ID', 'ProductID', 'Product Id', 'SKU', 'Code'],
+    Category: ['Category', 'Department'],
+    Subcategory: ['Subcategory', 'Sub Category', 'Product Type', 'Type'],
+    Name: ['Name', 'Product', 'Product Name', 'Item', 'Item Name', 'Description'],
+    Size: ['Size', 'Dimensions'],
+    Finish: ['Finish', 'Material'],
+    SingleOrDoubleSided: ['SingleOrDoubleSided', 'Single Or Double Sided', 'Sides', 'Sided'],
+    UnitsPerProduct: ['UnitsPerProduct', 'Units Per Product', 'Pack Size', 'Pack Quantity', 'Quantity', 'Qty'],
+    PriceType: ['PriceType', 'Price Type', 'Pricing Type'],
+    PricePerSqm: ['PricePerSqm', 'Price Per Sqm', 'Price Per Square Metre', 'Price Per Square Meter', 'Sqm Price'],
+    FixedPrice: ['FixedPrice', 'Fixed Price', 'Price', 'Selling Price', 'Unit Price', 'Amount'],
+    MinPrice: ['MinPrice', 'Minimum Price'],
+    DesignFee: ['DesignFee', 'Design Fee'],
+    PolesAvailable: ['PolesAvailable', 'Poles Available'],
+    PolePrice: ['PolePrice', 'Pole Price'],
+    InstallationFee: ['InstallationFee', 'Installation Fee'],
+    Aliases: ['Aliases', 'Alias', 'Keywords', 'Tags']
+};
+
+function normalizeCsvHeader(header) {
+    return String(header || '')
+        .replace(/^\uFEFF/, '')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '');
+}
+
+function getFirstMappedValue(row, fieldName) {
+    const normalizedRow = Object.entries(row || {}).reduce((acc, [key, value]) => {
+        acc[normalizeCsvHeader(key)] = value;
+        return acc;
+    }, {});
+
+    const aliases = PRODUCT_FIELD_ALIASES[fieldName] || [fieldName];
+    for (const alias of aliases) {
+        const value = normalizedRow[normalizeCsvHeader(alias)];
+        if (value !== undefined && value !== null && String(value).trim() !== '') {
+            return String(value).trim();
+        }
+    }
+
+    return '';
+}
+
+function normalizeProductRecord(row) {
+    const product = {
+        ID: getFirstMappedValue(row, 'ID'),
+        Category: getFirstMappedValue(row, 'Category'),
+        Subcategory: getFirstMappedValue(row, 'Subcategory'),
+        Name: getFirstMappedValue(row, 'Name'),
+        Size: getFirstMappedValue(row, 'Size'),
+        Finish: getFirstMappedValue(row, 'Finish'),
+        SingleOrDoubleSided: getFirstMappedValue(row, 'SingleOrDoubleSided'),
+        UnitsPerProduct: getFirstMappedValue(row, 'UnitsPerProduct'),
+        PriceType: getFirstMappedValue(row, 'PriceType').toLowerCase(),
+        PricePerSqm: getFirstMappedValue(row, 'PricePerSqm'),
+        FixedPrice: getFirstMappedValue(row, 'FixedPrice'),
+        MinPrice: getFirstMappedValue(row, 'MinPrice'),
+        DesignFee: getFirstMappedValue(row, 'DesignFee'),
+        PolesAvailable: getFirstMappedValue(row, 'PolesAvailable').toLowerCase(),
+        PolePrice: getFirstMappedValue(row, 'PolePrice'),
+        InstallationFee: getFirstMappedValue(row, 'InstallationFee'),
+        Aliases: getFirstMappedValue(row, 'Aliases')
+    };
+
+    if (!product.Name) product.Name = product.Subcategory || product.Category;
+
+    if (product.PriceType !== 'sqm' && product.PriceType !== 'fixed') {
+        product.PriceType = product.PricePerSqm ? 'sqm' : 'fixed';
+    }
+
+    const hasCatalogFields = product.Category || product.Subcategory || product.Name;
+    const hasPriceFields = product.PricePerSqm || product.FixedPrice || product.MinPrice;
+    if (!hasCatalogFields && !hasPriceFields) return null;
+
+    return product;
+}
+
+function parseProductsCsvStream(stream) {
+    return new Promise((resolve, reject) => {
+        const rows = [];
+        stream
+            .pipe(csv({ mapHeaders: ({ header }) => String(header || '').replace(/^\uFEFF/, '').trim() }))
+            .on('data', (row) => rows.push(row))
+            .on('error', reject)
+            .on('end', () => {
+                const normalizedProducts = rows
+                    .map((row) => normalizeProductRecord(row))
+                    .filter(Boolean);
+
+                const validProducts = normalizedProducts.filter((product) => {
+                    const hasName = Boolean((product.Name || product.Subcategory || product.Category || '').trim());
+                    const hasPrice = product.PriceType === 'sqm'
+                        ? toNumber(product.PricePerSqm) > 0 || toNumber(product.MinPrice) > 0
+                        : toNumber(product.FixedPrice) > 0 || toNumber(product.PricePerSqm) > 0;
+                    return hasName && hasPrice;
+                });
+
+                if (validProducts.length === 0) {
+                    reject(new Error('The CSV could not be matched to the expected product fields. Please use the template or include columns such as Name, Category, FixedPrice or PricePerSqm.'));
+                    return;
+                }
+
+                resolve(validProducts);
+            });
+    });
+}
+
+function parseProductsCsvBuffer(buffer) {
+    return parseProductsCsvStream(Readable.from([buffer]));
+}
+
+async function loadProducts() {
     if (!fs.existsSync(CSV_FILE)) {
         fs.writeFileSync(CSV_FILE, DEFAULT_CSV);
     }
-    fs.createReadStream(CSV_FILE)
-        .pipe(csv({ mapHeaders: ({ header }) => header.replace(/^\uFEFF/, '').trim() }))
-        .on('data', (d) => results.push(d))
-        .on('end', () => {
-            products = results;
-            console.log('✅ Inventory Loaded');
-        });
+
+    try {
+        products = await parseProductsCsvStream(fs.createReadStream(CSV_FILE));
+        console.log(`✅ Inventory Loaded (${products.length} products)`);
+    } catch (error) {
+        console.error('❌ Failed to load products:', error.message);
+    }
 }
 loadProducts();
 
@@ -228,7 +341,7 @@ function findProductsByKeyword(text) {
     const searchWords = getProductSearchTerms(text);
     if (!normalized || searchWords.length === 0) return [];
 
-    return products
+    const scored = products
         .map((product) => {
             const name = normalizeSearchText(product.Name);
             const category = normalizeSearchText(product.Category);
@@ -272,7 +385,7 @@ function findProductsByKeyword(text) {
         .filter(({ score }) => score > 0)
         .sort((a, b) => {
             if (b.score !== a.score) return b.score - a.score;
-            const nameCompare = String(a.product.Name || '').localeCompare(String(b.product.Name || ''));
+            const nameCompare = String(a.product.Name || a.product.Subcategory || a.product.Category || '').localeCompare(String(b.product.Name || b.product.Subcategory || b.product.Category || ''));
             if (nameCompare !== 0) return nameCompare;
             // Within same product name, sort by price ascending (lowest first)
             const priceA = a.product.PriceType === 'sqm' ? toNumber(a.product.PricePerSqm) : toNumber(a.product.FixedPrice);
@@ -420,15 +533,17 @@ function buildProductListText() {
 }
 
 function buildProductOptionSummary(product, index) {
-    const pricing = product.PriceType === 'sqm'
+    const hasSqmPrice = toNumber(product.PricePerSqm) > 0;
+    const hasFixedPrice = toNumber(product.FixedPrice) > 0;
+    const pricing = product.PriceType === 'sqm' && hasSqmPrice
         ? `${formatCurrency(product.PricePerSqm)}/m²${toNumber(product.MinPrice) > 0 ? ` (min ${formatCurrency(product.MinPrice)})` : ''}`
-        : formatCurrency(product.FixedPrice);
+        : (hasFixedPrice ? formatCurrency(product.FixedPrice) : (hasSqmPrice ? `${formatCurrency(product.PricePerSqm)}/m²` : 'Price on request'));
 
     const qualifier = [];
     if (product.Size && product.Size.trim()) qualifier.push(product.Size.trim());
     if (product.PriceType !== 'sqm' && product.UnitsPerProduct && product.UnitsPerProduct.trim()) qualifier.push(`${product.UnitsPerProduct.trim()} units`);
 
-    const name = String(product.Name || '').trim();
+    const name = String(product.Name || product.Subcategory || product.Category || 'Product').trim();
     const displayName = qualifier.length > 0 ? `${name} (${qualifier.join(', ')})` : name;
     return `${index + 1}. ${displayName} - ${pricing}`;
 }
@@ -1028,9 +1143,14 @@ async function startBot() {
                         const doc = messageContent.documentMessage;
                         if (doc.fileName?.toLowerCase().endsWith('.csv')) {
                             const buffer = await downloadMediaMessage(msg, 'buffer', {});
-                            fs.writeFileSync(CSV_FILE, buffer);
-                            loadProducts();
-                            await sock.sendMessage(jid, { text: '📦 Products updated!' });
+                            try {
+                                const parsedProducts = await parseProductsCsvBuffer(buffer);
+                                fs.writeFileSync(CSV_FILE, buffer);
+                                products = parsedProducts;
+                                await sock.sendMessage(jid, { text: `📦 Products updated! Loaded ${products.length} products.` });
+                            } catch (error) {
+                                await sock.sendMessage(jid, { text: `⚠️ Products not updated.\n${error.message}` });
+                            }
                             continue;
                         }
                     }
@@ -2396,16 +2516,21 @@ app.get('/products/csv', productsRouteLimiter, productsAuthMiddleware, (_req, re
 
 // POST /products/upload — replace products.csv with the uploaded file
 app.post('/products/upload', productsRouteLimiter, productsAuthMiddleware, (req, res) => {
-    csvUpload.single('file')(req, res, (err) => {
+    csvUpload.single('file')(req, res, async (err) => {
         if (err) {
             return res.status(400).send(`<p>Upload failed: ${err.message}</p>`);
         }
         if (!req.file) {
             return res.status(400).send('<p>No file provided. Please attach a .csv file with field name "file".</p>');
         }
-        fs.writeFileSync(CSV_FILE, req.file.buffer);
-        loadProducts();
-        res.send('<!DOCTYPE html><html><head><title>Upload complete</title></head><body style="font-family:sans-serif;padding:40px;text-align:center"><h2>✅ Products updated!</h2><p>The products CSV has been replaced and reloaded.</p><p><a href="products">← Back to Products Admin</a></p></body></html>');
+        try {
+            const parsedProducts = await parseProductsCsvBuffer(req.file.buffer);
+            fs.writeFileSync(CSV_FILE, req.file.buffer);
+            products = parsedProducts;
+            res.send(`<!DOCTYPE html><html><head><title>Upload complete</title></head><body style="font-family:sans-serif;padding:40px;text-align:center"><h2>✅ Products updated!</h2><p>The products CSV has been replaced and reloaded with ${products.length} products.</p><p><a href="products">← Back to Products Admin</a></p></body></html>`);
+        } catch (error) {
+            res.status(400).send(`<!DOCTYPE html><html><head><title>Upload failed</title></head><body style="font-family:sans-serif;padding:40px;text-align:center"><h2>⚠️ Upload failed</h2><p>${error.message}</p><p><a href="products">← Back to Products Admin</a></p></body></html>`);
+        }
     });
 });
 
