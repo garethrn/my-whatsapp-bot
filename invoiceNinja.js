@@ -125,9 +125,13 @@ function cartToLineItems(cart) {
         // sqmPrice is the total material cost for the item; derive the unit cost
         const unitCost = parseFloat(((item.sqmPrice || 0) / qty).toFixed(4));
 
+        const noteParts = [label];
+        if (item.artworkReceived) noteParts.push('Artwork uploaded by customer');
+        if (item.designNotes) noteParts.push(`Design requirements: ${item.designNotes}`);
+
         lines.push({
             product_key: item.name,
-            notes: label,
+            notes: noteParts.join(' | '),
             quantity: qty,
             cost: unitCost,
             tax_name1: IN_TAX_NAME,

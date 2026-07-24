@@ -713,6 +713,8 @@ function buildOrderSummary(cart, options = {}) {
         if (item.designFee > 0) summary += `   Design/Layout Fee: ${formatCurrency(item.designFee)}\n`;
         if (item.polesCost > 0) summary += `   Poles (×${item.poles}): ${formatCurrency(item.polesCost)}\n`;
         if (item.installationFee > 0) summary += `   Installation: ${formatCurrency(item.installationFee)}\n`;
+        if (item.artworkReceived) summary += `   📎 Artwork: Uploaded by customer\n`;
+        if (item.designNotes) summary += `   ✏️ Design requirements: ${item.designNotes}\n`;
         summary += `   *Item Total: ${formatCurrency(item.total)}*\n\n`;
         grandTotal += item.total;
     });
@@ -1230,7 +1232,8 @@ async function startBot() {
                     const rawText = extractMessageText(messageContent);
                     const text = rawText.toLowerCase();
 
-                    if (!rawText && !messageContent.documentMessage) continue;
+                    const isMediaMessage = !!(messageContent.imageMessage || messageContent.documentMessage);
+                    if (!rawText && !isMediaMessage) continue;
                     if (rawText) rememberConversation(jid, rawText);
 
                     // Capture WhatsApp display name for personalised greetings
@@ -1659,34 +1662,132 @@ async function startBot() {
                         const isNo = text === '2' || ['no', 'n', 'need design', 'no design', 'create'].some((k) => text.includes(k));
 
                         if (isYes) {
-                            // Customer has own design — remove design fee from total
+                            // Customer has own design — remove design fee and ask for artwork upload
                             item.total = item.total - item.designFee;
                             item.designFee = 0;
-                            if (!userCarts[jid]) userCarts[jid] = [];
-                            userCarts[jid].push(item);
-                            userStates[jid] = { step: 'awaiting_post_cart_add' };
+                            userStates[jid] = { step: 'awaiting_artwork_upload', pendingItem: item, pendingProduct: product };
                             await sock.sendMessage(jid, {
-                                text: `✅ Added *${item.name}* to your cart! *Total: ${formatCurrency(item.total)}*\n\n⚠️ *Design Disclaimer:* ${OWN_DESIGN_DISCLAIMER}\n\n${buildPostCartText(userCarts[jid].length)}`
+                                text: `📎 Please upload your artwork now.\n\nSend the image or file directly in this chat.\n\nIf you don't have your artwork ready yet, reply *no artwork* and we'll collect your design requirements instead.\n0. Back`
                             });
                             continue;
                         }
                         if (isNo) {
-                            // Customer needs design — keep design fee
-                            // item.designFee and item.total already include the fee
+                            // Customer needs design — keep design fee and collect design requirements
                             if (item.designFee === 0 && originalDesignFee > 0) {
                                 item.designFee = originalDesignFee;
                                 item.total += originalDesignFee;
                             }
-                            if (!userCarts[jid]) userCarts[jid] = [];
-                            userCarts[jid].push(item);
-                            userStates[jid] = { step: 'awaiting_post_cart_add' };
+                            userStates[jid] = { step: 'awaiting_design_info', pendingItem: item, pendingProduct: product };
                             await sock.sendMessage(jid, {
-                                text: `✅ Added *${item.name}* to your cart! Design/Layout fee of ${formatCurrency(item.designFee)} included.\n*Total: ${formatCurrency(item.total)}*\n\n${buildPostCartText(userCarts[jid].length)}`
+                                text: `✏️ Please provide all the information needed for your design.\n\nInclude as much detail as possible:\n• Business or personal name\n• Text/copy to appear on the design\n• Preferred colors or branding\n• Any logos or reference images (you can upload them here)\n• Any other specific requirements\n\nType your requirements below:`
                             });
                             continue;
                         }
                         await sock.sendMessage(jid, {
                             text: `Do you have your own design/artwork ready?\n\n1. Yes – I have my own design\n2. No – I need design work done (Design/Layout fee: ${formatCurrency(originalDesignFee)})\n0. Back\n\nReply *1* or *2*.`
+                        });
+                        continue;
+                    }
+
+                // ── State: awaiting_artwork_upload ────────────────────────────────────
+                    if (userState.step === 'awaiting_artwork_upload') {
+                        const item = userState.pendingItem;
+                        const hasMedia = !!(messageContent.imageMessage || messageContent.documentMessage);
+                        const noArtwork = text && ['no artwork', 'no art', "don't have", 'dont have', 'not ready', 'no file'].some((k) => text.includes(k));
+
+                        if (hasMedia) {
+                            // Save the uploaded artwork file
+                            try {
+                                const buffer = await downloadMediaMessage(msg, 'buffer', {});
+                                const ext = messageContent.imageMessage
+                                    ? 'jpg'
+                                    : (messageContent.documentMessage?.fileName?.split('.').pop() || 'bin');
+                                const artworkFilename = `artwork-${jid.replace(/[^a-z0-9]/gi, '')}-${Date.now()}.${ext}`;
+                                const artworkPath = path.join(STORAGE_DIR, artworkFilename);
+                                fs.writeFileSync(artworkPath, buffer);
+                                item.artworkFile = artworkFilename;
+                            } catch (artErr) {
+                                console.error('⚠️ Failed to save customer artwork:', artErr.message);
+                            }
+                            item.artworkReceived = true;
+                            if (!userCarts[jid]) userCarts[jid] = [];
+                            userCarts[jid].push(item);
+                            userStates[jid] = { step: 'awaiting_post_cart_add' };
+                            await sock.sendMessage(jid, {
+                                text: `✅ Artwork received! Added *${item.name}* to your cart.\n*Total: ${formatCurrency(item.total)}*\n\n⚠️ *Design Disclaimer:* ${OWN_DESIGN_DISCLAIMER}\n\n${buildPostCartText(userCarts[jid].length)}`
+                            });
+                            continue;
+                        }
+
+                        if (noArtwork) {
+                            // Redirect to design info collection
+                            userStates[jid] = { step: 'awaiting_design_info', pendingItem: item, pendingProduct: userState.pendingProduct };
+                            await sock.sendMessage(jid, {
+                                text: `✏️ No problem! Please provide all the information needed for your design.\n\nInclude as much detail as possible:\n• Business or personal name\n• Text/copy to appear on the design\n• Preferred colors or branding\n• Any logos or reference images (you can upload them here)\n• Any other specific requirements\n\nType your requirements below:`
+                            });
+                            continue;
+                        }
+
+                        await sock.sendMessage(jid, {
+                            text: `📎 Please upload your artwork file or image.\n\nIf you don't have your artwork ready, reply *no artwork* and we'll collect your design requirements instead.\n0. Back`
+                        });
+                        continue;
+                    }
+
+                // ── State: awaiting_design_info ────────────────────────────────────
+                    if (userState.step === 'awaiting_design_info') {
+                        const item = userState.pendingItem;
+                        const hasMedia = !!(messageContent.imageMessage || messageContent.documentMessage);
+
+                        if (!rawText && hasMedia) {
+                            // They sent a reference image only — save it and ask for text details
+                            try {
+                                const buffer = await downloadMediaMessage(msg, 'buffer', {});
+                                const ext = messageContent.imageMessage
+                                    ? 'jpg'
+                                    : (messageContent.documentMessage?.fileName?.split('.').pop() || 'bin');
+                                const refFilename = `design-ref-${jid.replace(/[^a-z0-9]/gi, '')}-${Date.now()}.${ext}`;
+                                const refPath = path.join(STORAGE_DIR, refFilename);
+                                fs.writeFileSync(refPath, buffer);
+                                item.artworkFile = refFilename;
+                            } catch (refErr) {
+                                console.error('⚠️ Failed to save design reference image:', refErr.message);
+                            }
+                            userStates[jid] = { step: 'awaiting_design_info', pendingItem: item, pendingProduct: userState.pendingProduct };
+                            await sock.sendMessage(jid, {
+                                text: `📎 Reference image received! Now please type the text and other details for your design:\n• Business or personal name\n• Text/copy to appear on the design\n• Preferred colors or branding\n• Any other specific requirements`
+                            });
+                            continue;
+                        }
+
+                        if (!rawText) {
+                            await sock.sendMessage(jid, {
+                                text: `✏️ Please type your design requirements (business name, text, colors, etc.).\n\nYou can also attach a reference image along with your message.`
+                            });
+                            continue;
+                        }
+
+                        // Save text requirements; also save a reference image if attached
+                        item.designNotes = rawText;
+                        if (hasMedia && !item.artworkFile) {
+                            try {
+                                const buffer = await downloadMediaMessage(msg, 'buffer', {});
+                                const ext = messageContent.imageMessage
+                                    ? 'jpg'
+                                    : (messageContent.documentMessage?.fileName?.split('.').pop() || 'bin');
+                                const refFilename = `design-ref-${jid.replace(/[^a-z0-9]/gi, '')}-${Date.now()}.${ext}`;
+                                const refPath = path.join(STORAGE_DIR, refFilename);
+                                fs.writeFileSync(refPath, buffer);
+                                item.artworkFile = refFilename;
+                            } catch (refErr) {
+                                console.error('⚠️ Failed to save design reference image:', refErr.message);
+                            }
+                        }
+                        if (!userCarts[jid]) userCarts[jid] = [];
+                        userCarts[jid].push(item);
+                        userStates[jid] = { step: 'awaiting_post_cart_add' };
+                        await sock.sendMessage(jid, {
+                            text: `✅ Design requirements noted! Added *${item.name}* to your cart.\nDesign/Layout fee of ${formatCurrency(item.designFee)} included.\n*Total: ${formatCurrency(item.total)}*\n\n${buildPostCartText(userCarts[jid].length)}`
                         });
                         continue;
                     }
