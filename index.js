@@ -489,7 +489,7 @@ function buildQuoteText(product, requestedQty, total) {
         quoteText = `💰 *Quote for ${requestedQty.toLocaleString()} ${pluralizeWord(profile.baseUnit, requestedQty)} of ${product.Name}*\n`;
     }
 
-    quoteText += `Estimated total: *${formatCurrency(total)}* (incl. VAT, excl. delivery)\n\n1. Yes – add to cart\n2. No – cancel\n\n– ${BUSINESS_NAME} Team`;
+    quoteText += `Estimated total: *${formatCurrency(total)}* (incl. VAT, excl. delivery)\n\n1. Yes – add to cart\n2. No – cancel\n0. Back\n\n– ${BUSINESS_NAME} Team`;
     return quoteText;
 }
 
@@ -507,6 +507,8 @@ function buildWelcomeText(jid) {
         '2. Product List',
         '3. Track My Order',
         '4. Store Contact Details',
+        '',
+        '0. Back',
         '',
         'Reply with the number of your choice.',
         NAVIGATION_HINT
@@ -557,6 +559,7 @@ function buildProductOptionSummary(product, index) {
 function buildProductMatchesText(matches, intro, outro) {
     const lines = [intro, ''];
     matches.forEach((product, index) => lines.push(buildProductOptionSummary(product, index)));
+    lines.push('0. Back');
     if (outro) lines.push('', outro);
     return lines.join('\n');
 }
@@ -579,8 +582,8 @@ function buildSubcategoryMenuText(categoryName, subcategories) {
     subcategories.forEach((sub, i) => {
         reply += `${i + 1}. ${sub.trim()}\n`;
     });
+    reply += '\n0. Back\n';
     reply += '\nReply with a *number* to see products in that subcategory.';
-    reply += '\nType *back* to return to categories.';
     reply += `\n${NAVIGATION_HINT}`;
     return reply;
 }
@@ -590,6 +593,7 @@ function buildSubcategoryProductListText(subcategoryName, sortedProducts) {
     sortedProducts.forEach((p, i) => {
         reply += `${buildProductOptionSummary(p, i)}\n`;
     });
+    reply += '\n0. Back\n';
     reply += '\nReply with the *number* of the product you want and I’ll help you price it or add it to your cart.';
     return reply;
 }
@@ -640,6 +644,7 @@ function buildMenuText() {
     categories.forEach((cat, i) => {
         reply += `${i + 1}. ${cat}\n`;
     });
+    reply += '\n0. Back\n';
     reply += '\nReply with a *number* to browse that category.';
     reply += '\nWhen a product list is shown, reply with the *number* of the item you want.';
     reply += '\nType *cart* to review your basket';
@@ -672,6 +677,7 @@ function buildPostCartText(cartCount) {
         '1. Add more items',
         '2. View cart',
         '3. Checkout',
+        '0. Back',
         '',
         NAVIGATION_HINT
     ].join('\n');
@@ -875,7 +881,7 @@ function restorePreviousNavigationSnapshot(jid) {
 }
 
 function isBackCommand(text) {
-    return /^(back|go back|previous)$/i.test(text || '');
+    return /^(0|back|go back|previous)$/i.test(text || '');
 }
 
 function isHomeCommand(text) {
@@ -1020,7 +1026,7 @@ async function requestHumanHandoverConfirmation(sock, jid, reason) {
     };
 
     await sock.sendMessage(jid, {
-        text: `🤝 I can ask a ${BUSINESS_NAME} team member to take over.\nIf you confirm, I will pause my automated replies so a person can assist you.\n\n1. Yes – hand over to a team member\n2. No – keep chatting with me`
+        text: `🤝 I can ask a ${BUSINESS_NAME} team member to take over.\nIf you confirm, I will pause my automated replies so a person can assist you.\n\n1. Yes – hand over to a team member\n2. No – keep chatting with me\n0. Back`
     });
 }
 
@@ -1405,7 +1411,7 @@ async function startBot() {
                             continue;
                         }
                         await sock.sendMessage(jid, {
-                            text: 'Please reply with a number:\n\n1. Place a new order\n2. Product List\n3. Track My Order\n4. Store Contact Details'
+                            text: 'Please reply with a number:\n\n1. Place a new order\n2. Product List\n3. Track My Order\n4. Store Contact Details\n0. Back'
                         });
                         continue;
                     }
@@ -1556,13 +1562,13 @@ async function startBot() {
 
                     if (product.PolesAvailable === 'yes') {
                         userStates[jid] = { step: 'awaiting_poles', pendingProduct: product, pendingItem };
-                        reply += `\nWould you like to add *poles*?\nPrice per pole: ${formatCurrency(product.PolePrice)}\n\n1. Yes\n2. No`;
+                        reply += `\nWould you like to add *poles*?\nPrice per pole: ${formatCurrency(product.PolePrice)}\n\n1. Yes\n2. No\n0. Back`;
                         await sock.sendMessage(jid, { text: reply });
                         continue;
                     }
                     if (toNumber(product.InstallationFee) > 0) {
                         userStates[jid] = { step: 'awaiting_installation', pendingProduct: product, pendingItem };
-                        reply += `\nWould you like *installation*? ${formatCurrency(product.InstallationFee)}\n\n1. Yes\n2. No`;
+                        reply += `\nWould you like *installation*? ${formatCurrency(product.InstallationFee)}\n\n1. Yes\n2. No\n0. Back`;
                         await sock.sendMessage(jid, { text: reply });
                         continue;
                     }
@@ -1587,7 +1593,7 @@ async function startBot() {
                         if (instFee > 0) {
                             userStates[jid] = { ...userState, step: 'awaiting_installation' };
                             await sock.sendMessage(jid, {
-                                text: `Would you like *installation*? ${formatCurrency(instFee)}\n\n1. Yes\n2. No`
+                                text: `Would you like *installation*? ${formatCurrency(instFee)}\n\n1. Yes\n2. No\n0. Back`
                             });
                             continue;
                         }
@@ -1617,7 +1623,7 @@ async function startBot() {
                     if (instFee > 0) {
                         userStates[jid] = { ...userState, step: 'awaiting_installation', pendingItem: updatedItem };
                         await sock.sendMessage(jid, {
-                            text: `${count} pole(s) added: ${formatCurrency(polesCost)}\n\nWould you like *installation*? ${formatCurrency(instFee)}\n\n1. Yes\n2. No`
+                            text: `${count} pole(s) added: ${formatCurrency(polesCost)}\n\nWould you like *installation*? ${formatCurrency(instFee)}\n\n1. Yes\n2. No\n0. Back`
                         });
                         continue;
                     }
@@ -1680,7 +1686,7 @@ async function startBot() {
                             continue;
                         }
                         await sock.sendMessage(jid, {
-                            text: `Do you have your own design/artwork ready?\n\n1. Yes – I have my own design\n2. No – I need design work done (Design/Layout fee: ${formatCurrency(originalDesignFee)})\n\nReply *1* or *2*.`
+                            text: `Do you have your own design/artwork ready?\n\n1. Yes – I have my own design\n2. No – I need design work done (Design/Layout fee: ${formatCurrency(originalDesignFee)})\n0. Back\n\nReply *1* or *2*.`
                         });
                         continue;
                     }
@@ -1758,7 +1764,7 @@ async function startBot() {
                         if (item.designFee > 0) {
                             userStates[jid] = { step: 'awaiting_design_choice', pendingProduct: product, pendingItem: item };
                             await sock.sendMessage(jid, {
-                                text: `Do you have your own design/artwork ready?\n\n1. Yes – I have my own design\n2. No – I need design work done (Design/Layout fee: ${formatCurrency(item.designFee)})\n\nReply *1* or *2*.`
+                                text: `Do you have your own design/artwork ready?\n\n1. Yes – I have my own design\n2. No – I need design work done (Design/Layout fee: ${formatCurrency(item.designFee)})\n0. Back\n\nReply *1* or *2*.`
                             });
                             continue;
                         }
@@ -1794,7 +1800,7 @@ async function startBot() {
                         if (designFee > 0) {
                             userStates[jid] = { step: 'awaiting_design_choice', pendingProduct: product, pendingItem: item };
                             await sock.sendMessage(jid, {
-                                text: `Do you have your own design/artwork ready?\n\n1. Yes – I have my own design\n2. No – I need design work done (Design/Layout fee: ${formatCurrency(designFee)})\n\nReply *1* or *2*.`
+                                text: `Do you have your own design/artwork ready?\n\n1. Yes – I have my own design\n2. No – I need design work done (Design/Layout fee: ${formatCurrency(designFee)})\n0. Back\n\nReply *1* or *2*.`
                             });
                             continue;
                         }
@@ -1949,7 +1955,7 @@ async function startBot() {
                             if (designFee > 0) {
                                 userStates[jid] = { step: 'awaiting_design_choice', pendingProduct: product, pendingItem: item };
                                 await sock.sendMessage(jid, {
-                                    text: `Do you have your own design/artwork ready?\n\n1. Yes – I have my own design\n2. No – I need design work done (Design/Layout fee: ${formatCurrency(designFee)})\n\nReply *1* or *2*.`
+                                    text: `Do you have your own design/artwork ready?\n\n1. Yes – I have my own design\n2. No – I need design work done (Design/Layout fee: ${formatCurrency(designFee)})\n0. Back\n\nReply *1* or *2*.`
                                 });
                                 continue;
                             }
@@ -2118,7 +2124,7 @@ async function startBot() {
                         if (designFee > 0) {
                             userStates[jid] = { step: 'awaiting_design_choice', pendingProduct: product, pendingItem: item };
                             await sock.sendMessage(jid, {
-                                text: `Do you have your own design/artwork ready?\n\n1. Yes – I have my own design\n2. No – I need design work done (Design/Layout fee: ${formatCurrency(designFee)})\n\nReply *1* or *2*.`
+                                text: `Do you have your own design/artwork ready?\n\n1. Yes – I have my own design\n2. No – I need design work done (Design/Layout fee: ${formatCurrency(designFee)})\n0. Back\n\nReply *1* or *2*.`
                             });
                             continue;
                         }
@@ -2378,7 +2384,7 @@ async function startBot() {
                         // Multiple items – ask which one
                         const itemList = cart.map((item, i) => `${i + 1}) ${item.name}`).join('\n');
                         userStates[jid] = { step: 'awaiting_remove_selection' };
-                        await sock.sendMessage(jid, { text: `You have ${cart.length} items in your cart. Which one would you like to remove? Reply with the number:\n${itemList}` });
+                        await sock.sendMessage(jid, { text: `You have ${cart.length} items in your cart. Which one would you like to remove? Reply with the number:\n${itemList}\n0. Back` });
                         continue;
                     }
 
