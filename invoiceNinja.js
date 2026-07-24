@@ -121,7 +121,7 @@ function cartToLineItems(cart) {
 
     for (const item of cart) {
         const label = item.dimensions ? `${item.name} (${item.dimensions})` : item.name;
-        const qty = item.qty || 1;
+        const qty = (Number.isFinite(item.qty) && item.qty > 0) ? item.qty : 1;
         // sqmPrice is the total material cost for the item; derive the unit cost
         const unitCost = parseFloat(((item.sqmPrice || 0) / qty).toFixed(4));
 
@@ -149,7 +149,7 @@ function cartToLineItems(cart) {
             });
         }
 
-        if ((item.polesCost || 0) > 0 && (item.poles || 0) > 0) {
+        if ((item.polesCost || 0) > 0 && item.poles > 0) {
             lines.push({
                 product_key: 'Poles',
                 notes: `Poles ×${item.poles} for ${item.name}`,
