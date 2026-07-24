@@ -204,10 +204,10 @@ Open:
 
 `./products.csv`
 
-The CSV has 17 columns:
+The CSV has 18 columns:
 
 ```csv
-ID,Category,Subcategory,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvailable,PolePrice,InstallationFee,Aliases
+ID,Category,Subcategory,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvailable,PolePrice,InstallationFee,RequiresArtwork,Aliases
 ```
 
 | Column | Description |
@@ -228,6 +228,7 @@ ID,Category,Subcategory,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,Pri
 | `PolesAvailable` | `yes` or `no` |
 | `PolePrice` | Price per pole in Rands |
 | `InstallationFee` | Installation fee in Rands |
+| `RequiresArtwork` | `yes` (default) or `no`. When `yes`, the bot asks the customer to upload artwork during checkout. When `no`, the artwork upload step is skipped (useful for products with no custom artwork, like standard off-the-shelf items). |
 | `Aliases` | Optional extra search words separated by `|` (for example `visiting cards|biz cards`) |
 
 If you are unsure about the format, download the template from the products admin page or use `/products/template`.
@@ -446,5 +447,58 @@ Check that:
 - `leads`
 - `handovers`
 - `resume customer_jid`
+
+## Admin Dashboard
+
+The bot includes a live admin dashboard that lets you see all conversations, watch them in real time, and take over from the bot by typing a message.
+
+### How to access the dashboard
+
+Open your browser and navigate to:
+
+```
+https://your-app.up.railway.app/admin
+```
+
+If you have a `QR_ACCESS_TOKEN` set (recommended), add it as a query parameter:
+
+```
+https://your-app.up.railway.app/admin?token=YOUR_TOKEN
+```
+
+On your local machine use:
+
+```
+http://localhost:3000/admin?token=YOUR_TOKEN
+```
+
+### What the dashboard shows
+
+- **Sidebar (left):** All customer conversations sorted by most recent activity.  
+  Each conversation has a colour-coded status dot:
+  - 🟢 **Paid** – order paid/complete
+  - 🔵 **Quoted** – quote sent, awaiting approval
+  - 🟡 **In Progress** – customer is in the middle of a flow or has items in the cart
+  - 🔴 **Handover** – a human agent has taken over (bot is paused)
+  - ⚪ **Idle** – no recent activity
+- **Chat area (right):** Click any conversation to view the full message history (customer and bot messages).
+- **Status bar:** Shows whether the WhatsApp connection is live.
+
+### Watching without disturbing the bot
+
+Simply click on a conversation to view it. The bot continues to run normally; you are in read-only observer mode.
+
+### Taking over from the bot
+
+Type a message in the text box at the bottom and press **Enter** or click **Send**. The first message you send will:
+1. Pause the bot for that customer.
+2. Notify the customer that a team member has taken over.
+3. Send your message to the customer.
+
+All subsequent messages you type also go to the customer while the handover is active.
+
+### Handing back to the bot
+
+Click the **Resume Bot** button in the chat header (visible during a handover). The bot will take over again and notify the customer.
 
 That is the full setup and operating guide.

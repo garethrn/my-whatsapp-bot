@@ -176,6 +176,10 @@ let userNames = {};
 let fallbackCounts = {};
 let userEmails = {};
 let orders = loadJsonFile(ORDERS_FILE, []);
+// Full conversation log keyed by JID – stores both user and bot messages for the admin dashboard.
+const MAX_CHAT_LOG = 100;
+let chatLog = {}; // { [jid]: [{ role: 'user'|'bot', text: string, timestamp: string }] }
+let chatLogLastActivity = {}; // { [jid]: ISO timestamp of last message }
 
 function loadJsonFile(filePath, fallbackValue) {
     try {
@@ -195,8 +199,8 @@ function saveJsonFile(filePath, value) {
     }
 }
 
-const DEFAULT_CSV = 'ID,Category,Subcategory,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvailable,PolePrice,InstallationFee,Aliases';
-const CSV_SAMPLE_ROW = '1,Paper Printing,Business Cards,Business Cards 300GSM,Standard 90x55mm,Semi Gloss,Single sided,100,fixed,,R120.00,,0,no,,0,visiting cards|biz cards';
+const DEFAULT_CSV = 'ID,Category,Subcategory,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvailable,PolePrice,InstallationFee,RequiresArtwork,Aliases';
+const CSV_SAMPLE_ROW = '1,Paper Printing,Business Cards,Business Cards 300GSM,Standard 90x55mm,Semi Gloss,Single sided,100,fixed,,R120.00,,0,no,,0,yes,visiting cards|biz cards';
 
 const PRODUCT_FIELD_ALIASES = {
     ID: ['ID', 'ProductID', 'Product Id', 'SKU', 'Code'],
@@ -215,6 +219,7 @@ const PRODUCT_FIELD_ALIASES = {
     PolesAvailable: ['PolesAvailable', 'Poles Available'],
     PolePrice: ['PolePrice', 'Pole Price'],
     InstallationFee: ['InstallationFee', 'Installation Fee'],
+    RequiresArtwork: ['RequiresArtwork', 'Requires Artwork', 'Artwork Required', 'Ask Artwork', 'AskArtwork'],
     Aliases: ['Aliases', 'Alias', 'Keywords', 'Tags']
 };
 
@@ -261,6 +266,7 @@ function normalizeProductRecord(row) {
         PolesAvailable: getFirstMappedValue(row, 'PolesAvailable').toLowerCase(),
         PolePrice: getFirstMappedValue(row, 'PolePrice'),
         InstallationFee: getFirstMappedValue(row, 'InstallationFee'),
+        RequiresArtwork: getFirstMappedValue(row, 'RequiresArtwork').toLowerCase() || 'yes',
         Aliases: getFirstMappedValue(row, 'Aliases')
     };
 
@@ -808,6 +814,16 @@ function rememberConversation(jid, text) {
     if (!conversationHistory[jid]) conversationHistory[jid] = [];
     conversationHistory[jid].push(text.trim());
     conversationHistory[jid] = conversationHistory[jid].slice(-MAX_HISTORY);
+    logChatEntry(jid, 'user', text);
+}
+
+function logChatEntry(jid, role, text) {
+    if (!jid || !text) return;
+    if (!chatLog[jid]) chatLog[jid] = [];
+    const ts = new Date().toISOString();
+    chatLog[jid].push({ role, text: String(text).trim(), timestamp: ts });
+    chatLog[jid] = chatLog[jid].slice(-MAX_CHAT_LOG);
+    chatLogLastActivity[jid] = ts;
 }
 
 function getConversationPreview(jid) {
@@ -1134,6 +1150,11 @@ async function startBot() {
 
             if (!skipNavigation && targetJid !== ADMIN_JID && typeof payload?.text === 'string' && payload.text.trim()) {
                 pushNavigationSnapshot(targetJid, payload.text);
+            }
+
+            // Log bot replies for the admin dashboard (skip messages sent to the admin's own JID)
+            if (targetJid !== ADMIN_JID && typeof payload?.text === 'string' && payload.text.trim()) {
+                logChatEntry(targetJid, 'bot', payload.text);
             }
 
             return rawSendMessage(targetJid, payload, options);
@@ -1662,13 +1683,25 @@ async function startBot() {
                         const isNo = text === '2' || ['no', 'n', 'need design', 'no design', 'create'].some((k) => text.includes(k));
 
                         if (isYes) {
-                            // Customer has own design — remove design fee and ask for artwork upload
+                            // Customer has own design — remove design fee
                             item.total = item.total - item.designFee;
                             item.designFee = 0;
-                            userStates[jid] = { step: 'awaiting_artwork_upload', pendingItem: item, pendingProduct: product };
-                            await sock.sendMessage(jid, {
-                                text: `📎 Please upload your artwork now.\n\nSend the image or file directly in this chat.\n\nIf you don't have your artwork ready yet, reply *no artwork* and we'll collect your design requirements instead.\n0. Back`
-                            });
+                            const requiresArtwork = (product.RequiresArtwork || 'yes').toLowerCase();
+                            if (requiresArtwork === 'no') {
+                                // Product doesn't require artwork upload — add to cart directly
+                                if (!userCarts[jid]) userCarts[jid] = [];
+                                userCarts[jid].push(item);
+                                userStates[jid] = { step: 'awaiting_post_cart_add' };
+                                await sock.sendMessage(jid, {
+                                    text: `✅ Added *${item.name}* to your cart.\n*Total: ${formatCurrency(item.total)}*\n\n⚠️ *Design Disclaimer:* ${OWN_DESIGN_DISCLAIMER}\n\n${buildPostCartText(userCarts[jid].length)}`
+                                });
+                            } else {
+                                // Ask customer to upload their artwork
+                                userStates[jid] = { step: 'awaiting_artwork_upload', pendingItem: item, pendingProduct: product };
+                                await sock.sendMessage(jid, {
+                                    text: `📎 Please upload your artwork now.\n\nSend the image or file directly in this chat.\n\nIf you don't have your artwork ready yet, reply *no artwork* and a design fee will apply.\n0. Back`
+                                });
+                            }
                             continue;
                         }
                         if (isNo) {
@@ -1720,10 +1753,19 @@ async function startBot() {
                         }
 
                         if (noArtwork) {
-                            // Redirect to design info collection
+                            // Customer said they had their own design but doesn't have the artwork ready.
+                            // Restore the original design fee — they will need design work done.
+                            const originalDesignFee = toNumber(userState.pendingProduct?.DesignFee);
+                            if (originalDesignFee > 0 && item.designFee === 0) {
+                                item.designFee = originalDesignFee;
+                                item.total += originalDesignFee;
+                            }
                             userStates[jid] = { step: 'awaiting_design_info', pendingItem: item, pendingProduct: userState.pendingProduct };
+                            const feeNotice = item.designFee > 0
+                                ? `\n\n⚠️ Since you don't have your artwork ready, the design/layout fee of *${formatCurrency(item.designFee)}* has been added.`
+                                : '';
                             await sock.sendMessage(jid, {
-                                text: `✏️ No problem! Please provide all the information needed for your design.\n\nInclude as much detail as possible:\n• Business or personal name\n• Text/copy to appear on the design\n• Preferred colors or branding\n• Any logos or reference images (you can upload them here)\n• Any other specific requirements\n\nType your requirements below:`
+                                text: `✏️ No problem! Please provide all the information needed for your design.${feeNotice}\n\nInclude as much detail as possible:\n• Business or personal name\n• Text/copy to appear on the design\n• Preferred colors or branding\n• Any logos or reference images (you can upload them here)\n• Any other specific requirements\n\nType your requirements below:`
                             });
                             continue;
                         }
@@ -2801,6 +2843,479 @@ app.get('/products', productsRouteLimiter, productsAuthMiddleware, (req, res) =>
       <button class="btn" type="submit">⬆ Upload</button>
     </form>
   </div>
+</body>
+</html>`);
+});
+
+// --- ADMIN DASHBOARD ---
+// Protected by the same QR_ACCESS_TOKEN used for /qr and /products.
+// Access at: /admin  (or /admin?token=YOUR_TOKEN)
+
+const adminRouteLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 60,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: '{"error":"Too many requests. Please wait a minute."}'
+});
+
+function adminAuthMiddleware(req, res, next) {
+    if (!isAuthorizedQrRequest(getQrAccessToken(req))) {
+        const acceptsHtml = (req.get('accept') || '').includes('text/html');
+        if (acceptsHtml) {
+            return res.status(401).send('<p style="font-family:sans-serif;padding:40px">Unauthorized. Pass your <code>QR_ACCESS_TOKEN</code> as a query parameter: <code>?token=YOUR_TOKEN</code> or via the <code>Authorization: ****** header.</p>');
+        }
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+    next();
+}
+
+// Helper: derive a human-readable status for a conversation JID
+function getConversationStatus(jid) {
+    if (handoverSessions[jid]?.active) return 'handover';
+    const jidOrders = orders.filter((o) => o.jid === jid);
+    const hasPaid = jidOrders.some((o) => o.status === 'paid');
+    const hasQuoted = jidOrders.some((o) => ['quoted', 'approved'].includes(o.status));
+    if (hasPaid) return 'paid';
+    if (hasQuoted) return 'quoted';
+    const step = userStates[jid]?.step || 'idle';
+    const hasCart = (userCarts[jid] || []).length > 0;
+    if (hasCart || step !== 'idle') return 'in_progress';
+    if (chatLog[jid]?.length > 0) return 'idle';
+    return 'idle';
+}
+
+// GET /admin/api/conversations — list all known JIDs with summary info
+app.get('/admin/api/conversations', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
+    // Collect all JIDs seen across any in-memory structure
+    const jidSet = new Set([
+        ...Object.keys(chatLog),
+        ...Object.keys(userStates),
+        ...Object.keys(userCarts),
+        ...Object.keys(handoverSessions),
+        ...orders.map((o) => o.jid)
+    ]);
+    jidSet.delete(ADMIN_JID);
+
+    const conversations = [...jidSet].map((jid) => {
+        const lastMsg = (chatLog[jid] || []).slice(-1)[0] || null;
+        const jidOrders = orders.filter((o) => o.jid === jid);
+        return {
+            jid,
+            phone: getPhoneFromJid(jid),
+            name: userNames[jid] || null,
+            status: getConversationStatus(jid),
+            step: userStates[jid]?.step || 'idle',
+            cartItemCount: (userCarts[jid] || []).length,
+            orderCount: jidOrders.length,
+            lastOrderStatus: jidOrders.length > 0 ? jidOrders[jidOrders.length - 1].status : null,
+            lastActivity: chatLogLastActivity[jid] || null,
+            lastMessage: lastMsg ? { role: lastMsg.role, text: lastMsg.text.slice(0, 100) } : null,
+            isHandover: Boolean(handoverSessions[jid]?.active)
+        };
+    }).sort((a, b) => {
+        // Sort by last activity descending
+        if (!a.lastActivity) return 1;
+        if (!b.lastActivity) return -1;
+        return b.lastActivity.localeCompare(a.lastActivity);
+    });
+
+    res.json({ ok: true, conversations });
+});
+
+// GET /admin/api/conversations/:jid — full message log for one conversation
+app.get('/admin/api/conversations/:jid', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
+    const jid = decodeURIComponent(req.params.jid);
+    const messages = chatLog[jid] || [];
+    const jidOrders = orders.filter((o) => o.jid === jid);
+    res.json({
+        ok: true,
+        jid,
+        phone: getPhoneFromJid(jid),
+        name: userNames[jid] || null,
+        status: getConversationStatus(jid),
+        step: userStates[jid]?.step || 'idle',
+        cart: userCarts[jid] || [],
+        isHandover: Boolean(handoverSessions[jid]?.active),
+        handoverReason: handoverSessions[jid]?.reason || null,
+        orders: jidOrders,
+        messages
+    });
+});
+
+// POST /admin/api/send — send a message to a customer (triggers human handover automatically)
+app.post('/admin/api/send', adminRouteLimiter, adminAuthMiddleware, express.json(), async (req, res) => {
+    const { jid, message } = req.body || {};
+    if (!jid || typeof message !== 'string' || !message.trim()) {
+        return res.status(400).json({ error: 'jid and message are required' });
+    }
+    if (!activeSock || whatsappRuntime.phase !== 'connected') {
+        return res.status(503).json({ error: 'WhatsApp is not connected' });
+    }
+    try {
+        // Trigger human handover if not already active
+        if (!handoverSessions[jid]?.active) {
+            await activateHumanHandover(activeSock, jid, 'Admin sent a message via the dashboard');
+        }
+        await activeSock.sendMessage(jid, { text: message.trim() });
+        // Log the admin message as a 'bot' entry (sent on behalf of the business)
+        logChatEntry(jid, 'bot', `[Admin] ${message.trim()}`);
+        res.json({ ok: true });
+    } catch (err) {
+        console.error('❌ Admin send failed:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /admin/api/resume — resume bot control for a customer (end human handover)
+app.post('/admin/api/resume', adminRouteLimiter, adminAuthMiddleware, express.json(), async (req, res) => {
+    const { jid } = req.body || {};
+    if (!jid) return res.status(400).json({ error: 'jid is required' });
+    if (!handoverSessions[jid]?.active) {
+        return res.status(400).json({ error: 'No active handover for this conversation' });
+    }
+    if (!activeSock || whatsappRuntime.phase !== 'connected') {
+        return res.status(503).json({ error: 'WhatsApp is not connected' });
+    }
+    try {
+        delete handoverSessions[jid];
+        await activeSock.sendMessage(jid, { text: '✅ A team member has finished helping. I can assist you again now — send *menu* or *cart* when you are ready.' });
+        res.json({ ok: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /admin — HTML admin dashboard
+app.get('/admin', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
+    const token = getQrAccessToken(req);
+    const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
+    res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${BUSINESS_NAME} – Admin Dashboard</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f2f5; height: 100vh; display: flex; flex-direction: column; }
+    /* ── Top bar ── */
+    .topbar { background: #075e54; color: #fff; padding: 12px 20px; display: flex; align-items: center; gap: 16px; flex-shrink: 0; }
+    .topbar h1 { font-size: 1.1rem; font-weight: 600; flex: 1; }
+    .topbar .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #ccc; display: inline-block; }
+    .topbar .status-dot.connected { background: #25d366; }
+    .topbar .wa-status { font-size: 0.8rem; opacity: 0.85; }
+    .topbar nav a { color: #fff; text-decoration: none; font-size: 0.85rem; opacity: 0.85; padding: 4px 10px; border: 1px solid rgba(255,255,255,.3); border-radius: 4px; }
+    .topbar nav a:hover { opacity: 1; background: rgba(255,255,255,.1); }
+    /* ── Main layout ── */
+    .main { display: flex; flex: 1; overflow: hidden; }
+    /* ── Sidebar ── */
+    .sidebar { width: 320px; flex-shrink: 0; background: #fff; border-right: 1px solid #ddd; display: flex; flex-direction: column; overflow: hidden; }
+    .sidebar-header { padding: 12px 16px; border-bottom: 1px solid #ddd; display: flex; align-items: center; gap: 8px; }
+    .sidebar-header h2 { font-size: 0.95rem; font-weight: 600; flex: 1; }
+    .sidebar-header .refresh-btn { font-size: 0.8rem; cursor: pointer; color: #075e54; border: none; background: none; padding: 4px 8px; border-radius: 4px; }
+    .sidebar-header .refresh-btn:hover { background: #f0f2f5; }
+    .legend { padding: 8px 16px; font-size: 0.75rem; color: #555; border-bottom: 1px solid #eee; display: flex; gap: 12px; flex-wrap: wrap; }
+    .legend span { display: flex; align-items: center; gap: 4px; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+    .dot-paid { background: #27ae60; }
+    .dot-quoted { background: #2980b9; }
+    .dot-in_progress { background: #f39c12; }
+    .dot-handover { background: #e74c3c; }
+    .dot-idle { background: #aaa; }
+    .conv-list { overflow-y: auto; flex: 1; }
+    .conv-item { padding: 12px 16px; cursor: pointer; border-bottom: 1px solid #f0f2f5; display: flex; align-items: flex-start; gap: 10px; }
+    .conv-item:hover { background: #f5f5f5; }
+    .conv-item.active { background: #e9f5e9; }
+    .conv-avatar { width: 40px; height: 40px; border-radius: 50%; background: #ccc; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; color: #fff; font-weight: 700; }
+    .conv-body { flex: 1; overflow: hidden; }
+    .conv-name { font-size: 0.9rem; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+    .conv-phone { font-size: 0.8rem; color: #666; }
+    .conv-preview { font-size: 0.78rem; color: #777; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+    .conv-meta { text-align: right; flex-shrink: 0; }
+    .conv-time { font-size: 0.72rem; color: #aaa; white-space: nowrap; }
+    .badge { display: inline-block; padding: 2px 6px; border-radius: 10px; font-size: 0.7rem; font-weight: 600; margin-top: 4px; }
+    .badge-paid { background: #d5f5e3; color: #1a7a47; }
+    .badge-quoted { background: #d6eaf8; color: #1b5e8f; }
+    .badge-in_progress { background: #fef9e7; color: #8a6200; }
+    .badge-handover { background: #fde8e8; color: #a93226; }
+    .badge-idle { background: #f0f0f0; color: #666; }
+    /* ── Chat area ── */
+    .chat-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    .chat-header { background: #fff; border-bottom: 1px solid #ddd; padding: 12px 20px; display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+    .chat-header .chat-info { flex: 1; }
+    .chat-header .chat-name { font-size: 1rem; font-weight: 600; }
+    .chat-header .chat-sub { font-size: 0.8rem; color: #666; }
+    .chat-header .btn-resume { padding: 6px 14px; background: #075e54; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 0.82rem; }
+    .chat-header .btn-resume:hover { background: #054c44; }
+    .chat-header .btn-resume:disabled { background: #aaa; cursor: default; }
+    .chat-messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; background: #e5ddd5; }
+    .msg { max-width: 70%; padding: 8px 12px; border-radius: 8px; font-size: 0.88rem; line-height: 1.45; word-break: break-word; white-space: pre-wrap; }
+    .msg-user { align-self: flex-start; background: #fff; border-bottom-left-radius: 2px; }
+    .msg-bot { align-self: flex-end; background: #dcf8c6; border-bottom-right-radius: 2px; }
+    .msg-admin { align-self: flex-end; background: #cce5ff; border-bottom-right-radius: 2px; }
+    .msg-time { font-size: 0.68rem; color: #999; margin-top: 3px; text-align: right; }
+    .chat-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: #aaa; font-size: 0.95rem; background: #e5ddd5; }
+    .chat-input-area { background: #f0f2f5; border-top: 1px solid #ddd; padding: 12px 16px; display: flex; gap: 10px; align-items: flex-end; flex-shrink: 0; }
+    .chat-input { flex: 1; border: 1px solid #ddd; border-radius: 20px; padding: 10px 16px; font-size: 0.9rem; resize: none; max-height: 120px; outline: none; font-family: inherit; }
+    .chat-input:focus { border-color: #075e54; }
+    .send-btn { background: #075e54; color: #fff; border: none; border-radius: 50%; width: 44px; height: 44px; cursor: pointer; font-size: 1.1rem; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+    .send-btn:hover { background: #054c44; }
+    .send-btn:disabled { background: #aaa; cursor: default; }
+    .takeover-notice { background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; padding: 8px 14px; font-size: 0.82rem; color: #856404; margin: 0 16px 8px; }
+    .no-conv { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #aaa; gap: 8px; }
+    .no-conv-icon { font-size: 3rem; }
+  </style>
+</head>
+<body>
+<div class="topbar">
+  <h1>💬 ${BUSINESS_NAME} – Admin Dashboard</h1>
+  <span class="status-dot" id="waDot"></span>
+  <span class="wa-status" id="waStatus">Checking…</span>
+  <nav style="display:flex;gap:8px">
+    <a href="products${tokenParam}">📦 Products</a>
+    <a href="qr${tokenParam}">📱 QR</a>
+    <a href="health">❤️ Health</a>
+  </nav>
+</div>
+<div class="main">
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <h2>Conversations</h2>
+      <button class="refresh-btn" onclick="loadConversations()">⟳ Refresh</button>
+    </div>
+    <div class="legend">
+      <span><span class="dot dot-paid"></span>Paid/Complete</span>
+      <span><span class="dot dot-quoted"></span>Quoted</span>
+      <span><span class="dot dot-in_progress"></span>In Progress</span>
+      <span><span class="dot dot-handover"></span>Handover</span>
+      <span><span class="dot dot-idle"></span>Idle</span>
+    </div>
+    <div class="conv-list" id="convList"><p style="padding:16px;color:#aaa;font-size:.85rem">Loading…</p></div>
+  </div>
+  <!-- Chat area -->
+  <div class="chat-area" id="chatArea">
+    <div class="no-conv">
+      <div class="no-conv-icon">💬</div>
+      <p>Select a conversation to view</p>
+    </div>
+  </div>
+</div>
+
+<script>
+const TOKEN_PARAM = ${JSON.stringify(tokenParam)};
+let activeJid = null;
+let pollInterval = null;
+let convData = [];
+
+function apiUrl(path) {
+  return path + (TOKEN_PARAM ? (path.includes('?') ? '&' : '?') + TOKEN_PARAM.slice(1) : '');
+}
+
+function fmtTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const now = new Date();
+  const isToday = d.toDateString() === now.toDateString();
+  if (isToday) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleDateString([], { day: '2-digit', month: 'short' });
+}
+
+function statusLabel(s) {
+  return { paid: 'Paid', quoted: 'Quoted', in_progress: 'In Progress', handover: 'Handover', idle: 'Idle' }[s] || s;
+}
+
+function avatarLetter(name, phone) {
+  const src = name || phone || '?';
+  return src.charAt(0).toUpperCase();
+}
+
+function avatarColor(jid) {
+  const colors = ['#25d366','#075e54','#128c7e','#2980b9','#8e44ad','#c0392b','#d35400','#16a085'];
+  let h = 0; for (let i = 0; i < jid.length; i++) h = (h * 31 + jid.charCodeAt(i)) >>> 0;
+  return colors[h % colors.length];
+}
+
+function renderConversations(list) {
+  convData = list;
+  const el = document.getElementById('convList');
+  if (!list.length) { el.innerHTML = '<p style="padding:16px;color:#aaa;font-size:.85rem">No conversations yet.</p>'; return; }
+  el.innerHTML = list.map(c => {
+    const isActive = c.jid === activeJid;
+    const label = c.name || c.phone || c.jid;
+    const preview = c.lastMessage ? (c.lastMessage.role === 'user' ? '' : '🤖 ') + c.lastMessage.text : 'No messages yet';
+    return \`<div class="conv-item\${isActive?' active':''}" onclick="selectConv('\${encodeURIComponent(c.jid)}')">
+      <div class="conv-avatar" style="background:\${avatarColor(c.jid)}">\${avatarLetter(c.name, c.phone)}</div>
+      <div class="conv-body">
+        <div class="conv-name"><span>\${escHtml(label)}</span><span class="dot dot-\${c.status}" title="\${statusLabel(c.status)}"></span></div>
+        \${c.name ? '<div class="conv-phone">'+escHtml(c.phone)+'</div>' : ''}
+        <div class="conv-preview">\${escHtml(preview)}</div>
+      </div>
+      <div class="conv-meta">
+        <div class="conv-time">\${fmtTime(c.lastActivity)}</div>
+        <span class="badge badge-\${c.status}">\${statusLabel(c.status)}</span>
+      </div>
+    </div>\`;
+  }).join('');
+}
+
+async function loadConversations() {
+  try {
+    const r = await fetch(apiUrl('/admin/api/conversations'));
+    const data = await r.json();
+    if (data.ok) renderConversations(data.conversations);
+  } catch(e) { console.error('Failed to load conversations', e); }
+}
+
+function escHtml(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function renderMessages(messages) {
+  if (!messages.length) return '<div class="chat-empty">No messages yet</div>';
+  return '<div class="chat-messages" id="msgContainer">' + messages.map(m => {
+    const cls = m.role === 'user' ? 'msg-user' : (m.text && m.text.startsWith('[Admin]') ? 'msg-admin' : 'msg-bot');
+    const label = m.role === 'user' ? '' : (m.text && m.text.startsWith('[Admin]') ? '👤 Admin  ' : '🤖 Bot  ');
+    return \`<div class="msg \${cls}">\${escHtml(label+m.text)}<div class="msg-time">\${fmtTime(m.timestamp)}</div></div>\`;
+  }).join('') + '</div>';
+}
+
+async function selectConv(encodedJid) {
+  activeJid = decodeURIComponent(encodedJid);
+  // Highlight active item
+  document.querySelectorAll('.conv-item').forEach(el => el.classList.remove('active'));
+  const items = document.querySelectorAll('.conv-item');
+  items.forEach(el => { if (el.onclick.toString().includes(encodedJid)) el.classList.add('active'); });
+
+  await refreshChat();
+  // Poll for new messages every 4 seconds
+  if (pollInterval) clearInterval(pollInterval);
+  pollInterval = setInterval(refreshChat, 4000);
+}
+
+async function refreshChat() {
+  if (!activeJid) return;
+  try {
+    const r = await fetch(apiUrl('/admin/api/conversations/' + encodeURIComponent(activeJid)));
+    const data = await r.json();
+    if (!data.ok) return;
+    renderChatArea(data);
+    // Also refresh sidebar list
+    loadConversations();
+  } catch(e) { console.error('Failed to load chat', e); }
+}
+
+function renderChatArea(data) {
+  const label = data.name || data.phone || data.jid;
+  const isHandover = data.isHandover;
+  const cartInfo = data.cart && data.cart.length ? \`🛒 \${data.cart.length} item(s) in cart\` : '';
+  const stepInfo = data.step && data.step !== 'idle' ? \`Step: \${data.step}\` : '';
+  const subParts = [cartInfo, stepInfo].filter(Boolean);
+  const wasAtBottom = isScrolledToBottom();
+
+  document.getElementById('chatArea').innerHTML = \`
+    <div class="chat-header">
+      <div class="conv-avatar" style="background:\${avatarColor(data.jid)};width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:1.1rem;flex-shrink:0">\${avatarLetter(data.name, data.phone)}</div>
+      <div class="chat-info">
+        <div class="chat-name">\${escHtml(label)} <span class="badge badge-\${data.status}" style="font-size:.72rem">\${statusLabel(data.status)}</span></div>
+        <div class="chat-sub">\${escHtml(subParts.join(' · ') || data.jid)}</div>
+      </div>
+      \${isHandover
+        ? \`<button class="btn-resume" onclick="resumeBot()">✅ Resume Bot</button>\`
+        : ''}
+    </div>
+    \${isHandover ? '<div class="takeover-notice">🤝 <strong>Human handover active.</strong> The bot is paused. Messages you send below will go directly to the customer. Click <em>Resume Bot</em> to hand back to the bot.</div>' : ''}
+    \${renderMessages(data.messages)}
+    <div class="chat-input-area">
+      <textarea class="chat-input" id="msgInput" rows="1" placeholder="Type a message… (sending will activate human takeover)" oninput="autoResize(this)" onkeydown="handleKey(event)"></textarea>
+      <button class="send-btn" onclick="sendMsg()" title="Send">➤</button>
+    </div>
+  \`;
+  if (wasAtBottom) scrollToBottom();
+}
+
+function isScrolledToBottom() {
+  const el = document.getElementById('msgContainer');
+  if (!el) return true;
+  return el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+}
+
+function scrollToBottom() {
+  const el = document.getElementById('msgContainer');
+  if (el) el.scrollTop = el.scrollHeight;
+}
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); }
+}
+
+async function sendMsg() {
+  const input = document.getElementById('msgInput');
+  if (!input || !activeJid) return;
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  input.style.height = 'auto';
+
+  const btn = document.querySelector('.send-btn');
+  if (btn) btn.disabled = true;
+
+  try {
+    const r = await fetch(apiUrl('/admin/api/send'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jid: activeJid, message: text })
+    });
+    const data = await r.json();
+    if (!data.ok) alert('Send failed: ' + (data.error || 'unknown error'));
+    else await refreshChat();
+  } catch(e) {
+    alert('Send failed: ' + e.message);
+  } finally {
+    if (btn) btn.disabled = false;
+    input.focus();
+  }
+}
+
+async function resumeBot() {
+  if (!activeJid) return;
+  if (!confirm('Resume bot control for this customer? The human handover will end.')) return;
+  try {
+    const r = await fetch(apiUrl('/admin/api/resume'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jid: activeJid })
+    });
+    const data = await r.json();
+    if (!data.ok) alert('Failed: ' + (data.error || 'unknown'));
+    else await refreshChat();
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function checkWaStatus() {
+  try {
+    const r = await fetch('/health');
+    const data = await r.json();
+    const dot = document.getElementById('waDot');
+    const status = document.getElementById('waStatus');
+    const phase = data.whatsapp && data.whatsapp.phase;
+    dot.className = 'status-dot' + (phase === 'connected' ? ' connected' : '');
+    status.textContent = phase || 'unknown';
+  } catch(e) {}
+}
+
+// Init
+loadConversations();
+checkWaStatus();
+setInterval(loadConversations, 10000);
+setInterval(checkWaStatus, 15000);
+</script>
 </body>
 </html>`);
 });
