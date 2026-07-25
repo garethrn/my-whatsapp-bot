@@ -74,7 +74,7 @@ async function getOrCreateFolder(name, parentId) {
     } else {
         const created = await driveClient.files.create({
             requestBody: {
-                name,
+                name: safeName, // use the sanitised name consistently
                 mimeType: 'application/vnd.google-apps.folder',
                 parents: [parentId],
             },
@@ -102,7 +102,6 @@ async function getOrCreateFolder(name, parentId) {
  *   localFilename?: string,
  *   driveFileId?: string,
  *   driveWebViewLink?: string,
- *   driveDownloadLink?: string,
  *   uploadedAt: string,
  * }>}
  */
@@ -130,18 +129,14 @@ async function uploadFile(buffer, filename, mimeType, folder) {
 
             const fileId = res.data.id;
 
-            // Make the file world-readable so the admin dashboard can provide a
-            // direct download link without requiring Drive credentials in the browser.
-            await driveClient.permissions.create({
-                fileId,
-                requestBody: { role: 'reader', type: 'anyone' },
-            });
+            // Files are kept private (service-account-only access).
+            // The admin dashboard streams them through the authenticated
+            // /admin/api/drive/:fileId/download proxy — no public URL is needed.
 
             return {
                 provider: 'googledrive',
                 driveFileId: fileId,
                 driveWebViewLink: res.data.webViewLink,
-                driveDownloadLink: `https://drive.google.com/uc?export=download&id=${fileId}`,
                 uploadedAt,
             };
         } catch (err) {
