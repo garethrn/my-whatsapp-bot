@@ -3385,7 +3385,10 @@ const loginRateLimiter = rateLimit({
 
 // GET /admin/login — show login form
 app.get('/admin/login', (req, res) => {
-    const next = (req.query.next && req.query.next.startsWith('/')) ? req.query.next : '/admin';
+    // Restrict `next` to /admin sub-paths only to prevent open redirect.
+    const next = (typeof req.query.next === 'string' && /^\/admin(\/|$)/.test(req.query.next))
+        ? req.query.next
+        : '/admin';
     res.send(`<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -3423,7 +3426,10 @@ app.get('/admin/login', (req, res) => {
 // POST /admin/login — validate password, create session
 app.post('/admin/login', loginRateLimiter, express.urlencoded({ extended: false }), (req, res) => {
     const { password = '', next: nextPath = '/admin' } = req.body;
-    const redirectTarget = (nextPath && nextPath.startsWith('/')) ? nextPath : '/admin';
+    // Restrict redirect to /admin sub-paths only to prevent open redirect.
+    const redirectTarget = (typeof nextPath === 'string' && /^\/admin(\/|$)/.test(nextPath))
+        ? nextPath
+        : '/admin';
 
     // Password check: ADMIN_PASSWORD env var, or fall back to QR_ACCESS_TOKEN
     const storedPw = ADMIN_PASSWORD || QR_ACCESS_TOKEN;

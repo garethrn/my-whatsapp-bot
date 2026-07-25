@@ -59,9 +59,11 @@ async function getOrCreateFolder(name, parentId) {
     const cacheKey = `${parentId}::${name}`;
     if (folderIdCache.has(cacheKey)) return folderIdCache.get(cacheKey);
 
-    const escaped = name.replace(/'/g, "\\'");
+    // Strip characters that are special inside a Drive API query string so the
+    // folder name cannot break out of the single-quoted name='...' expression.
+    const safeName = String(name).replace(/['"\\]/g, '').slice(0, 100) || 'files';
     const res = await driveClient.files.list({
-        q: `name='${escaped}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+        q: `name='${safeName}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
         fields: 'files(id)',
         spaces: 'drive',
     });
