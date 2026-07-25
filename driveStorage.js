@@ -59,9 +59,9 @@ async function getOrCreateFolder(name, parentId) {
     const cacheKey = `${parentId}::${name}`;
     if (folderIdCache.has(cacheKey)) return folderIdCache.get(cacheKey);
 
-    // Strip characters that are special inside a Drive API query string so the
-    // folder name cannot break out of the single-quoted name='...' expression.
-    const safeName = String(name).replace(/['"\\]/g, '').slice(0, 100) || 'files';
+    // Sanitize to allowlist: alphanumeric, space, hyphen, underscore, plus.
+    // This prevents any special characters from breaking Drive query syntax.
+    const safeName = String(name).replace(/[^a-zA-Z0-9 _\-+]/g, '').trim().slice(0, 100) || 'files';
     const res = await driveClient.files.list({
         q: `name='${safeName}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
         fields: 'files(id)',

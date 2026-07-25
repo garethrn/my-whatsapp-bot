@@ -3385,10 +3385,6 @@ const loginRateLimiter = rateLimit({
 
 // GET /admin/login — show login form
 app.get('/admin/login', (req, res) => {
-    // Restrict `next` to /admin sub-paths only to prevent open redirect.
-    const next = (typeof req.query.next === 'string' && /^\/admin(\/|$)/.test(req.query.next))
-        ? req.query.next
-        : '/admin';
     res.send(`<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -3413,7 +3409,6 @@ app.get('/admin/login', (req, res) => {
   <h1>${BUSINESS_NAME}<br>Admin Dashboard</h1>
   ${req.query.err === '1' ? '<p class="err">Incorrect password. Please try again.</p>' : ''}
   <form method="POST" action="/admin/login">
-    <input type="hidden" name="next" value="${next.replace(/"/g, '')}">
     <label for="pw">Password</label>
     <input type="password" id="pw" name="password" placeholder="Enter admin password" autofocus required>
     <button type="submit">Sign In</button>
@@ -3425,11 +3420,9 @@ app.get('/admin/login', (req, res) => {
 
 // POST /admin/login — validate password, create session
 app.post('/admin/login', loginRateLimiter, express.urlencoded({ extended: false }), (req, res) => {
-    const { password = '', next: nextPath = '/admin' } = req.body;
-    // Restrict redirect to /admin sub-paths only to prevent open redirect.
-    const redirectTarget = (typeof nextPath === 'string' && /^\/admin(\/|$)/.test(nextPath))
-        ? nextPath
-        : '/admin';
+    const { password = '' } = req.body;
+    // Always redirect to /admin after login — no user-supplied next param.
+    const DASHBOARD = '/admin';
 
     // Password check: ADMIN_PASSWORD env var, or fall back to QR_ACCESS_TOKEN
     const storedPw = ADMIN_PASSWORD || QR_ACCESS_TOKEN;
@@ -3438,7 +3431,7 @@ app.post('/admin/login', loginRateLimiter, express.urlencoded({ extended: false 
         const token = createAdminSession(req.ip);
         auditLog('LOGIN', 'no-password-configured', req.ip);
         res.setHeader('Set-Cookie', `adminSession=${token}; Path=/admin; HttpOnly; SameSite=Strict; Max-Age=${Math.floor(ADMIN_SESSION_TTL_MS / 1000)}`);
-        return res.redirect(302, redirectTarget);
+        return res.redirect(302, DASHBOARD);
     }
 
     const pwBuf = Buffer.from(password);
@@ -3447,13 +3440,13 @@ app.post('/admin/login', loginRateLimiter, express.urlencoded({ extended: false 
 
     if (!valid) {
         auditLog('LOGIN_FAIL', `ip=${req.ip}`, req.ip);
-        return res.redirect(302, `/admin/login?err=1&next=${encodeURIComponent(redirectTarget)}`);
+        return res.redirect(302, '/admin/login?err=1');
     }
 
     const token = createAdminSession(req.ip);
     auditLog('LOGIN', 'success', req.ip);
     res.setHeader('Set-Cookie', `adminSession=${token}; Path=/admin; HttpOnly; SameSite=Strict; Max-Age=${Math.floor(ADMIN_SESSION_TTL_MS / 1000)}`);
-    res.redirect(302, redirectTarget);
+    res.redirect(302, DASHBOARD);
 });
 
 // POST /admin/logout — clear session
