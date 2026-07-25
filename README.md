@@ -204,10 +204,10 @@ Open:
 
 `./products.csv`
 
-The CSV has 18 columns:
+The CSV has 20 columns:
 
 ```csv
-ID,Category,Subcategory,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvailable,PolePrice,InstallationFee,RequiresArtwork,Aliases
+ID,Category,Subcategory,SubSubcategory,SubSubSubcategory,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvailable,PolePrice,InstallationFee,RequiresArtwork,Aliases
 ```
 
 | Column | Description |
@@ -215,6 +215,8 @@ ID,Category,Subcategory,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,Pri
 | `ID` | Unique numeric ID |
 | `Category` | Product category (for example `Banners`, `Signs`, `Stickers`) |
 | `Subcategory` | Product family within the category (for example `Business Cards`, `Flyers`) |
+| `SubSubcategory` | *(Optional)* A second level within the subcategory (for example `Single Sided`, `Double Sided`). Leave blank for products that do not need this level. When products in the same subcategory have different `SubSubcategory` values the bot will ask the customer to choose before showing the product list. |
+| `SubSubSubcategory` | *(Optional)* A third level of refinement (for example `Gloss`, `Matte`). Works the same way as `SubSubcategory`. Leave blank when not needed. |
 | `Name` | Display name |
 | `Size` | Product size or note (for example `A5`, `600x900mm`, `Custom`) |
 | `Finish` | Product finish |
@@ -230,6 +232,21 @@ ID,Category,Subcategory,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,Pri
 | `InstallationFee` | Installation fee in Rands |
 | `RequiresArtwork` | `yes` (default) or `no`. When `yes`, the bot asks the customer to upload artwork during checkout. When `no`, the artwork upload step is skipped (useful for products with no custom artwork, like standard off-the-shelf items). |
 | `Aliases` | Optional extra search words separated by `|` (for example `visiting cards|biz cards`) |
+
+**How sub-sub-categories work (example):**
+
+| Category | Subcategory | SubSubcategory | SubSubSubcategory | Name |
+|---|---|---|---|---|
+| Paper Printing | Business Cards | Single Sided | | Business Cards 300GSM |
+| Paper Printing | Business Cards | Double Sided | | Business Cards 300GSM |
+| Paper Printing | Flyers | | | A5 Gloss Flyer |
+
+When a customer types *business cards* the bot will ask:
+> *Business Cards – Choose a type:*
+> 1. Single Sided
+> 2. Double Sided
+
+After the customer replies *1* it shows only the single-sided product list.
 
 If you are unsure about the format, download the template from the products admin page or use `/products/template`.
 

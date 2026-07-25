@@ -1,307 +1,307 @@
-ID,Category,Subcategory,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvailable,PolePrice,InstallationFee,RequiresArtwork
-1,Paper Printing,Business Cards,Business Cards 300GSM ,Standard 90x55mm,Semi Gloss,Single sided ,100,fixed,,R120.00,,0,no,,0,yes
-2,Paper Printing,Business Cards,Business Cards 300GSM ,Standard 90x55mm,Semi Gloss,Single sided ,250,fixed,,R230.00,,0,no,,0,yes
-3,Paper Printing,Business Cards,Business Cards 300GSM ,Standard 90x55mm,Semi Gloss,Single sided ,500,fixed,,R350.00,,0,no,,0,yes
-4,Paper Printing,Business Cards,Business Cards 300GSM ,Standard 90x55mm,Semi Gloss,Single sided ,1000,fixed,,R680.00,,0,no,,0,yes
-5,Paper Printing,Business Cards,Business Cards 300GSM ,Standard 90x55mm,Semi Gloss,Double Sided ,100,fixed,,R180.00,,0,no,,0,yes
-6,Paper Printing,Business Cards,Business Cards 300GSM ,Standard 90x55mm,Semi Gloss,Double Sided ,250,fixed,,R320.00,,0,no,,0,yes
-7,Paper Printing,Business Cards,Business Cards 300GSM ,Standard 90x55mm,Semi Gloss,Double Sided ,500,fixed,,R525.00,,0,no,,0,yes
-8,Paper Printing,Business Cards,Business Cards 300GSM ,Standard 90x55mm,Semi Gloss,Double Sided ,1000,fixed,,"R1,000.00",,0,no,,0,yes
-9,Paper Printing,Business Cards,Business Cards 300GSM ,Standard 90x55mm,Laminated,Single sided ,100,fixed,,R170.00,,0,no,,0,yes
-10,Paper Printing,Business Cards,Business Cards 300GSM ,Standard 90x55mm,Laminated,Single sided ,250,fixed,,R355.00,,0,no,,0,yes
-11,Paper Printing,Business Cards,Business Cards 300GSM ,Standard 90x55mm,Laminated,Single sided ,500,fixed,,R600.00,,0,no,,0,yes
-12,Paper Printing,Business Cards,Business Cards 300GSM ,Standard 90x55mm,Laminated,Single sided ,1000,fixed,,"R1,180.00",,0,no,,0,yes
-13,Paper Printing,Business Cards,Business Cards 300GSM ,Standard 90x55mm,Laminated,Double Sided ,100,fixed,,R280.00,,0,no,,0,yes
-14,Paper Printing,Business Cards,Business Cards 300GSM ,Standard 90x55mm,Laminated,Double Sided ,250,fixed,,R480.00,,0,no,,0,yes
-15,Paper Printing,Business Cards,Business Cards 300GSM ,Standard 90x55mm,Laminated,Double Sided ,500,fixed,,R775.00,,0,no,,0,yes
-16,Paper Printing,Business Cards,Business Cards 300GSM ,Standard 90x55mm,Laminated,Double Sided ,1000,fixed,,"R1,450.00",,0,no,,0,yes
-17,Paper Printing,Flyers,Flyers - Express Print ,A6 (105 × 148) mm,128gsm gloss,Single sided ,100,fixed,,R322.00,,0,no,,0,yes
-18,Paper Printing,Flyers,Flyers - Express Print ,A6 (105 × 148) mm,128gsm gloss,Single sided ,250,fixed,,R395.00,,0,no,,0,yes
-19,Paper Printing,Flyers,Flyers - Express Print ,A6 (105 × 148) mm,128gsm gloss,Single sided ,500,fixed,,R488.00,,0,no,,0,yes
-20,Paper Printing,Flyers,Flyers - Express Print ,A6 (105 × 148) mm,128gsm gloss,Single sided ,1000,fixed,,R696.00,,0,no,,0,yes
-21,Paper Printing,Flyers,Flyers - Express Print ,A6 (105 × 148) mm,128gsm gloss,Double Sided ,100,fixed,,R374.00,,0,no,,0,yes
-22,Paper Printing,Flyers,Flyers - Express Print ,A6 (105 × 148) mm,128gsm gloss,Double Sided ,250,fixed,,R488.00,,0,no,,0,yes
-23,Paper Printing,Flyers,Flyers - Express Print ,A6 (105 × 148) mm,128gsm gloss,Double Sided ,500,fixed,,R675.00,,0,no,,0,yes
-24,Paper Printing,Flyers,Flyers - Express Print ,A6 (105 × 148) mm,128gsm gloss,Double Sided ,1000,fixed,,"R1,049.00",,0,no,,0,yes
-25,Paper Printing,Flyers,Flyers - Express Print ,A5 (148 x 210) mm,128gsm gloss,Single sided ,100,fixed,,R363.00,,0,no,,0,yes
-26,Paper Printing,Flyers,Flyers - Express Print ,A5 (148 x 210) mm,128gsm gloss,Single sided ,250,fixed,,R488.00,,0,no,,0,yes
-27,Paper Printing,Flyers,Flyers - Express Print ,A5 (148 x 210) mm,128gsm gloss,Single sided ,500,fixed,,R696.00,,0,no,,0,yes
-28,Paper Printing,Flyers,Flyers - Express Print ,A5 (148 x 210) mm,128gsm gloss,Single sided ,1000,fixed,,"R1,123.00",,0,no,,0,yes
-29,Paper Printing,Flyers,Flyers - Express Print ,A5 (148 x 210) mm,128gsm gloss,Double Sided ,100,fixed,,R446.00,,0,no,,0,yes
-30,Paper Printing,Flyers,Flyers - Express Print ,A5 (148 x 210) mm,128gsm gloss,Double Sided ,250,fixed,,R675.00,,0,no,,0,yes
-31,Paper Printing,Flyers,Flyers - Express Print ,A5 (148 x 210) mm,128gsm gloss,Double Sided ,500,fixed,,"R1,050.00",,0,no,,0,yes
-32,Paper Printing,Flyers,Flyers - Express Print ,A5 (148 x 210) mm,128gsm gloss,Double Sided ,1000,fixed,,"R1,808.00",,0,no,,0,yes
-33,Paper Printing,Flyers,Flyers - Litho 7-10 working days ,A5 (148 x 210) mm,128gsm gloss,Single sided ,5000,fixed,,"R2,950.00",,0,no,,0,yes
-34,Paper Printing,Flyers,Flyers - Litho 7-10 working days ,A5 (148 x 210) mm,128gsm gloss,Single sided ,10000,fixed,,"R4,950.00",,0,no,,0,yes
-35,Paper Printing,Flyers,Flyers - Litho 7-10 working days ,A5 (148 x 210) mm,128gsm gloss,Double Sided ,5000,fixed,,"R3,750.00",,0,no,,0,yes
-36,Paper Printing,Flyers,Flyers - Litho 7-10 working days ,A5 (148 x 210) mm,128gsm gloss,Double Sided ,10000,fixed,,"R5,750.00",,0,no,,0,yes
-37,Paper Printing,Flyers,Flyers - Litho 7-10 working days ,A4 (210 x 297) mm,128gsm gloss,Single sided ,5000,fixed,,"R5,015.00",,0,no,,0,yes
-38,Paper Printing,Flyers,Flyers - Litho 7-10 working days ,A4 (210 x 297) mm,128gsm gloss,Single sided ,10000,fixed,,"R8,915.00",,0,no,,0,yes
-39,Paper Printing,Flyers,Flyers - Litho 7-10 working days ,A4 (210 x 297) mm,128gsm gloss,Double Sided ,5000,fixed,,"R6,375.00",,0,no,,0,yes
-40,Paper Printing,Flyers,Flyers - Litho 7-10 working days ,A4 (210 x 297) mm,128gsm gloss,Double Sided ,10000,fixed,,"R9,975.00",,0,no,,0,yes
-41,Paper Printing,Notepads,Script pads Black and White 100 Pager,A5 (148 x 210) mm,80gsm bond,Single sided ,6,fixed,,R400.00,,120,no,,0,yes
-42,Paper Printing,Notepads,Script pads Black and White 100 Pager,A5 (148 x 210) mm,80gsm bond,Single sided ,10,fixed,,R550.00,,120,no,,0,yes
-43,Paper Printing,Notepads,Script pads Black and White 100 Pager,A5 (148 x 210) mm,80gsm bond,Single sided ,20,fixed,,R800.00,,120,no,,0,yes
-44,Paper Printing,Notepads,Script pads Black and White 100 Pager,A4 (210 x 297) mm,80gsm bond,Single sided ,6,fixed,,R800.00,,120,no,,0,yes
-45,Paper Printing,Notepads,Script pads Black and White 100 Pager,A4 (210 x 297) mm,80gsm bond,Single sided ,10,fixed,,"R1,100.00",,120,no,,0,yes
-46,Paper Printing,Notepads,Script pads Black and White 100 Pager,A4 (210 x 297) mm,80gsm bond,Single sided ,20,fixed,,"R1,600.00",,120,no,,0,yes
-47,Paper Printing,Notepads,Script pads Color 100 Pager,A5 (148 x 210) mm,80gsm bond,Single sided ,6,fixed,,R500.00,,120,no,,0,yes
-48,Paper Printing,Notepads,Script pads Color 100 Pager,A5 (148 x 210) mm,80gsm bond,Single sided ,10,fixed,,R700.00,,120,no,,0,yes
-49,Paper Printing,Notepads,Script pads Color 100 Pager,A5 (148 x 210) mm,80gsm bond,Single sided ,20,fixed,,"R1,150.00",,120,no,,0,yes
-50,Paper Printing,Notepads,Script pads Color 100 Pager,A4 (210 x 297) mm,80gsm bond,Single sided ,6,fixed,,"R1,000.00",,120,no,,0,yes
-51,Paper Printing,Notepads,Script pads Color 100 Pager,A4 (210 x 297) mm,80gsm bond,Single sided ,10,fixed,,"R1,400.00",,120,no,,0,yes
-52,Paper Printing,Notepads,Script pads Color 100 Pager,A4 (210 x 297) mm,80gsm bond,Single sided ,20,fixed,,"R2,300.00",,120,no,,0,yes
-53,Paper Printing,Carbon Copy Books,Self Carbon Books - Duplicate 100 Leaves ,A5 (148 x 210) mm,58gsm NCR ,Single sided ,6,fixed,,R950.00,,250,no,,0,yes
-54,Paper Printing,Carbon Copy Books,Self Carbon Books - Duplicate 100 Leaves ,A5 (148 x 210) mm,58gsm NCR ,Single sided ,10,fixed,,"R1,450.00",,250,no,,0,yes
-55,Paper Printing,Carbon Copy Books,Self Carbon Books - Duplicate 100 Leaves ,A5 (148 x 210) mm,58gsm NCR ,Single sided ,20,fixed,,"R2,150.00",,250,no,,0,yes
-56,Paper Printing,Carbon Copy Books,Self Carbon Books - Triplicate 50 Leaves ,A5 (148 x 210) mm,58gsm NCR ,Single sided ,6,fixed,,R950.00,,250,no,,0,yes
-57,Paper Printing,Carbon Copy Books,Self Carbon Books - Triplicate 50 Leaves ,A5 (148 x 210) mm,58gsm NCR ,Single sided ,10,fixed,,"R1,450.00",,250,no,,0,yes
-58,Paper Printing,Carbon Copy Books,Self Carbon Books - Triplicate 50 Leaves ,A5 (148 x 210) mm,58gsm NCR ,Single sided ,20,fixed,,"R2,150.00",,250,no,,0,yes
-59,Paper Printing,Carbon Copy Books,Self Carbon Books - Quadruplicate  50 Leaves ,A5 (148 x 210) mm,58gsm NCR ,Single sided ,6,fixed,,"R1,550.00",,250,no,,0,yes
-60,Paper Printing,Carbon Copy Books,Self Carbon Books - Quadruplicate  50 Leaves ,A5 (148 x 210) mm,58gsm NCR ,Single sided ,10,fixed,,"R2,550.00",,250,no,,0,yes
-61,Paper Printing,Carbon Copy Books,Self Carbon Books - Quadruplicate  50 Leaves ,A5 (148 x 210) mm,58gsm NCR ,Single sided ,20,fixed,,"R4,800.00",,250,no,,0,yes
-62,Paper Printing,Carbon Copy Books,Self Carbon Books - Duplicate 100 Leaves ,A4 (210 x 297) mm,58gsm NCR ,Single sided ,5,fixed,,"R1,350.00",,250,no,,0,yes
-63,Paper Printing,Carbon Copy Books,Self Carbon Books - Duplicate 100 Leaves ,A4 (210 x 297) mm,58gsm NCR ,Single sided ,10,fixed,,"R2,350.00",,250,no,,0,yes
-64,Paper Printing,Carbon Copy Books,Self Carbon Books - Duplicate 100 Leaves ,A4 (210 x 297) mm,58gsm NCR ,Single sided ,20,fixed,,"R4,400.00",,250,no,,0,yes
-65,Paper Printing,Carbon Copy Books,Self Carbon Books - Triplicate 50 Leaves ,A4 (210 x 297) mm,58gsm NCR ,Single sided ,5,fixed,,"R1,350.00",,250,no,,0,yes
-66,Paper Printing,Carbon Copy Books,Self Carbon Books - Triplicate 50 Leaves ,A4 (210 x 297) mm,58gsm NCR ,Single sided ,10,fixed,,"R2,350.00",,250,no,,0,yes
-67,Paper Printing,Carbon Copy Books,Self Carbon Books - Triplicate 50 Leaves ,A4 (210 x 297) mm,58gsm NCR ,Single sided ,20,fixed,,"R4,400.00",,250,no,,0,yes
-68,Paper Printing,Carbon Copy Books,Self Carbon Books - Quadruplicate  50 Leaves ,A4 (210 x 297) mm,58gsm NCR ,Single sided ,5,fixed,,"R1,550.00",,250,no,,0,yes
-69,Paper Printing,Carbon Copy Books,Self Carbon Books - Quadruplicate  50 Leaves ,A4 (210 x 297) mm,58gsm NCR ,Single sided ,10,fixed,,"R2,550.00",,250,no,,0,yes
-70,Paper Printing,Carbon Copy Books,Self Carbon Books - Quadruplicate  50 Leaves ,A4 (210 x 297) mm,58gsm NCR ,Single sided ,20,fixed,,"R4,800.00",,250,no,,0,yes
-71,Paper Printing,Photocopies,Photocopies Black and white ,A4 (210 x 297) mm,80gsm Bond ,Single sided ,1,fixed,,R2.00,,0,no,,0,yes
-72,Paper Printing,Photocopies,Photocopies Black and white ,A3 (297 x 210) mm,80gsm Bond ,Single sided ,1,fixed,,R4.00,,0,no,,0,yes
-73,Paper Printing,Photocopies,Photocopies Color ,A4 (210 x 297) mm,80gsm Bond ,Single sided ,1,fixed,,R5.00,,0,no,,0,yes
-74,Paper Printing,Photocopies,Photocopies Color ,A3 (297 x 210) mm,80gsm Bond ,Single sided ,1,fixed,,R10.00,,0,no,,0,yes
-75,Paper Printing,Photocopies,Photocopies Black and white ,A4 (210 x 297) mm,80gsm Bond ,Double Sided ,1,fixed,,R3.00,,0,no,,0,yes
-76,Paper Printing,Photocopies,Photocopies Black and white ,A3 (297 x 210) mm,80gsm Bond ,Double Sided ,1,fixed,,R6.00,,0,no,,0,yes
-77,Paper Printing,Photocopies,Photocopies Color ,A4 (210 x 297) mm,80gsm Bond ,Double Sided ,1,fixed,,R8.00,,0,no,,0,yes
-78,Paper Printing,Photocopies,Photocopies Color ,A3 (297 x 210) mm,80gsm Bond ,Double Sided ,1,fixed,,R15.00,,0,no,,0,yes
-79,Paper Printing,Photocopies,Photocopies Black and white,A4 (210 x 297) mm,300gsm - Laminated ,Single sided ,1,fixed,,R7.00,,0,no,,0,yes
-80,Paper Printing,Photocopies,Photocopies Black and white ,A3 (297 x 210) mm,300gsm - Laminated ,Single sided ,1,fixed,,R14.00,,0,no,,0,yes
-81,Paper Printing,Photocopies,Photocopies Color ,A4 (210 x 297) mm,300gsm - Laminated ,Single sided ,1,fixed,,R9.00,,0,no,,0,yes
-82,Paper Printing,Photocopies,Photocopies Color ,A3 (297 x 210) mm,300gsm - Laminated ,Single sided ,1,fixed,,R20.00,,0,no,,0,yes
-83,Paper Printing,Photocopies,Photocopies Black and white ,A4 (210 x 297) mm,300gsm - Laminated ,Double Sided ,1,fixed,,R7.00,,0,no,,0,yes
-84,Paper Printing,Photocopies,Photocopies Black and white ,A3 (297 x 210) mm,300gsm - Laminated ,Double Sided ,1,fixed,,R16.00,,0,no,,0,yes
-85,Paper Printing,Photocopies,Photocopies Color ,A4 (210 x 297) mm,300gsm - Laminated ,Double Sided ,1,fixed,,R13.00,,0,no,,0,yes
-86,Paper Printing,Photocopies,Photocopies Color ,A3 (297 x 210) mm,300gsm - Laminated ,Double Sided ,1,fixed,,R25.00,,0,no,,0,yes
-87,Paper Printing,Bookmarks,Bookmarks ,190 x 60mm,300 GSM ,Single sided ,>50,fixed,,R3.00,,120,no,,0,yes
-88,Paper Printing,Bookmarks,Bookmarks ,191 x 60mm,300 GSM,Double Sided ,>50,fixed,,R5.00,,120,no,,0,yes
-89,Paper Printing,Bookmarks,Bookmarks ,192 x 60mm,300 GSM - Laminated ,Single sided ,>50,fixed,,R4.00,,120,no,,0,yes
-90,Paper Printing,Bookmarks,Bookmarks ,193 x 60mm,300 GSM - Laminated,Double Sided ,>50,fixed,,R6.00,,120,no,,0,yes
-91,Paper Printing,Folders,SRA3 Company folders ,450 x 320mm ,300GSM Semi gloss ,Single sided ,>20,fixed,,R12.00,,120,no,,0,yes
-92,Paper Printing,Folders,SRA3 Company folders with sleeve ,450 x 320mm,300GSM Semi gloss ,Single sided ,>20,fixed,,R15.00,,120,no,,0,yes
-93,Paper Printing,Folders,SRA3 Company folders ,450 x 320mm ,300GSM Semi gloss ,Double Sided ,>20,fixed,,R17.00,,240,no,,0,yes
-94,Paper Printing,Folders,SRA3 Company folders with sleeve ,450 x 320mm,300GSM Semi gloss ,Double Sided ,>20,fixed,,R22.00,,240,no,,0,yes
-95,Paper Printing,Folders,SRA3 Company folders ,450 x 320mm ,300GSM Laminated  ,Single sided ,>20,fixed,,R22.00,,120,no,,0,yes
-96,Paper Printing,Folders,SRA3 Company folders with sleeve ,450 x 320mm,300GSM Laminated  ,Single sided ,>20,fixed,,R25.00,,120,no,,0,yes
-97,Paper Printing,Folders,SRA3 Company folders ,450 x 320mm ,300GSM Laminated  ,Double Sided ,>20,fixed,,R27.00,,240,no,,0,yes
-98,Paper Printing,Folders,SRA3 Company folders with sleeve ,450 x 320mm,300GSM Laminated  ,Double Sided ,>20,fixed,,R32.00,,240,no,,0,yes
-99,Paper Printing,Calendars,A3 Calendars - with punched hole ,420 x 297mm ,300GSM ,Single sided ,>50,fixed,,R9.00,,250,no,,0,yes
-100,Paper Printing,Calendars,A4 Calendars - with punched hole ,210x 297mm ,300GSM ,Single sided ,>50,fixed,,R7.00,,250,no,,0,yes
-101,Paper Printing,Calendars,A4 Tent Calendars ,99 x 99 x 99 x 210mm,300GSM ,Single sided ,>51,fixed,,R12.00,,250,no,,0,yes
-102,Label Printing ,Paper Labels,Paper budget black and white - non waterproof,27 x 13mm,Self Adhesive ,Single sided ,1000,fixed,,R70.00,,0,no,,0,yes
-103,Label Printing ,Paper Labels,Paper budget black and white - non waterproof,40 x 26mm,Self Adhesive ,Single sided ,1000,fixed,,R90.00,,0,no,,0,yes
-104,Label Printing ,Vinyl Labels,Budget Vinyl Labels 80 Micron Waterproof ,Custom,Self Adhesive ,Single sided ,1,sqm,120,,60,120,no,,0,yes
-105,Label Printing ,Vinyl Labels,Premium Vinyl Labels 160 Micron Waterproof ,Custom,Self Adhesive - Laminated ,Single sided ,1,sqm,180,,100,120,no,,0,yes
-106,Large Format Printing - Supply Only ,Vinyl Roll,Econo Vinyl 1-2 Year Print 1330,1 x 1330mm,Self Adhesive ,Single Sided ,1,fixed,,R120.00,,0,no,,0,yes
-107,Large Format Printing - Supply Only ,Vinyl Roll,Greyback Vinyl 1-2 Year Print 1330,1 x 1330mm,Self Adhesive ,Single Sided ,1,fixed,,R140.00,,0,no,,0,yes
-108,Large Format Printing - Supply Only ,Vinyl Roll,Premium vinyl 3-5Year Print 1330,1 x 1330mm,Self Adhesive ,Single Sided ,1,fixed,,R180.00,,0,no,,0,yes
-109,Large Format Printing - Supply Only ,Vinyl Roll,Sandblast vinyl Print 1200,1 x 1200mm,Self Adhesive ,Single Sided ,1,fixed,,R180.00,,0,no,,0,yes
-110,Large Format Printing - Supply Only ,Vinyl Roll,Contravision 1Year Print 1330,1 x 1330mm,Self Adhesive ,Single Sided ,1,fixed,,R180.00,,0,no,,0,yes
-111,Large Format Printing - Supply Only ,PVC Banner Roll,PVC Banner 1 Year Print 1330,1 x 1330mm,Self Adhesive ,Single Sided ,1,fixed,,R150.00,,0,no,,0,yes
-112,Large Format Printing - Supply Only ,PVC Banner Roll,PVC Banner 1year Print 1580,1 x 1580mm,Self Adhesive ,Single Sided ,1,fixed,,R150.00,,0,no,,0,yes
-113,Large Format Printing - Supply Only ,PVC Banner Roll,PVC Banner Print 3200mm,1 x 3200mm,Self Adhesive ,Single Sided ,1,fixed,,R150.00,,0,no,,0,yes
-114,Outdoor Signs  3 - 5 year life span ,ACM Signs,ACM - Alumium Bond sheets 3mm thick ,300 x 200mm ,Gloss laminate ,Single sided ,1,fixed,,R80.00,,0,,,350,yes
-115,Outdoor Signs  3 - 5 year life span ,ACM Signs,ACM - Alumium Bond sheets 3mm thick ,400 x 300mm,Gloss laminate ,Single sided ,1,fixed,,R120.00,,0,,,350,yes
-116,Outdoor Signs  3 - 5 year life span ,ACM Signs,ACM - Alumium Bond sheets 3mm thick ,612 x 400mm ,Gloss laminate ,Single sided ,1,fixed,,R250.00,,0,,,350,yes
-117,Outdoor Signs  3 - 5 year life span ,ACM Signs,ACM - Alumium Bond sheets 3mm thick ,612 x 800mm,Gloss laminate ,Single sided ,1,fixed,,R375.00,,0,,,350,yes
-118,Outdoor Signs  3 - 5 year life span ,ACM Signs,ACM - Alumium Bond sheets 3mm thick ,1225 x 612mm,Gloss laminate ,Single sided ,1,fixed,,R525.00,,0,,,500,yes
-119,Outdoor Signs  3 - 5 year life span ,ACM Signs,ACM - Alumium Bond sheets 3mm thick ,2450 x 612mm,Gloss laminate ,Single sided ,1,fixed,,R950.00,,0,,,500,yes
-120,Outdoor Signs  3 - 5 year life span ,ACM Signs,ACM - Alumium Bond sheets 3mm thick ,1225 x 1225mm ,Gloss laminate ,Single sided ,1,fixed,,R950.00,,0,,,500,yes
-121,Outdoor Signs  3 - 5 year life span ,ACM Signs,ACM - Alumium Bond sheets 3mm thick ,2450 x 1225mm,Gloss laminate ,Single sided ,1,fixed,,"R1,750.00",,0,,,500,yes
-122,Outdoor Signs  3 - 5 year life span ,ACM Signs,ACM - Alumium Bond sheets 3mm thick ,2450 x 2450mm,Gloss laminate ,Single sided ,1,fixed,,"R3,500.00",,0,,,750,yes
-123,Outdoor Signs  3 - 5 year life span ,ACM Signs,ACM - Alumium Bond sheets 3mm thick ,4900 x 1225mm,Gloss laminate ,Single sided ,1,fixed,,"R3,500.00",,0,,,950,yes
-124,Outdoor Signs  3 - 5 year life span ,ACM Signs,ACM - Alumium Bond sheets 3mm thick ,7200 x 1225mm,Gloss laminate ,Single sided ,1,fixed,,"R5,250.00",,0,,,1350,yes
-125,Outdoor Signs  3 - 5 year life span ,ACM Signs,ACM - Alumium Bond sheets 3mm thick ,9600 x 1225mm,Gloss laminate ,Single sided ,1,fixed,,"R7,000.00",,0,,,1750,yes
-126,Outdoor Signs  3 - 5 year life span ,ACM Signs,ACM - Alumium Bond sheets 3mm thick ,300 x 200mm ,Gloss laminate ,Double Sided ,1,fixed,,R104.00,,0,,,350,yes
-127,Outdoor Signs  3 - 5 year life span ,ACM Signs,ACM - Alumium Bond sheets 3mm thick ,400 x 300mm,Gloss laminate ,Double Sided ,1,fixed,,R156.00,,0,,,350,yes
-128,Outdoor Signs  3 - 5 year life span ,ACM Signs,ACM - Alumium Bond sheets 3mm thick ,612 x 400mm ,Gloss laminate ,Double Sided ,1,fixed,,R325.00,,0,,,350,yes
-129,Outdoor Signs  3 - 5 year life span ,ACM Signs,ACM - Alumium Bond sheets 3mm thick ,612 x 800mm,Gloss laminate ,Double Sided ,1,fixed,,R487.50,,0,,,350,yes
-130,Outdoor Signs  3 - 5 year life span ,ACM Signs,ACM - Alumium Bond sheets 3mm thick ,1225 x 612mm,Gloss laminate ,Double Sided ,1,fixed,,R682.50,,0,,,500,yes
-131,Outdoor Signs  3 - 5 year life span ,ACM Signs,ACM - Alumium Bond sheets 3mm thick ,1225 x 1225mm ,Gloss laminate ,Single sided ,1,fixed,,"R1,235.00",,0,,,500,yes
-132,Outdoor Signs  3 - 5 year life span ,ACM Signs,ACM - Alumium Bond sheets 3mm thick ,2450 x 612mm,Gloss laminate ,Double Sided ,1,fixed,,"R1,235.00",,0,,,500,yes
-133,Outdoor Signs  3 - 5 year life span ,ACM Signs,ACM - Alumium Bond sheets 3mm thick ,2450 x 1225mm,Gloss laminate ,Double Sided ,1,fixed,,"R2,275.00",,0,,,500,yes
-134,Outdoor Signs  3 - 5 year life span ,ACM Signs,ACM - Alumium Bond sheets 3mm thick ,2450 x 2450mm,Gloss laminate ,Double Sided ,1,fixed,,"R4,550.00",,0,,,750,yes
-135,Outdoor Signs  3 - 5 year life span ,ACM Signs,ACM - Alumium Bond sheets 3mm thick ,4900 x 1225mm,Gloss laminate ,Double Sided ,1,fixed,,"R4,550.00",,0,,,950,yes
-136,Outdoor Signs  3 - 5 year life span ,ACM Signs,ACM - Alumium Bond sheets 3mm thick ,7200 x 1225mm,Gloss laminate ,Double Sided ,1,fixed,,"R6,825.00",,0,,,1350,yes
-137,Outdoor Signs  3 - 5 year life span ,ACM Signs,ACM - Alumium Bond sheets 3mm thick ,9600 x 1225mm,Gloss laminate ,Double Sided ,1,fixed,,"R9,100.00",,0,,,1750,yes
-138,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,300 x 200mm ,Gloss laminate ,Single sided ,1,fixed,,R175.00,,0,,,350,yes
-139,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,400 x 300mm,Gloss laminate ,Single sided ,1,fixed,,R200.00,,0,,,350,yes
-140,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,612 x 400mm ,Gloss laminate ,Single sided ,1,fixed,,R375.00,,0,,,350,yes
-141,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,612 x 800mm,Gloss laminate ,Single sided ,1,fixed,,R550.00,,0,,,350,yes
-142,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,1225 x 612mm,Gloss laminate ,Single sided ,1,fixed,,R825.00,,0,1,1000,500,yes
-143,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,1225 x 1225mm ,Gloss laminate ,Single sided ,1,fixed,,"R1,350.00",,0,2,500,500,yes
-144,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,2450 x 612mm,Gloss laminate ,Single sided ,1,fixed,,"R1,350.00",,0,2,750,500,yes
-145,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,2450 x 1225mm,Gloss laminate ,Single sided ,1,fixed,,"R2,250.00",,0,2,750,500,yes
-146,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,2450 x 2450mm,Gloss laminate ,Single sided ,1,fixed,,"R4,750.00",,0,2,1000,750,yes
-147,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,4900 x 1225mm,Gloss laminate ,Single sided ,1,fixed,,"R4,750.00",,0,2,1000,950,yes
-148,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,7200 x 1225mm,Gloss laminate ,Single sided ,1,fixed,,"R6,750.00",,0,3,1000,1350,yes
-149,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,9600 x 1225mm,Gloss laminate ,Single sided ,1,fixed,,"R9,250.00",,0,4,1000,1750,yes
-150,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,300 x 200mm ,Gloss laminate + Aluminium Edging ,Single sided ,1,fixed,,R220.00,,0,,,350,yes
-151,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,400 x 300mm,Gloss laminate + Aluminium Edging ,Single sided ,1,fixed,,R263.00,,0,,,350,yes
-152,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,612 x 400mm ,Gloss laminate + Aluminium Edging ,Single sided ,1,fixed,,R465.00,,0,,,350,yes
-153,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,612 x 800mm,Gloss laminate + Aluminium Edging ,Single sided ,1,fixed,,R676.00,,0,,,350,yes
-154,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,1225 x 612mm,Gloss laminate + Aluminium Edging ,Single sided ,1,fixed,,R990.00,,0,1,1000,500,yes
-155,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,1225 x 1225mm ,Gloss laminate + Aluminium Edging ,Single sided ,1,fixed,,"R1,625.00",,0,2,500,500,yes
-156,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,2450 x 612mm,Gloss laminate + Aluminium Edging ,Single sided ,1,fixed,,"R1,625.00",,0,2,750,500,yes
-157,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,2450 x 1225mm,Gloss laminate + Aluminium Edging ,Single sided ,1,fixed,,"R2,580.00",,0,2,750,500,yes
-158,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,2450 x 2450mm,Gloss laminate + Aluminium Edging ,Single sided ,1,fixed,,"R5,200.00",,0,2,1000,750,yes
-159,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,4900 x 1225mm,Gloss laminate + Aluminium Edging ,Single sided ,1,fixed,,"R5,312.00",,0,2,1000,950,yes
-160,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,7200 x 1225mm,Gloss laminate + Aluminium Edging ,Single sided ,1,fixed,,"R7,506.00",,0,3,1000,1350,yes
-161,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,9600 x 1225mm,Gloss laminate + Aluminium Edging ,Single sided ,1,fixed,,"R10,222.00",,0,4,1000,1750,yes
-162,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,Custom,Gloss laminate + Aluminium Edging ,Single sided ,1,sqm,650,,,0,,,0,yes
-163,Plastic Signs ABS - Outdoor ,ABS Signs,0.6mm thick 6-12 months Lifespan ,300 x 200mm ,Gloss Laminated ,Single sided ,1,fixed,,R60.00,,,,,,yes
-164,Plastic Signs ABS - Outdoor ,ABS Signs,0.6mm thick 6-12 months Lifespan ,400 x 300mm,Gloss Laminated ,Single sided ,1,fixed,,R80.00,,,,,,yes
-165,Plastic Signs ABS - Outdoor ,ABS Signs,0.6mm thick 6-12 months Lifespan ,600 x 400mm ,Gloss Laminated ,Single sided ,1,fixed,,R150.00,,,,,,yes
-166,Plastic Signs ABS - Outdoor ,ABS Signs,0.6mm thick 6-12 months Lifespan ,600x 800mm,Gloss Laminated ,Single sided ,1,fixed,,R250.00,,,,,,yes
-167,Plastic Signs ABS - Outdoor ,ABS Signs,0.6mm thick 6-12 months Lifespan ,1200 x 800mm,Gloss Laminated ,Single sided ,1,fixed,,R475.00,,,,,,yes
-168,Plastic Signs ABS - Outdoor ,ABS Signs,0.6mm thick 6-12 months Lifespan ,2450 x 600mm,Gloss Laminated ,Single sided ,1,fixed,,R675.00,,,,,,yes
-169,Plastic Signs ABS - Outdoor ,ABS Signs,0.6mm thick 6-12 months Lifespan ,2450 x 1200mm,Gloss Laminated ,Single sided ,1,fixed,,R900.00,,,,,,yes
-170,Plastic Signs ABS - Outdoor ,ABS Signs,0.6mm thick 6-12 months Lifespan ,300 x 200mm ,Gloss Laminated ,Double Sided ,1,fixed,,R60.00,,,,,,yes
-171,Plastic Signs ABS - Outdoor ,ABS Signs,0.6mm thick 6-12 months Lifespan ,400 x 300mm,Gloss Laminated ,Double Sided ,1,fixed,,R80.00,,,,,,yes
-172,Plastic Signs ABS - Outdoor ,ABS Signs,0.6mm thick 6-12 months Lifespan ,600 x 400mm ,Gloss Laminated ,Double Sided ,1,fixed,,R150.00,,,,,,yes
-173,Plastic Signs ABS - Outdoor ,ABS Signs,0.6mm thick 6-12 months Lifespan ,600x 800mm,Gloss Laminated ,Double Sided ,1,fixed,,R250.00,,,,,,yes
-174,Plastic Signs ABS - Outdoor ,ABS Signs,0.6mm thick 6-12 months Lifespan ,1200 x 800mm,Gloss Laminated ,Double Sided ,1,fixed,,R475.00,,,,,,yes
-175,Plastic Signs ABS - Outdoor ,ABS Signs,0.6mm thick 6-12 months Lifespan ,2450 x 600mm,Gloss Laminated ,Double Sided ,1,fixed,,R675.00,,,,,,yes
-176,Plastic Signs ABS - Outdoor ,ABS Signs,0.6mm thick 6-12 months Lifespan ,2450 x 1200mm,Gloss Laminated ,Double Sided ,1,fixed,,R900.00,,,,,,yes
-177,Corex Plastic Signs - Outdoor ,Corex Signs,3mm thick 3-6 months Lifespan ,300 x 200mm ,Standard ,Single sided ,1,fixed,,R50.00,,,,,,yes
-178,Corex Plastic Signs - Outdoor ,Corex Signs,3mm thick 3-6 months Lifespan ,400 x 300mm,Standard ,Single sided ,1,fixed,,R70.00,,,,,,yes
-179,Corex Plastic Signs - Outdoor ,Corex Signs,3mm thick 3-6 months Lifespan ,600 x 400mm ,Standard ,Single sided ,1,fixed,,R120.00,,,,,,yes
-180,Corex Plastic Signs - Outdoor ,Corex Signs,3mm thick 3-6 months Lifespan ,600x 800mm,Standard ,Single sided ,1,fixed,,R200.00,,,,,,yes
-181,Corex Plastic Signs - Outdoor ,Corex Signs,3mm thick 3-6 months Lifespan ,1200 x 800mm,Standard ,Single sided ,1,fixed,,R350.00,,,,,,yes
-182,Corex Plastic Signs - Outdoor ,Corex Signs,3mm thick 3-6 months Lifespan ,2450 x 600mm,Standard ,Single sided ,1,fixed,,R400.00,,,,,,yes
-183,Corex Plastic Signs - Outdoor ,Corex Signs,3mm thick 3-6 months Lifespan ,2450 x 1200mm,Standard ,Single sided ,1,fixed,,R650.00,,,,,,yes
-184,Corex Plastic Signs - Outdoor ,Corex Signs,3mm thick 3-6 months Lifespan ,300 x 200mm ,Standard ,Double Sided ,1,fixed,,R65.00,,,,,,yes
-185,Corex Plastic Signs - Outdoor ,Corex Signs,3mm thick 3-6 months Lifespan ,400 x 300mm,Standard ,Double Sided ,1,fixed,,R91.00,,,,,,yes
-186,Corex Plastic Signs - Outdoor ,Corex Signs,3mm thick 3-6 months Lifespan ,600 x 400mm ,Standard ,Double Sided ,1,fixed,,R156.00,,,,,,yes
-187,Corex Plastic Signs - Outdoor ,Corex Signs,3mm thick 3-6 months Lifespan ,600x 800mm,Standard ,Double Sided ,1,fixed,,R260.00,,,,,,yes
-188,Corex Plastic Signs - Outdoor ,Corex Signs,3mm thick 3-6 months Lifespan ,1200 x 800mm,Standard ,Double Sided ,1,fixed,,R455.00,,,,,,yes
-189,Corex Plastic Signs - Outdoor ,Corex Signs,3mm thick 3-6 months Lifespan ,2450 x 600mm,Standard ,Double Sided ,1,fixed,,R520.00,,,,,,yes
-190,Corex Plastic Signs - Outdoor ,Corex Signs,3mm thick 3-6 months Lifespan ,2450 x 1200mm,Standard ,Double Sided ,1,fixed,,R845.00,,,,,,yes
-191,Rubber Stamps,Self Inking Stamps,Colop Self Inking - Black Ink,C30 47 x 18mm,3 Lines Of Text,,1,fixed,,R375.00,,,,,,yes
-192,Rubber Stamps,Self Inking Stamps,Colop Self Inking - Black Ink,C40 59 x 23mm,5 Lines Of Text,,1,fixed,,R425.00,,,,,,yes
-193,Rubber Stamps,Self Inking Stamps,Colop Self Inking - Black Ink,C50 69 x 30mm,7 Lines Of Text,,1,fixed,,R525.00,,,,,,yes
-194,Rubber Stamps,Pre-Inked Stamps,Printer 20 PAID ( RED INK ),,,,1,fixed,,R169.00,,,,,,yes
-195,Rubber Stamps,Stamp Accessories,Replacement Rubber Only .,Custom,,,1,fixed,,R175.00,,,,,,yes
-196,Supplies ,Eco Solvent Inks,Eco Solvent Inks Roland/Xp600 - CYAN ,1LT ,3 Year ,,1,fixed,,R500.00,,,,,,yes
-197,Supplies ,Eco Solvent Inks,Eco Solvent Inks Roland/Xp600 - MAGENTA,1LT ,3 Year,,1,fixed,,R500.00,,,,,,yes
-198,Supplies ,Eco Solvent Inks,Eco Solvent Inks Roland/Xp600 - YELLOW,1LT ,3 Year,,1,fixed,,R500.00,,,,,,yes
-199,Supplies ,Eco Solvent Inks,Eco Solvent Inks Roland/Xp600 - BLACK,1LT ,3 Year,,1,fixed,,R500.00,,,,,,yes
-200,Supplies ,Eco Solvent Inks,Eco Solvent Inks Roland/Xp600 - CMYK Special ,4LT,4 Year,,1,fixed,,"R1,500.00",,,,,,yes
-201,Supplies ,Ricoh Inks,Ricoh Toner Based Inks IMC6500 / 8003 - CYAN ,500Grams,Premium ,,1,fixed,,R925.00,,,,,,yes
-202,Supplies ,Ricoh Inks,Ricoh Toner Based Inks IMC6500 / 8003 - MAGENTA,500Grams,Premium ,,1,fixed,,R925.00,,,,,,yes
-203,Supplies ,Ricoh Inks,Ricoh Toner Based Inks IMC6500 / 8003 - YELLOW,500Grams,Premium ,,1,fixed,,R925.00,,,,,,yes
-204,Supplies ,Ricoh Inks,Ricoh Toner Based Inks IMC6500 / 8003 - BLACK,500Grams,Premium ,,1,fixed,,R925.00,,,,,,yes
-205,Supplies ,Xerox Inks,Xerox  Toner Based Inks 7835 Series - CYAN ,500Grams,Premium ,,1,fixed,,R650.00,,,,,,yes
-206,Supplies ,Xerox Inks,Xerox  Toner Based Inks 7835 Series - MAGENTA,500Grams,Premium ,,1,fixed,,R650.00,,,,,,yes
-207,Supplies ,Xerox Inks,Xerox  Toner Based Inks 7835 Series - YELLOW,500Grams,Premium ,,1,fixed,,R650.00,,,,,,yes
-208,Supplies ,Xerox Inks,Xerox  Toner Based Inks 7835 Series - BLACK,500Grams,Premium ,,1,fixed,,R650.00,,,,,,yes
-209,Supplies ,Xerox Inks,Xerox  Toner Based Inks 550 Series - CYAN ,500Grams,Premium ,,1,fixed,,R650.00,,,,,,yes
-210,Supplies ,Xerox Inks,Xerox  Toner Based Inks 550 Series - MAGENTA,500Grams,Premium ,,1,fixed,,R650.00,,,,,,yes
-211,Supplies ,Xerox Inks,Xerox  Toner Based Inks 550 Series - YELLOW,500Grams,Premium ,,1,fixed,,R650.00,,,,,,yes
-212,Supplies ,Xerox Inks,Xerox  Toner Based Inks 550 Series - BLACK,500Grams,Premium ,,1,fixed,,R650.00,,,,,,yes
-213,Supplies ,Xerox Inks,Xerox  Toner Based Inks V Series - CYAN ,500Grams,Premium ,,1,fixed,,R650.00,,,,,,yes
-214,Supplies ,Xerox Inks,Xerox  Toner Based Inks V Series - MAGENTA,500Grams,Premium ,,1,fixed,,R650.00,,,,,,yes
-215,Supplies ,Xerox Inks,Xerox  Toner Based Inks V Series - YELLOW,500Grams,Premium ,,1,fixed,,R650.00,,,,,,yes
-216,Supplies ,Xerox Inks,Xerox  Toner Based Inks V Series - BLACK,500Grams,Premium ,,1,fixed,,R650.00,,,,,,yes
-217,Supplies ,Konica Minolta Inks,Konica Minolta Toner Based Inks  - CYAN ,500Grams,Premium ,,1,fixed,,R450.00,,,,,,yes
-218,Supplies ,Konica Minolta Inks,Konica Minolta Toner Based Inks  - MAGENTA ,500Grams,Premium ,,1,fixed,,R450.00,,,,,,yes
-219,Supplies ,Konica Minolta Inks,Konica Minolta Toner Based Inks  - YELLOW,500Grams,Premium ,,1,fixed,,R450.00,,,,,,yes
-220,Supplies ,Konica Minolta Inks,Konica Minolta Toner Based Inks  - BLACK,500Grams,Premium ,,1,fixed,,R450.00,,,,,,yes
-221,Supplies ,Riso Supplies,Riso Duplicator ink - Generic ,500ml,Standard,,1,fixed,,R250.00,,,,,,yes
-222,Supplies ,Riso Supplies,Riso Duplicator Master - Generic ,100m,Standard,,1,fixed,,R300.00,,,,,,yes
-223,Banners Stands - Indoor,X-Frame Banners,X - Frame Banner + Print ,1600 x 600mm,Gloss PVC ,,1,fixed,,R475.00,,,,,,yes
-224,Banners Stands - Indoor,Replacement Parts,Replacement frame only ,1600 x 600mm,Standard Metal ,,1,fixed,,R200.00,,,,,,yes
-225,Banners Stands - Indoor,Replacement Parts,Replacement Banner Print only ,1600 x 600mm,Gloss PVC ,,1,fixed,,R325.00,,,,,,yes
-226,Banners Stands - Indoor,Pull Up Banners,Economy Pull up Banner stand + Print ,2000 x 850mm ,Gloss PVC ,,1,fixed,,R900.00,,,,,,yes
-227,Banners Stands - Indoor,Replacement Parts,Replacement frame only ,2000 x 850mm,Standard Metal ,,1,fixed,,R475.00,,,,,,yes
-228,Banners Stands - Indoor,Replacement Parts,Replacement Banner Print only ,2000 x 850mm,Gloss PVC ,,1,fixed,,R475.00,,,,,,yes
-229,Banners Stands - Indoor,Pull Up Banners,Excutive  Pull up Banner stand + Print ,2000 x 850mm,Gloss PVC ,,1,fixed,,"R1,350.00",,,,,,yes
-230,Banners Stands - Outdoor ,Telescopic Banners,"Telescopic Banner Include Hardware , ground spike & carry bag.",2000 x 620mm,Fabric,Single sided ,1,fixed,,R850.00,,,,,,yes
-231,Banners Stands - Outdoor ,Telescopic Banners,"Telescopic Banner Include Hardware , ground spike & carry bag.",3000 x 620mm,Fabric,,1,fixed,,R950.00,,,,,,yes
-232,Banners Stands - Outdoor ,Telescopic Banners,"Telescopic Banner Include Hardware , ground spike & carry bag.",2000 x 620mm,Fabric,Double Sided ,1,fixed,,"R1,150.00",,,,,,yes
-233,Banners Stands - Outdoor ,Telescopic Banners,"Telescopic Banner Include Hardware , ground spike & carry bag.",3000 x 620mm,Fabric,Double Sided ,1,fixed,,"R1,550.00",,,,,,yes
-234,Flat Banners - outdoor / indoor ,PVC Banners,PVC Banner / Birthday / advertising ,1350 x 650mm ,PVC,,1,fixed,,R300.00,,,,,,yes
-235,Flat Banners - outdoor / indoor ,PVC Banners,PVC Banner / Birthday / advertising ,1600 x 1000mm,PVC,,1,fixed,,R450.00,,,,,,yes
-236,Flat Banners - outdoor / indoor ,PVC Banners,PVC Banner / Birthday / advertising ,2000 x 1300mm,PVC,,1,fixed,,R500.00,,,,,,yes
-237,Flat Banners - outdoor / indoor ,PVC Banners,PVC Banner / Birthday / advertising ,2500 x 1300mm ,PVC,,1,fixed,,R550.00,,,,,,yes
-238,Flat Banners - outdoor / indoor ,PVC Banners,PVC Banner / Birthday / advertising ,3000 x 1300mm ,PVC,,1,fixed,,R600.00,,,,,,yes
-239,Flat Banners - outdoor / indoor ,PVC Banners,PVC Banner / Birthday / advertising ,4000 x 1300mm ,PVC,,1,fixed,,R800.00,,,,,,yes
-240,Flat Banners - outdoor / indoor ,PVC Banners,PVC Banner / Birthday / advertising ,5000 x 1300mm ,PVC,,1,fixed,,"R1,000.00",,,,,,yes
-241,Flat Banners - outdoor / indoor ,PVC Banners,PVC Banner / Birthday / advertising ,2000 x 1600mm ,PVC,,1,fixed,,R520.00,,,,,,yes
-242,Flat Banners - outdoor / indoor ,PVC Banners,PVC Banner / Birthday / advertising ,3000 x 1600mm ,PVC,,1,fixed,,R720.00,,,,,,yes
-243,Flat Banners - outdoor / indoor ,PVC Banners,PVC Banner / Birthday / advertising ,4000 x 1600mm,PVC,,1,fixed,,R960.00,,,,,,yes
-244,Flat Banners - outdoor / indoor ,PVC Banners,PVC Banner / Birthday / advertising ,5000 x 1600mm ,PVC,,1,fixed,,"R1,200.00",,,,,,yes
-245,Flat Banners - outdoor / indoor ,PVC Banners,PVC Banner / Birthday / advertising ,Custom,PVC,,1,,150,,,,,,,yes
-246,Canvas Block Mount ,Canvas Prints,Canvas Digitally Printed & mounted on a Wooden Block,A4,PVC,,1,fixed,,R200.00,,,,,,yes
-247,Canvas Block Mount ,Canvas Prints,Canvas Digitally Printed & mounted on a Wooden Block,A3,PVC,,1,fixed,,R275.00,,,,,,yes
-248,Canvas Block Mount ,Canvas Prints,Canvas Digitally Printed & mounted on a Wooden Block,A2,PVC,,1,fixed,,R450.00,,,,,,yes
-249,Canvas Block Mount ,Canvas Prints,Canvas Digitally Printed & mounted on a Wooden Block,A1,PVC,,1,fixed,,R550.00,,,,,,yes
-250,Canvas Block Mount ,Canvas Prints,Canvas Digitally Printed & mounted on a Wooden Block,A0,PVC,,1,fixed,,R850.00,,,,,,yes
-251,Magnetic Signs ,Vehicle Magnets,Vehicle Magnets - Pair ,600 x 220mm,Gloss Laminate ,,2,fixed,,R425.00,,,,,,yes
-252,Magnetic Signs ,Vehicle Magnets,Vehicle Magnets - Pair ,600 x 270mm,Gloss Laminate ,,2,fixed,,R450.00,,,,,,yes
-253,Magnetic Signs ,Vehicle Magnets,Vehicle Magnets - Pair ,600 x 300mm,Gloss Laminate ,,2,fixed,,R475.00,,,,,,yes
-254,Magnetic Signs ,Vehicle Magnets,Vehicle Magnets - Pair ,Custom,Gloss Laminate ,,2,,1500,,,,,,,yes
-255,Vehicle Branding ,Vinyl Stickers,Vinyl cut stickers - Standard single colors ,200mm L x 100mm H,Gloss ,,1,fixed,,R40.00,,,,,,yes
-256,Vehicle Branding ,Vinyl Stickers,Vinyl cut stickers - Standard single colors ,300mm L x 100mm H,Gloss ,,1,fixed,,R50.00,,,,,,yes
-257,Vehicle Branding ,Vinyl Stickers,Vinyl cut stickers - Standard single colors ,400mm L x 100mm H,Gloss ,,1,fixed,,R60.00,,,,,,yes
-258,Vehicle Branding ,Vinyl Stickers,Vinyl cut stickers - Standard single colors ,500mm L x 100mm H,Gloss ,,1,fixed,,R70.00,,,,,,yes
-259,Vehicle Branding ,Vinyl Stickers,Vinyl cut stickers - Standard single colors ,600mm L x 100mm H,Gloss ,,1,fixed,,R80.00,,,,,,yes
-260,Vehicle Branding ,Vinyl Stickers,Vinyl cut stickers - Standard single colors ,700mm L x 100mm H,Gloss ,,1,fixed,,R90.00,,,,,,yes
-261,Vehicle Branding ,Vinyl Stickers,Vinyl cut stickers - Standard single colors ,800mm L x 100mm H,Gloss ,,1,fixed,,R100.00,,,,,,yes
-262,Vehicle Branding ,Vinyl Stickers,Vinyl cut stickers - Standard single colors ,900mm L x 100mm H,Gloss ,,1,fixed,,R110.00,,,,,,yes
-263,Vehicle Branding ,Vinyl Stickers,Vinyl cut stickers - Standard single colors ,1000mm L x 100mm H,Gloss ,,1,fixed,,R120.00,,,,,,yes
-264,Vehicle Branding ,Vinyl Stickers,Vinyl cut stickers - Standard single colors ,1100mm L x 100mm H,Gloss ,,1,fixed,,R130.00,,,,,,yes
-265,Vehicle Branding ,Vinyl Stickers,Vinyl cut stickers - Standard single colors ,1200mm L x 100mm H,Gloss ,,1,fixed,,R140.00,,,,,,yes
-266,Vehicle Branding ,Vinyl Stickers,Vinyl cut stickers - Standard 2 colors ,200mm L x 100mm H,Gloss ,,1,fixed,,R60.00,,,,,,yes
-267,Vehicle Branding ,Vinyl Stickers,Vinyl cut stickers - Standard 2 colors ,300mm L x 100mm H,Gloss ,,1,fixed,,R70.00,,,,,,yes
-268,Vehicle Branding ,Vinyl Stickers,Vinyl cut stickers - Standard 2 colors ,400mm L x 100mm H,Gloss ,,1,fixed,,R100.00,,,,,,yes
-269,Vehicle Branding ,Vinyl Stickers,Vinyl cut stickers - Standard 2 colors ,500mm L x 100mm H,Gloss ,,1,fixed,,R110.00,,,,,,yes
-270,Vehicle Branding ,Vinyl Stickers,Vinyl cut stickers - Standard 2 colors ,600mm L x 100mm H,Gloss ,,1,fixed,,R120.00,,,,,,yes
-271,Vehicle Branding ,Vinyl Stickers,Vinyl cut stickers - Standard 2 colors ,700mm L x 100mm H,Gloss ,,1,fixed,,R130.00,,,,,,yes
-272,Vehicle Branding ,Vinyl Stickers,Vinyl cut stickers - Standard 2 colors ,800mm L x 100mm H,Gloss ,,1,fixed,,R140.00,,,,,,yes
-273,Vehicle Branding ,Vinyl Stickers,Vinyl cut stickers - Standard 2 colors ,900mm L x 100mm H,Gloss ,,1,fixed,,R150.00,,,,,,yes
-274,Vehicle Branding ,Vinyl Stickers,Vinyl cut stickers - Standard 2 colors ,1000mm L x 100mm H,Gloss ,,1,fixed,,R160.00,,,,,,yes
-275,Vehicle Branding ,Vinyl Stickers,Vinyl cut stickers - Standard 2 colors ,1100mm L x 100mm H,Gloss ,,1,fixed,,R170.00,,,,,,yes
-276,Vehicle Branding ,Vinyl Stickers,Vinyl cut stickers - Standard 2 colors ,1200mm L x 100mm H,Gloss ,,1,fixed,,R180.00,,,,,,yes
-277,Vehicle Branding ,Chrome Stickers,Vinyl cut stickers - chrome / holographic ,200mm L x 100mm H,Gloss ,,1,fixed,,R60.00,,,,,,yes
-278,Vehicle Branding ,Chrome Stickers,Vinyl cut stickers - chrome / holographic ,300mm L x 100mm H,Gloss ,,1,fixed,,R70.00,,,,,,yes
-279,Vehicle Branding ,Chrome Stickers,Vinyl cut stickers - chrome / holographic ,400mm L x 100mm H,Gloss ,,1,fixed,,R100.00,,,,,,yes
-280,Vehicle Branding ,Chrome Stickers,Vinyl cut stickers - chrome / holographic ,500mm L x 100mm H,Gloss ,,1,fixed,,R110.00,,,,,,yes
-281,Vehicle Branding ,Chrome Stickers,Vinyl cut stickers - chrome / holographic ,600mm L x 100mm H,Gloss ,,1,fixed,,R120.00,,,,,,yes
-282,Vehicle Branding ,Chrome Stickers,Vinyl cut stickers - chrome / holographic ,700mm L x 100mm H,Gloss ,,1,fixed,,R130.00,,,,,,yes
-283,Vehicle Branding ,Chrome Stickers,Vinyl cut stickers - chrome / holographic ,800mm L x 100mm H,Gloss ,,1,fixed,,R140.00,,,,,,yes
-284,Vehicle Branding ,Chrome Stickers,Vinyl cut stickers - chrome / holographic ,900mm L x 100mm H,Gloss ,,1,fixed,,R150.00,,,,,,yes
-285,Vehicle Branding ,Chrome Stickers,Vinyl cut stickers - chrome / holographic ,1000mm L x 100mm H,Gloss ,,1,fixed,,R160.00,,,,,,yes
-286,Vehicle Branding ,Chrome Stickers,Vinyl cut stickers - chrome / holographic ,1100mm L x 100mm H,Gloss ,,1,fixed,,R170.00,,,,,,yes
-287,Vehicle Branding ,Chrome Stickers,Vinyl cut stickers - chrome / holographic ,1200mm L x 100mm H,Gloss ,,1,fixed,,R180.00,,,,,,yes
-288,Vehicle Branding ,Bumper Stickers,Bumper Stickers - Single color standard ,150 x 50mm,Gloss ,,50,fixed,,R375.00,,,,,,yes
-289,Vehicle Branding ,Bumper Stickers,Bumper Stickers - Chrome / holographic ,150 x 50mm,Gloss ,,50,fixed,,R475.00,,,,,,yes
-290,Vehicle Branding ,Number Plates,Perspex Number Plates standard - Fancy Plates ,520 x 113mm ,Gloss ,,1,fixed,,R200.00,,,,,,yes
-291,Vehicle Branding ,Number Plates,Perspex Number Plates standard - Fancy Plates ,440 x 113mm,Gloss ,,1,fixed,,R200.00,,,,,,yes
-292,Vehicle Branding ,Number Plates,Perspex Number Plate - Bike custom Sizes ,Free Size ,Gloss ,,1,fixed,,R150.00,,,,,,yes
-293,Vehicle Branding ,Number Plates,ABS Number Plates standard - Fancy Plates ,520 x 113mm ,Gloss ,,1,fixed,,R80.00,,,,,,yes
-294,Vehicle Branding ,Number Plates,ABS Number Plates standard - Fancy Plates ,440 x 113mm,Gloss ,,1,fixed,,R80.00,,,,,,yes
-295,Vehicle Branding ,Vehicle Graphics,Digital Print - custom design ,Free Size ,Gloss ,,1,,550,,,,,,,yes
-296,Vehicle Branding ,Vehicle Graphics,Basic Design single color Graphics - Text only ,Car / Small bakkie / Double cab ,Gloss ,,1,fixed,,R950.00,,,,,,yes
-297,Vehicle Branding ,Vehicle Graphics,Basic Design 2 color Graphics - Text only ,Car / Small bakkie / Double cab ,Gloss ,,1,fixed,,"R1,350.00",,,,,,yes
-298,Vehicle Branding ,Vehicle Graphics,Basic Design 2 color with Logo color Graphics - Text only ,Car / Small bakkie / Double cab ,Gloss ,,1,fixed,,"R2,750.00",,,,,,yes
-299,Vehicle Branding ,Vehicle Wraps,Partial Wrap - Digital Print With lamination ,Car / Small bakkie / Double cab ,Gloss ,,1,fixed,,"R3,500.00",,,,,,yes
-300,Vehicle Branding ,Vehicle Wraps,Partial Wrap - Digital Print With lamination ,Car / Small bakkie / Double cab ,Gloss ,,1,fixed,,"R5,500.00",,,,,,yes
-301,Laser Cutting ,Cake Toppers,Cake toppers - Standard single color ,A5,Gloss ,,1,fixed,,R120.00,,,,,,yes
-302,Laser Cutting ,Cake Toppers,Cake toppers - Mirror single color ,A5,Gloss ,,1,fixed,,R150.00,,,,,,yes
-303,Laser Cutting ,Cake Toppers,Cake toppers - Mirror 2 color ,A5,Gloss ,,1,fixed,,R180.00,,,,,,yes
-304,Laser Cutting ,Cake Toppers,Cake toppers - Full color with image ,A5,Gloss ,,1,fixed,,R180.00,,,,,,yes
-305,Laser Cutting ,MDF Cutting,3mm MDF wood cutting ,Custom,Standard,,1,,400,,,,,,,yes
-306,Laser Cutting ,MDF Cutting,3mm MDF wood cutting & Engraving ,Custom,Standard,,1,,1200,,,,,,,yes
+ID,Category,Subcategory,SubSubcategory,SubSubSubcategory,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvailable,PolePrice,InstallationFee,RequiresArtwork
+1,Paper Printing,Business Cards,,,Business Cards 300GSM ,Standard 90x55mm,Semi Gloss,Single sided ,100,fixed,,R120.00,,0,no,,0,yes
+2,Paper Printing,Business Cards,,,Business Cards 300GSM ,Standard 90x55mm,Semi Gloss,Single sided ,250,fixed,,R230.00,,0,no,,0,yes
+3,Paper Printing,Business Cards,,,Business Cards 300GSM ,Standard 90x55mm,Semi Gloss,Single sided ,500,fixed,,R350.00,,0,no,,0,yes
+4,Paper Printing,Business Cards,,,Business Cards 300GSM ,Standard 90x55mm,Semi Gloss,Single sided ,1000,fixed,,R680.00,,0,no,,0,yes
+5,Paper Printing,Business Cards,,,Business Cards 300GSM ,Standard 90x55mm,Semi Gloss,Double Sided ,100,fixed,,R180.00,,0,no,,0,yes
+6,Paper Printing,Business Cards,,,Business Cards 300GSM ,Standard 90x55mm,Semi Gloss,Double Sided ,250,fixed,,R320.00,,0,no,,0,yes
+7,Paper Printing,Business Cards,,,Business Cards 300GSM ,Standard 90x55mm,Semi Gloss,Double Sided ,500,fixed,,R525.00,,0,no,,0,yes
+8,Paper Printing,Business Cards,,,Business Cards 300GSM ,Standard 90x55mm,Semi Gloss,Double Sided ,1000,fixed,,"R1,000.00",,0,no,,0,yes
+9,Paper Printing,Business Cards,,,Business Cards 300GSM ,Standard 90x55mm,Laminated,Single sided ,100,fixed,,R170.00,,0,no,,0,yes
+10,Paper Printing,Business Cards,,,Business Cards 300GSM ,Standard 90x55mm,Laminated,Single sided ,250,fixed,,R355.00,,0,no,,0,yes
+11,Paper Printing,Business Cards,,,Business Cards 300GSM ,Standard 90x55mm,Laminated,Single sided ,500,fixed,,R600.00,,0,no,,0,yes
+12,Paper Printing,Business Cards,,,Business Cards 300GSM ,Standard 90x55mm,Laminated,Single sided ,1000,fixed,,"R1,180.00",,0,no,,0,yes
+13,Paper Printing,Business Cards,,,Business Cards 300GSM ,Standard 90x55mm,Laminated,Double Sided ,100,fixed,,R280.00,,0,no,,0,yes
+14,Paper Printing,Business Cards,,,Business Cards 300GSM ,Standard 90x55mm,Laminated,Double Sided ,250,fixed,,R480.00,,0,no,,0,yes
+15,Paper Printing,Business Cards,,,Business Cards 300GSM ,Standard 90x55mm,Laminated,Double Sided ,500,fixed,,R775.00,,0,no,,0,yes
+16,Paper Printing,Business Cards,,,Business Cards 300GSM ,Standard 90x55mm,Laminated,Double Sided ,1000,fixed,,"R1,450.00",,0,no,,0,yes
+17,Paper Printing,Flyers,,,Flyers - Express Print ,A6 (105 × 148) mm,128gsm gloss,Single sided ,100,fixed,,R322.00,,0,no,,0,yes
+18,Paper Printing,Flyers,,,Flyers - Express Print ,A6 (105 × 148) mm,128gsm gloss,Single sided ,250,fixed,,R395.00,,0,no,,0,yes
+19,Paper Printing,Flyers,,,Flyers - Express Print ,A6 (105 × 148) mm,128gsm gloss,Single sided ,500,fixed,,R488.00,,0,no,,0,yes
+20,Paper Printing,Flyers,,,Flyers - Express Print ,A6 (105 × 148) mm,128gsm gloss,Single sided ,1000,fixed,,R696.00,,0,no,,0,yes
+21,Paper Printing,Flyers,,,Flyers - Express Print ,A6 (105 × 148) mm,128gsm gloss,Double Sided ,100,fixed,,R374.00,,0,no,,0,yes
+22,Paper Printing,Flyers,,,Flyers - Express Print ,A6 (105 × 148) mm,128gsm gloss,Double Sided ,250,fixed,,R488.00,,0,no,,0,yes
+23,Paper Printing,Flyers,,,Flyers - Express Print ,A6 (105 × 148) mm,128gsm gloss,Double Sided ,500,fixed,,R675.00,,0,no,,0,yes
+24,Paper Printing,Flyers,,,Flyers - Express Print ,A6 (105 × 148) mm,128gsm gloss,Double Sided ,1000,fixed,,"R1,049.00",,0,no,,0,yes
+25,Paper Printing,Flyers,,,Flyers - Express Print ,A5 (148 x 210) mm,128gsm gloss,Single sided ,100,fixed,,R363.00,,0,no,,0,yes
+26,Paper Printing,Flyers,,,Flyers - Express Print ,A5 (148 x 210) mm,128gsm gloss,Single sided ,250,fixed,,R488.00,,0,no,,0,yes
+27,Paper Printing,Flyers,,,Flyers - Express Print ,A5 (148 x 210) mm,128gsm gloss,Single sided ,500,fixed,,R696.00,,0,no,,0,yes
+28,Paper Printing,Flyers,,,Flyers - Express Print ,A5 (148 x 210) mm,128gsm gloss,Single sided ,1000,fixed,,"R1,123.00",,0,no,,0,yes
+29,Paper Printing,Flyers,,,Flyers - Express Print ,A5 (148 x 210) mm,128gsm gloss,Double Sided ,100,fixed,,R446.00,,0,no,,0,yes
+30,Paper Printing,Flyers,,,Flyers - Express Print ,A5 (148 x 210) mm,128gsm gloss,Double Sided ,250,fixed,,R675.00,,0,no,,0,yes
+31,Paper Printing,Flyers,,,Flyers - Express Print ,A5 (148 x 210) mm,128gsm gloss,Double Sided ,500,fixed,,"R1,050.00",,0,no,,0,yes
+32,Paper Printing,Flyers,,,Flyers - Express Print ,A5 (148 x 210) mm,128gsm gloss,Double Sided ,1000,fixed,,"R1,808.00",,0,no,,0,yes
+33,Paper Printing,Flyers,,,Flyers - Litho 7-10 working days ,A5 (148 x 210) mm,128gsm gloss,Single sided ,5000,fixed,,"R2,950.00",,0,no,,0,yes
+34,Paper Printing,Flyers,,,Flyers - Litho 7-10 working days ,A5 (148 x 210) mm,128gsm gloss,Single sided ,10000,fixed,,"R4,950.00",,0,no,,0,yes
+35,Paper Printing,Flyers,,,Flyers - Litho 7-10 working days ,A5 (148 x 210) mm,128gsm gloss,Double Sided ,5000,fixed,,"R3,750.00",,0,no,,0,yes
+36,Paper Printing,Flyers,,,Flyers - Litho 7-10 working days ,A5 (148 x 210) mm,128gsm gloss,Double Sided ,10000,fixed,,"R5,750.00",,0,no,,0,yes
+37,Paper Printing,Flyers,,,Flyers - Litho 7-10 working days ,A4 (210 x 297) mm,128gsm gloss,Single sided ,5000,fixed,,"R5,015.00",,0,no,,0,yes
+38,Paper Printing,Flyers,,,Flyers - Litho 7-10 working days ,A4 (210 x 297) mm,128gsm gloss,Single sided ,10000,fixed,,"R8,915.00",,0,no,,0,yes
+39,Paper Printing,Flyers,,,Flyers - Litho 7-10 working days ,A4 (210 x 297) mm,128gsm gloss,Double Sided ,5000,fixed,,"R6,375.00",,0,no,,0,yes
+40,Paper Printing,Flyers,,,Flyers - Litho 7-10 working days ,A4 (210 x 297) mm,128gsm gloss,Double Sided ,10000,fixed,,"R9,975.00",,0,no,,0,yes
+41,Paper Printing,Notepads,,,Script pads Black and White 100 Pager,A5 (148 x 210) mm,80gsm bond,Single sided ,6,fixed,,R400.00,,120,no,,0,yes
+42,Paper Printing,Notepads,,,Script pads Black and White 100 Pager,A5 (148 x 210) mm,80gsm bond,Single sided ,10,fixed,,R550.00,,120,no,,0,yes
+43,Paper Printing,Notepads,,,Script pads Black and White 100 Pager,A5 (148 x 210) mm,80gsm bond,Single sided ,20,fixed,,R800.00,,120,no,,0,yes
+44,Paper Printing,Notepads,,,Script pads Black and White 100 Pager,A4 (210 x 297) mm,80gsm bond,Single sided ,6,fixed,,R800.00,,120,no,,0,yes
+45,Paper Printing,Notepads,,,Script pads Black and White 100 Pager,A4 (210 x 297) mm,80gsm bond,Single sided ,10,fixed,,"R1,100.00",,120,no,,0,yes
+46,Paper Printing,Notepads,,,Script pads Black and White 100 Pager,A4 (210 x 297) mm,80gsm bond,Single sided ,20,fixed,,"R1,600.00",,120,no,,0,yes
+47,Paper Printing,Notepads,,,Script pads Color 100 Pager,A5 (148 x 210) mm,80gsm bond,Single sided ,6,fixed,,R500.00,,120,no,,0,yes
+48,Paper Printing,Notepads,,,Script pads Color 100 Pager,A5 (148 x 210) mm,80gsm bond,Single sided ,10,fixed,,R700.00,,120,no,,0,yes
+49,Paper Printing,Notepads,,,Script pads Color 100 Pager,A5 (148 x 210) mm,80gsm bond,Single sided ,20,fixed,,"R1,150.00",,120,no,,0,yes
+50,Paper Printing,Notepads,,,Script pads Color 100 Pager,A4 (210 x 297) mm,80gsm bond,Single sided ,6,fixed,,"R1,000.00",,120,no,,0,yes
+51,Paper Printing,Notepads,,,Script pads Color 100 Pager,A4 (210 x 297) mm,80gsm bond,Single sided ,10,fixed,,"R1,400.00",,120,no,,0,yes
+52,Paper Printing,Notepads,,,Script pads Color 100 Pager,A4 (210 x 297) mm,80gsm bond,Single sided ,20,fixed,,"R2,300.00",,120,no,,0,yes
+53,Paper Printing,Carbon Copy Books,,,Self Carbon Books - Duplicate 100 Leaves ,A5 (148 x 210) mm,58gsm NCR ,Single sided ,6,fixed,,R950.00,,250,no,,0,yes
+54,Paper Printing,Carbon Copy Books,,,Self Carbon Books - Duplicate 100 Leaves ,A5 (148 x 210) mm,58gsm NCR ,Single sided ,10,fixed,,"R1,450.00",,250,no,,0,yes
+55,Paper Printing,Carbon Copy Books,,,Self Carbon Books - Duplicate 100 Leaves ,A5 (148 x 210) mm,58gsm NCR ,Single sided ,20,fixed,,"R2,150.00",,250,no,,0,yes
+56,Paper Printing,Carbon Copy Books,,,Self Carbon Books - Triplicate 50 Leaves ,A5 (148 x 210) mm,58gsm NCR ,Single sided ,6,fixed,,R950.00,,250,no,,0,yes
+57,Paper Printing,Carbon Copy Books,,,Self Carbon Books - Triplicate 50 Leaves ,A5 (148 x 210) mm,58gsm NCR ,Single sided ,10,fixed,,"R1,450.00",,250,no,,0,yes
+58,Paper Printing,Carbon Copy Books,,,Self Carbon Books - Triplicate 50 Leaves ,A5 (148 x 210) mm,58gsm NCR ,Single sided ,20,fixed,,"R2,150.00",,250,no,,0,yes
+59,Paper Printing,Carbon Copy Books,,,Self Carbon Books - Quadruplicate  50 Leaves ,A5 (148 x 210) mm,58gsm NCR ,Single sided ,6,fixed,,"R1,550.00",,250,no,,0,yes
+60,Paper Printing,Carbon Copy Books,,,Self Carbon Books - Quadruplicate  50 Leaves ,A5 (148 x 210) mm,58gsm NCR ,Single sided ,10,fixed,,"R2,550.00",,250,no,,0,yes
+61,Paper Printing,Carbon Copy Books,,,Self Carbon Books - Quadruplicate  50 Leaves ,A5 (148 x 210) mm,58gsm NCR ,Single sided ,20,fixed,,"R4,800.00",,250,no,,0,yes
+62,Paper Printing,Carbon Copy Books,,,Self Carbon Books - Duplicate 100 Leaves ,A4 (210 x 297) mm,58gsm NCR ,Single sided ,5,fixed,,"R1,350.00",,250,no,,0,yes
+63,Paper Printing,Carbon Copy Books,,,Self Carbon Books - Duplicate 100 Leaves ,A4 (210 x 297) mm,58gsm NCR ,Single sided ,10,fixed,,"R2,350.00",,250,no,,0,yes
+64,Paper Printing,Carbon Copy Books,,,Self Carbon Books - Duplicate 100 Leaves ,A4 (210 x 297) mm,58gsm NCR ,Single sided ,20,fixed,,"R4,400.00",,250,no,,0,yes
+65,Paper Printing,Carbon Copy Books,,,Self Carbon Books - Triplicate 50 Leaves ,A4 (210 x 297) mm,58gsm NCR ,Single sided ,5,fixed,,"R1,350.00",,250,no,,0,yes
+66,Paper Printing,Carbon Copy Books,,,Self Carbon Books - Triplicate 50 Leaves ,A4 (210 x 297) mm,58gsm NCR ,Single sided ,10,fixed,,"R2,350.00",,250,no,,0,yes
+67,Paper Printing,Carbon Copy Books,,,Self Carbon Books - Triplicate 50 Leaves ,A4 (210 x 297) mm,58gsm NCR ,Single sided ,20,fixed,,"R4,400.00",,250,no,,0,yes
+68,Paper Printing,Carbon Copy Books,,,Self Carbon Books - Quadruplicate  50 Leaves ,A4 (210 x 297) mm,58gsm NCR ,Single sided ,5,fixed,,"R1,550.00",,250,no,,0,yes
+69,Paper Printing,Carbon Copy Books,,,Self Carbon Books - Quadruplicate  50 Leaves ,A4 (210 x 297) mm,58gsm NCR ,Single sided ,10,fixed,,"R2,550.00",,250,no,,0,yes
+70,Paper Printing,Carbon Copy Books,,,Self Carbon Books - Quadruplicate  50 Leaves ,A4 (210 x 297) mm,58gsm NCR ,Single sided ,20,fixed,,"R4,800.00",,250,no,,0,yes
+71,Paper Printing,Photocopies,,,Photocopies Black and white ,A4 (210 x 297) mm,80gsm Bond ,Single sided ,1,fixed,,R2.00,,0,no,,0,yes
+72,Paper Printing,Photocopies,,,Photocopies Black and white ,A3 (297 x 210) mm,80gsm Bond ,Single sided ,1,fixed,,R4.00,,0,no,,0,yes
+73,Paper Printing,Photocopies,,,Photocopies Color ,A4 (210 x 297) mm,80gsm Bond ,Single sided ,1,fixed,,R5.00,,0,no,,0,yes
+74,Paper Printing,Photocopies,,,Photocopies Color ,A3 (297 x 210) mm,80gsm Bond ,Single sided ,1,fixed,,R10.00,,0,no,,0,yes
+75,Paper Printing,Photocopies,,,Photocopies Black and white ,A4 (210 x 297) mm,80gsm Bond ,Double Sided ,1,fixed,,R3.00,,0,no,,0,yes
+76,Paper Printing,Photocopies,,,Photocopies Black and white ,A3 (297 x 210) mm,80gsm Bond ,Double Sided ,1,fixed,,R6.00,,0,no,,0,yes
+77,Paper Printing,Photocopies,,,Photocopies Color ,A4 (210 x 297) mm,80gsm Bond ,Double Sided ,1,fixed,,R8.00,,0,no,,0,yes
+78,Paper Printing,Photocopies,,,Photocopies Color ,A3 (297 x 210) mm,80gsm Bond ,Double Sided ,1,fixed,,R15.00,,0,no,,0,yes
+79,Paper Printing,Photocopies,,,Photocopies Black and white,A4 (210 x 297) mm,300gsm - Laminated ,Single sided ,1,fixed,,R7.00,,0,no,,0,yes
+80,Paper Printing,Photocopies,,,Photocopies Black and white ,A3 (297 x 210) mm,300gsm - Laminated ,Single sided ,1,fixed,,R14.00,,0,no,,0,yes
+81,Paper Printing,Photocopies,,,Photocopies Color ,A4 (210 x 297) mm,300gsm - Laminated ,Single sided ,1,fixed,,R9.00,,0,no,,0,yes
+82,Paper Printing,Photocopies,,,Photocopies Color ,A3 (297 x 210) mm,300gsm - Laminated ,Single sided ,1,fixed,,R20.00,,0,no,,0,yes
+83,Paper Printing,Photocopies,,,Photocopies Black and white ,A4 (210 x 297) mm,300gsm - Laminated ,Double Sided ,1,fixed,,R7.00,,0,no,,0,yes
+84,Paper Printing,Photocopies,,,Photocopies Black and white ,A3 (297 x 210) mm,300gsm - Laminated ,Double Sided ,1,fixed,,R16.00,,0,no,,0,yes
+85,Paper Printing,Photocopies,,,Photocopies Color ,A4 (210 x 297) mm,300gsm - Laminated ,Double Sided ,1,fixed,,R13.00,,0,no,,0,yes
+86,Paper Printing,Photocopies,,,Photocopies Color ,A3 (297 x 210) mm,300gsm - Laminated ,Double Sided ,1,fixed,,R25.00,,0,no,,0,yes
+87,Paper Printing,Bookmarks,,,Bookmarks ,190 x 60mm,300 GSM ,Single sided ,>50,fixed,,R3.00,,120,no,,0,yes
+88,Paper Printing,Bookmarks,,,Bookmarks ,191 x 60mm,300 GSM,Double Sided ,>50,fixed,,R5.00,,120,no,,0,yes
+89,Paper Printing,Bookmarks,,,Bookmarks ,192 x 60mm,300 GSM - Laminated ,Single sided ,>50,fixed,,R4.00,,120,no,,0,yes
+90,Paper Printing,Bookmarks,,,Bookmarks ,193 x 60mm,300 GSM - Laminated,Double Sided ,>50,fixed,,R6.00,,120,no,,0,yes
+91,Paper Printing,Folders,,,SRA3 Company folders ,450 x 320mm ,300GSM Semi gloss ,Single sided ,>20,fixed,,R12.00,,120,no,,0,yes
+92,Paper Printing,Folders,,,SRA3 Company folders with sleeve ,450 x 320mm,300GSM Semi gloss ,Single sided ,>20,fixed,,R15.00,,120,no,,0,yes
+93,Paper Printing,Folders,,,SRA3 Company folders ,450 x 320mm ,300GSM Semi gloss ,Double Sided ,>20,fixed,,R17.00,,240,no,,0,yes
+94,Paper Printing,Folders,,,SRA3 Company folders with sleeve ,450 x 320mm,300GSM Semi gloss ,Double Sided ,>20,fixed,,R22.00,,240,no,,0,yes
+95,Paper Printing,Folders,,,SRA3 Company folders ,450 x 320mm ,300GSM Laminated  ,Single sided ,>20,fixed,,R22.00,,120,no,,0,yes
+96,Paper Printing,Folders,,,SRA3 Company folders with sleeve ,450 x 320mm,300GSM Laminated  ,Single sided ,>20,fixed,,R25.00,,120,no,,0,yes
+97,Paper Printing,Folders,,,SRA3 Company folders ,450 x 320mm ,300GSM Laminated  ,Double Sided ,>20,fixed,,R27.00,,240,no,,0,yes
+98,Paper Printing,Folders,,,SRA3 Company folders with sleeve ,450 x 320mm,300GSM Laminated  ,Double Sided ,>20,fixed,,R32.00,,240,no,,0,yes
+99,Paper Printing,Calendars,,,A3 Calendars - with punched hole ,420 x 297mm ,300GSM ,Single sided ,>50,fixed,,R9.00,,250,no,,0,yes
+100,Paper Printing,Calendars,,,A4 Calendars - with punched hole ,210x 297mm ,300GSM ,Single sided ,>50,fixed,,R7.00,,250,no,,0,yes
+101,Paper Printing,Calendars,,,A4 Tent Calendars ,99 x 99 x 99 x 210mm,300GSM ,Single sided ,>51,fixed,,R12.00,,250,no,,0,yes
+102,Label Printing ,Paper Labels,,,Paper budget black and white - non waterproof,27 x 13mm,Self Adhesive ,Single sided ,1000,fixed,,R70.00,,0,no,,0,yes
+103,Label Printing ,Paper Labels,,,Paper budget black and white - non waterproof,40 x 26mm,Self Adhesive ,Single sided ,1000,fixed,,R90.00,,0,no,,0,yes
+104,Label Printing ,Vinyl Labels,,,Budget Vinyl Labels 80 Micron Waterproof ,Custom,Self Adhesive ,Single sided ,1,sqm,120,,60,120,no,,0,yes
+105,Label Printing ,Vinyl Labels,,,Premium Vinyl Labels 160 Micron Waterproof ,Custom,Self Adhesive - Laminated ,Single sided ,1,sqm,180,,100,120,no,,0,yes
+106,Large Format Printing - Supply Only ,Vinyl Roll,,,Econo Vinyl 1-2 Year Print 1330,1 x 1330mm,Self Adhesive ,Single Sided ,1,fixed,,R120.00,,0,no,,0,yes
+107,Large Format Printing - Supply Only ,Vinyl Roll,,,Greyback Vinyl 1-2 Year Print 1330,1 x 1330mm,Self Adhesive ,Single Sided ,1,fixed,,R140.00,,0,no,,0,yes
+108,Large Format Printing - Supply Only ,Vinyl Roll,,,Premium vinyl 3-5Year Print 1330,1 x 1330mm,Self Adhesive ,Single Sided ,1,fixed,,R180.00,,0,no,,0,yes
+109,Large Format Printing - Supply Only ,Vinyl Roll,,,Sandblast vinyl Print 1200,1 x 1200mm,Self Adhesive ,Single Sided ,1,fixed,,R180.00,,0,no,,0,yes
+110,Large Format Printing - Supply Only ,Vinyl Roll,,,Contravision 1Year Print 1330,1 x 1330mm,Self Adhesive ,Single Sided ,1,fixed,,R180.00,,0,no,,0,yes
+111,Large Format Printing - Supply Only ,PVC Banner Roll,,,PVC Banner 1 Year Print 1330,1 x 1330mm,Self Adhesive ,Single Sided ,1,fixed,,R150.00,,0,no,,0,yes
+112,Large Format Printing - Supply Only ,PVC Banner Roll,,,PVC Banner 1year Print 1580,1 x 1580mm,Self Adhesive ,Single Sided ,1,fixed,,R150.00,,0,no,,0,yes
+113,Large Format Printing - Supply Only ,PVC Banner Roll,,,PVC Banner Print 3200mm,1 x 3200mm,Self Adhesive ,Single Sided ,1,fixed,,R150.00,,0,no,,0,yes
+114,Outdoor Signs  3 - 5 year life span ,ACM Signs,,,ACM - Alumium Bond sheets 3mm thick ,300 x 200mm ,Gloss laminate ,Single sided ,1,fixed,,R80.00,,0,,,350,yes
+115,Outdoor Signs  3 - 5 year life span ,ACM Signs,,,ACM - Alumium Bond sheets 3mm thick ,400 x 300mm,Gloss laminate ,Single sided ,1,fixed,,R120.00,,0,,,350,yes
+116,Outdoor Signs  3 - 5 year life span ,ACM Signs,,,ACM - Alumium Bond sheets 3mm thick ,612 x 400mm ,Gloss laminate ,Single sided ,1,fixed,,R250.00,,0,,,350,yes
+117,Outdoor Signs  3 - 5 year life span ,ACM Signs,,,ACM - Alumium Bond sheets 3mm thick ,612 x 800mm,Gloss laminate ,Single sided ,1,fixed,,R375.00,,0,,,350,yes
+118,Outdoor Signs  3 - 5 year life span ,ACM Signs,,,ACM - Alumium Bond sheets 3mm thick ,1225 x 612mm,Gloss laminate ,Single sided ,1,fixed,,R525.00,,0,,,500,yes
+119,Outdoor Signs  3 - 5 year life span ,ACM Signs,,,ACM - Alumium Bond sheets 3mm thick ,2450 x 612mm,Gloss laminate ,Single sided ,1,fixed,,R950.00,,0,,,500,yes
+120,Outdoor Signs  3 - 5 year life span ,ACM Signs,,,ACM - Alumium Bond sheets 3mm thick ,1225 x 1225mm ,Gloss laminate ,Single sided ,1,fixed,,R950.00,,0,,,500,yes
+121,Outdoor Signs  3 - 5 year life span ,ACM Signs,,,ACM - Alumium Bond sheets 3mm thick ,2450 x 1225mm,Gloss laminate ,Single sided ,1,fixed,,"R1,750.00",,0,,,500,yes
+122,Outdoor Signs  3 - 5 year life span ,ACM Signs,,,ACM - Alumium Bond sheets 3mm thick ,2450 x 2450mm,Gloss laminate ,Single sided ,1,fixed,,"R3,500.00",,0,,,750,yes
+123,Outdoor Signs  3 - 5 year life span ,ACM Signs,,,ACM - Alumium Bond sheets 3mm thick ,4900 x 1225mm,Gloss laminate ,Single sided ,1,fixed,,"R3,500.00",,0,,,950,yes
+124,Outdoor Signs  3 - 5 year life span ,ACM Signs,,,ACM - Alumium Bond sheets 3mm thick ,7200 x 1225mm,Gloss laminate ,Single sided ,1,fixed,,"R5,250.00",,0,,,1350,yes
+125,Outdoor Signs  3 - 5 year life span ,ACM Signs,,,ACM - Alumium Bond sheets 3mm thick ,9600 x 1225mm,Gloss laminate ,Single sided ,1,fixed,,"R7,000.00",,0,,,1750,yes
+126,Outdoor Signs  3 - 5 year life span ,ACM Signs,,,ACM - Alumium Bond sheets 3mm thick ,300 x 200mm ,Gloss laminate ,Double Sided ,1,fixed,,R104.00,,0,,,350,yes
+127,Outdoor Signs  3 - 5 year life span ,ACM Signs,,,ACM - Alumium Bond sheets 3mm thick ,400 x 300mm,Gloss laminate ,Double Sided ,1,fixed,,R156.00,,0,,,350,yes
+128,Outdoor Signs  3 - 5 year life span ,ACM Signs,,,ACM - Alumium Bond sheets 3mm thick ,612 x 400mm ,Gloss laminate ,Double Sided ,1,fixed,,R325.00,,0,,,350,yes
+129,Outdoor Signs  3 - 5 year life span ,ACM Signs,,,ACM - Alumium Bond sheets 3mm thick ,612 x 800mm,Gloss laminate ,Double Sided ,1,fixed,,R487.50,,0,,,350,yes
+130,Outdoor Signs  3 - 5 year life span ,ACM Signs,,,ACM - Alumium Bond sheets 3mm thick ,1225 x 612mm,Gloss laminate ,Double Sided ,1,fixed,,R682.50,,0,,,500,yes
+131,Outdoor Signs  3 - 5 year life span ,ACM Signs,,,ACM - Alumium Bond sheets 3mm thick ,1225 x 1225mm ,Gloss laminate ,Single sided ,1,fixed,,"R1,235.00",,0,,,500,yes
+132,Outdoor Signs  3 - 5 year life span ,ACM Signs,,,ACM - Alumium Bond sheets 3mm thick ,2450 x 612mm,Gloss laminate ,Double Sided ,1,fixed,,"R1,235.00",,0,,,500,yes
+133,Outdoor Signs  3 - 5 year life span ,ACM Signs,,,ACM - Alumium Bond sheets 3mm thick ,2450 x 1225mm,Gloss laminate ,Double Sided ,1,fixed,,"R2,275.00",,0,,,500,yes
+134,Outdoor Signs  3 - 5 year life span ,ACM Signs,,,ACM - Alumium Bond sheets 3mm thick ,2450 x 2450mm,Gloss laminate ,Double Sided ,1,fixed,,"R4,550.00",,0,,,750,yes
+135,Outdoor Signs  3 - 5 year life span ,ACM Signs,,,ACM - Alumium Bond sheets 3mm thick ,4900 x 1225mm,Gloss laminate ,Double Sided ,1,fixed,,"R4,550.00",,0,,,950,yes
+136,Outdoor Signs  3 - 5 year life span ,ACM Signs,,,ACM - Alumium Bond sheets 3mm thick ,7200 x 1225mm,Gloss laminate ,Double Sided ,1,fixed,,"R6,825.00",,0,,,1350,yes
+137,Outdoor Signs  3 - 5 year life span ,ACM Signs,,,ACM - Alumium Bond sheets 3mm thick ,9600 x 1225mm,Gloss laminate ,Double Sided ,1,fixed,,"R9,100.00",,0,,,1750,yes
+138,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,,,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,300 x 200mm ,Gloss laminate ,Single sided ,1,fixed,,R175.00,,0,,,350,yes
+139,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,,,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,400 x 300mm,Gloss laminate ,Single sided ,1,fixed,,R200.00,,0,,,350,yes
+140,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,,,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,612 x 400mm ,Gloss laminate ,Single sided ,1,fixed,,R375.00,,0,,,350,yes
+141,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,,,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,612 x 800mm,Gloss laminate ,Single sided ,1,fixed,,R550.00,,0,,,350,yes
+142,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,,,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,1225 x 612mm,Gloss laminate ,Single sided ,1,fixed,,R825.00,,0,1,1000,500,yes
+143,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,,,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,1225 x 1225mm ,Gloss laminate ,Single sided ,1,fixed,,"R1,350.00",,0,2,500,500,yes
+144,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,,,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,2450 x 612mm,Gloss laminate ,Single sided ,1,fixed,,"R1,350.00",,0,2,750,500,yes
+145,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,,,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,2450 x 1225mm,Gloss laminate ,Single sided ,1,fixed,,"R2,250.00",,0,2,750,500,yes
+146,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,,,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,2450 x 2450mm,Gloss laminate ,Single sided ,1,fixed,,"R4,750.00",,0,2,1000,750,yes
+147,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,,,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,4900 x 1225mm,Gloss laminate ,Single sided ,1,fixed,,"R4,750.00",,0,2,1000,950,yes
+148,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,,,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,7200 x 1225mm,Gloss laminate ,Single sided ,1,fixed,,"R6,750.00",,0,3,1000,1350,yes
+149,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,,,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,9600 x 1225mm,Gloss laminate ,Single sided ,1,fixed,,"R9,250.00",,0,4,1000,1750,yes
+150,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,,,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,300 x 200mm ,Gloss laminate + Aluminium Edging ,Single sided ,1,fixed,,R220.00,,0,,,350,yes
+151,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,,,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,400 x 300mm,Gloss laminate + Aluminium Edging ,Single sided ,1,fixed,,R263.00,,0,,,350,yes
+152,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,,,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,612 x 400mm ,Gloss laminate + Aluminium Edging ,Single sided ,1,fixed,,R465.00,,0,,,350,yes
+153,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,,,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,612 x 800mm,Gloss laminate + Aluminium Edging ,Single sided ,1,fixed,,R676.00,,0,,,350,yes
+154,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,,,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,1225 x 612mm,Gloss laminate + Aluminium Edging ,Single sided ,1,fixed,,R990.00,,0,1,1000,500,yes
+155,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,,,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,1225 x 1225mm ,Gloss laminate + Aluminium Edging ,Single sided ,1,fixed,,"R1,625.00",,0,2,500,500,yes
+156,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,,,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,2450 x 612mm,Gloss laminate + Aluminium Edging ,Single sided ,1,fixed,,"R1,625.00",,0,2,750,500,yes
+157,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,,,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,2450 x 1225mm,Gloss laminate + Aluminium Edging ,Single sided ,1,fixed,,"R2,580.00",,0,2,750,500,yes
+158,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,,,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,2450 x 2450mm,Gloss laminate + Aluminium Edging ,Single sided ,1,fixed,,"R5,200.00",,0,2,1000,750,yes
+159,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,,,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,4900 x 1225mm,Gloss laminate + Aluminium Edging ,Single sided ,1,fixed,,"R5,312.00",,0,2,1000,950,yes
+160,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,,,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,7200 x 1225mm,Gloss laminate + Aluminium Edging ,Single sided ,1,fixed,,"R7,506.00",,0,3,1000,1350,yes
+161,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,,,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,9600 x 1225mm,Gloss laminate + Aluminium Edging ,Single sided ,1,fixed,,"R10,222.00",,0,4,1000,1750,yes
+162,Outdoor Signs  3 - 5 year life span ,ACM Signs with Frame,,,ACM - Alumium Bond sheets 3mm thick  + 25 x 25mm Square tube frame ,Custom,Gloss laminate + Aluminium Edging ,Single sided ,1,sqm,650,,,0,,,0,yes
+163,Plastic Signs ABS - Outdoor ,ABS Signs,,,0.6mm thick 6-12 months Lifespan ,300 x 200mm ,Gloss Laminated ,Single sided ,1,fixed,,R60.00,,,,,,yes
+164,Plastic Signs ABS - Outdoor ,ABS Signs,,,0.6mm thick 6-12 months Lifespan ,400 x 300mm,Gloss Laminated ,Single sided ,1,fixed,,R80.00,,,,,,yes
+165,Plastic Signs ABS - Outdoor ,ABS Signs,,,0.6mm thick 6-12 months Lifespan ,600 x 400mm ,Gloss Laminated ,Single sided ,1,fixed,,R150.00,,,,,,yes
+166,Plastic Signs ABS - Outdoor ,ABS Signs,,,0.6mm thick 6-12 months Lifespan ,600x 800mm,Gloss Laminated ,Single sided ,1,fixed,,R250.00,,,,,,yes
+167,Plastic Signs ABS - Outdoor ,ABS Signs,,,0.6mm thick 6-12 months Lifespan ,1200 x 800mm,Gloss Laminated ,Single sided ,1,fixed,,R475.00,,,,,,yes
+168,Plastic Signs ABS - Outdoor ,ABS Signs,,,0.6mm thick 6-12 months Lifespan ,2450 x 600mm,Gloss Laminated ,Single sided ,1,fixed,,R675.00,,,,,,yes
+169,Plastic Signs ABS - Outdoor ,ABS Signs,,,0.6mm thick 6-12 months Lifespan ,2450 x 1200mm,Gloss Laminated ,Single sided ,1,fixed,,R900.00,,,,,,yes
+170,Plastic Signs ABS - Outdoor ,ABS Signs,,,0.6mm thick 6-12 months Lifespan ,300 x 200mm ,Gloss Laminated ,Double Sided ,1,fixed,,R60.00,,,,,,yes
+171,Plastic Signs ABS - Outdoor ,ABS Signs,,,0.6mm thick 6-12 months Lifespan ,400 x 300mm,Gloss Laminated ,Double Sided ,1,fixed,,R80.00,,,,,,yes
+172,Plastic Signs ABS - Outdoor ,ABS Signs,,,0.6mm thick 6-12 months Lifespan ,600 x 400mm ,Gloss Laminated ,Double Sided ,1,fixed,,R150.00,,,,,,yes
+173,Plastic Signs ABS - Outdoor ,ABS Signs,,,0.6mm thick 6-12 months Lifespan ,600x 800mm,Gloss Laminated ,Double Sided ,1,fixed,,R250.00,,,,,,yes
+174,Plastic Signs ABS - Outdoor ,ABS Signs,,,0.6mm thick 6-12 months Lifespan ,1200 x 800mm,Gloss Laminated ,Double Sided ,1,fixed,,R475.00,,,,,,yes
+175,Plastic Signs ABS - Outdoor ,ABS Signs,,,0.6mm thick 6-12 months Lifespan ,2450 x 600mm,Gloss Laminated ,Double Sided ,1,fixed,,R675.00,,,,,,yes
+176,Plastic Signs ABS - Outdoor ,ABS Signs,,,0.6mm thick 6-12 months Lifespan ,2450 x 1200mm,Gloss Laminated ,Double Sided ,1,fixed,,R900.00,,,,,,yes
+177,Corex Plastic Signs - Outdoor ,Corex Signs,,,3mm thick 3-6 months Lifespan ,300 x 200mm ,Standard ,Single sided ,1,fixed,,R50.00,,,,,,yes
+178,Corex Plastic Signs - Outdoor ,Corex Signs,,,3mm thick 3-6 months Lifespan ,400 x 300mm,Standard ,Single sided ,1,fixed,,R70.00,,,,,,yes
+179,Corex Plastic Signs - Outdoor ,Corex Signs,,,3mm thick 3-6 months Lifespan ,600 x 400mm ,Standard ,Single sided ,1,fixed,,R120.00,,,,,,yes
+180,Corex Plastic Signs - Outdoor ,Corex Signs,,,3mm thick 3-6 months Lifespan ,600x 800mm,Standard ,Single sided ,1,fixed,,R200.00,,,,,,yes
+181,Corex Plastic Signs - Outdoor ,Corex Signs,,,3mm thick 3-6 months Lifespan ,1200 x 800mm,Standard ,Single sided ,1,fixed,,R350.00,,,,,,yes
+182,Corex Plastic Signs - Outdoor ,Corex Signs,,,3mm thick 3-6 months Lifespan ,2450 x 600mm,Standard ,Single sided ,1,fixed,,R400.00,,,,,,yes
+183,Corex Plastic Signs - Outdoor ,Corex Signs,,,3mm thick 3-6 months Lifespan ,2450 x 1200mm,Standard ,Single sided ,1,fixed,,R650.00,,,,,,yes
+184,Corex Plastic Signs - Outdoor ,Corex Signs,,,3mm thick 3-6 months Lifespan ,300 x 200mm ,Standard ,Double Sided ,1,fixed,,R65.00,,,,,,yes
+185,Corex Plastic Signs - Outdoor ,Corex Signs,,,3mm thick 3-6 months Lifespan ,400 x 300mm,Standard ,Double Sided ,1,fixed,,R91.00,,,,,,yes
+186,Corex Plastic Signs - Outdoor ,Corex Signs,,,3mm thick 3-6 months Lifespan ,600 x 400mm ,Standard ,Double Sided ,1,fixed,,R156.00,,,,,,yes
+187,Corex Plastic Signs - Outdoor ,Corex Signs,,,3mm thick 3-6 months Lifespan ,600x 800mm,Standard ,Double Sided ,1,fixed,,R260.00,,,,,,yes
+188,Corex Plastic Signs - Outdoor ,Corex Signs,,,3mm thick 3-6 months Lifespan ,1200 x 800mm,Standard ,Double Sided ,1,fixed,,R455.00,,,,,,yes
+189,Corex Plastic Signs - Outdoor ,Corex Signs,,,3mm thick 3-6 months Lifespan ,2450 x 600mm,Standard ,Double Sided ,1,fixed,,R520.00,,,,,,yes
+190,Corex Plastic Signs - Outdoor ,Corex Signs,,,3mm thick 3-6 months Lifespan ,2450 x 1200mm,Standard ,Double Sided ,1,fixed,,R845.00,,,,,,yes
+191,Rubber Stamps,Self Inking Stamps,,,Colop Self Inking - Black Ink,C30 47 x 18mm,3 Lines Of Text,,1,fixed,,R375.00,,,,,,yes
+192,Rubber Stamps,Self Inking Stamps,,,Colop Self Inking - Black Ink,C40 59 x 23mm,5 Lines Of Text,,1,fixed,,R425.00,,,,,,yes
+193,Rubber Stamps,Self Inking Stamps,,,Colop Self Inking - Black Ink,C50 69 x 30mm,7 Lines Of Text,,1,fixed,,R525.00,,,,,,yes
+194,Rubber Stamps,Pre-Inked Stamps,,,Printer 20 PAID ( RED INK ),,,,1,fixed,,R169.00,,,,,,yes
+195,Rubber Stamps,Stamp Accessories,,,Replacement Rubber Only .,Custom,,,1,fixed,,R175.00,,,,,,yes
+196,Supplies ,Eco Solvent Inks,,,Eco Solvent Inks Roland/Xp600 - CYAN ,1LT ,3 Year ,,1,fixed,,R500.00,,,,,,yes
+197,Supplies ,Eco Solvent Inks,,,Eco Solvent Inks Roland/Xp600 - MAGENTA,1LT ,3 Year,,1,fixed,,R500.00,,,,,,yes
+198,Supplies ,Eco Solvent Inks,,,Eco Solvent Inks Roland/Xp600 - YELLOW,1LT ,3 Year,,1,fixed,,R500.00,,,,,,yes
+199,Supplies ,Eco Solvent Inks,,,Eco Solvent Inks Roland/Xp600 - BLACK,1LT ,3 Year,,1,fixed,,R500.00,,,,,,yes
+200,Supplies ,Eco Solvent Inks,,,Eco Solvent Inks Roland/Xp600 - CMYK Special ,4LT,4 Year,,1,fixed,,"R1,500.00",,,,,,yes
+201,Supplies ,Ricoh Inks,,,Ricoh Toner Based Inks IMC6500 / 8003 - CYAN ,500Grams,Premium ,,1,fixed,,R925.00,,,,,,yes
+202,Supplies ,Ricoh Inks,,,Ricoh Toner Based Inks IMC6500 / 8003 - MAGENTA,500Grams,Premium ,,1,fixed,,R925.00,,,,,,yes
+203,Supplies ,Ricoh Inks,,,Ricoh Toner Based Inks IMC6500 / 8003 - YELLOW,500Grams,Premium ,,1,fixed,,R925.00,,,,,,yes
+204,Supplies ,Ricoh Inks,,,Ricoh Toner Based Inks IMC6500 / 8003 - BLACK,500Grams,Premium ,,1,fixed,,R925.00,,,,,,yes
+205,Supplies ,Xerox Inks,,,Xerox  Toner Based Inks 7835 Series - CYAN ,500Grams,Premium ,,1,fixed,,R650.00,,,,,,yes
+206,Supplies ,Xerox Inks,,,Xerox  Toner Based Inks 7835 Series - MAGENTA,500Grams,Premium ,,1,fixed,,R650.00,,,,,,yes
+207,Supplies ,Xerox Inks,,,Xerox  Toner Based Inks 7835 Series - YELLOW,500Grams,Premium ,,1,fixed,,R650.00,,,,,,yes
+208,Supplies ,Xerox Inks,,,Xerox  Toner Based Inks 7835 Series - BLACK,500Grams,Premium ,,1,fixed,,R650.00,,,,,,yes
+209,Supplies ,Xerox Inks,,,Xerox  Toner Based Inks 550 Series - CYAN ,500Grams,Premium ,,1,fixed,,R650.00,,,,,,yes
+210,Supplies ,Xerox Inks,,,Xerox  Toner Based Inks 550 Series - MAGENTA,500Grams,Premium ,,1,fixed,,R650.00,,,,,,yes
+211,Supplies ,Xerox Inks,,,Xerox  Toner Based Inks 550 Series - YELLOW,500Grams,Premium ,,1,fixed,,R650.00,,,,,,yes
+212,Supplies ,Xerox Inks,,,Xerox  Toner Based Inks 550 Series - BLACK,500Grams,Premium ,,1,fixed,,R650.00,,,,,,yes
+213,Supplies ,Xerox Inks,,,Xerox  Toner Based Inks V Series - CYAN ,500Grams,Premium ,,1,fixed,,R650.00,,,,,,yes
+214,Supplies ,Xerox Inks,,,Xerox  Toner Based Inks V Series - MAGENTA,500Grams,Premium ,,1,fixed,,R650.00,,,,,,yes
+215,Supplies ,Xerox Inks,,,Xerox  Toner Based Inks V Series - YELLOW,500Grams,Premium ,,1,fixed,,R650.00,,,,,,yes
+216,Supplies ,Xerox Inks,,,Xerox  Toner Based Inks V Series - BLACK,500Grams,Premium ,,1,fixed,,R650.00,,,,,,yes
+217,Supplies ,Konica Minolta Inks,,,Konica Minolta Toner Based Inks  - CYAN ,500Grams,Premium ,,1,fixed,,R450.00,,,,,,yes
+218,Supplies ,Konica Minolta Inks,,,Konica Minolta Toner Based Inks  - MAGENTA ,500Grams,Premium ,,1,fixed,,R450.00,,,,,,yes
+219,Supplies ,Konica Minolta Inks,,,Konica Minolta Toner Based Inks  - YELLOW,500Grams,Premium ,,1,fixed,,R450.00,,,,,,yes
+220,Supplies ,Konica Minolta Inks,,,Konica Minolta Toner Based Inks  - BLACK,500Grams,Premium ,,1,fixed,,R450.00,,,,,,yes
+221,Supplies ,Riso Supplies,,,Riso Duplicator ink - Generic ,500ml,Standard,,1,fixed,,R250.00,,,,,,yes
+222,Supplies ,Riso Supplies,,,Riso Duplicator Master - Generic ,100m,Standard,,1,fixed,,R300.00,,,,,,yes
+223,Banners Stands - Indoor,X-Frame Banners,,,X - Frame Banner + Print ,1600 x 600mm,Gloss PVC ,,1,fixed,,R475.00,,,,,,yes
+224,Banners Stands - Indoor,Replacement Parts,,,Replacement frame only ,1600 x 600mm,Standard Metal ,,1,fixed,,R200.00,,,,,,yes
+225,Banners Stands - Indoor,Replacement Parts,,,Replacement Banner Print only ,1600 x 600mm,Gloss PVC ,,1,fixed,,R325.00,,,,,,yes
+226,Banners Stands - Indoor,Pull Up Banners,,,Economy Pull up Banner stand + Print ,2000 x 850mm ,Gloss PVC ,,1,fixed,,R900.00,,,,,,yes
+227,Banners Stands - Indoor,Replacement Parts,,,Replacement frame only ,2000 x 850mm,Standard Metal ,,1,fixed,,R475.00,,,,,,yes
+228,Banners Stands - Indoor,Replacement Parts,,,Replacement Banner Print only ,2000 x 850mm,Gloss PVC ,,1,fixed,,R475.00,,,,,,yes
+229,Banners Stands - Indoor,Pull Up Banners,,,Excutive  Pull up Banner stand + Print ,2000 x 850mm,Gloss PVC ,,1,fixed,,"R1,350.00",,,,,,yes
+230,Banners Stands - Outdoor ,Telescopic Banners,,,"Telescopic Banner Include Hardware , ground spike & carry bag.",2000 x 620mm,Fabric,Single sided ,1,fixed,,R850.00,,,,,,yes
+231,Banners Stands - Outdoor ,Telescopic Banners,,,"Telescopic Banner Include Hardware , ground spike & carry bag.",3000 x 620mm,Fabric,,1,fixed,,R950.00,,,,,,yes
+232,Banners Stands - Outdoor ,Telescopic Banners,,,"Telescopic Banner Include Hardware , ground spike & carry bag.",2000 x 620mm,Fabric,Double Sided ,1,fixed,,"R1,150.00",,,,,,yes
+233,Banners Stands - Outdoor ,Telescopic Banners,,,"Telescopic Banner Include Hardware , ground spike & carry bag.",3000 x 620mm,Fabric,Double Sided ,1,fixed,,"R1,550.00",,,,,,yes
+234,Flat Banners - outdoor / indoor ,PVC Banners,,,PVC Banner / Birthday / advertising ,1350 x 650mm ,PVC,,1,fixed,,R300.00,,,,,,yes
+235,Flat Banners - outdoor / indoor ,PVC Banners,,,PVC Banner / Birthday / advertising ,1600 x 1000mm,PVC,,1,fixed,,R450.00,,,,,,yes
+236,Flat Banners - outdoor / indoor ,PVC Banners,,,PVC Banner / Birthday / advertising ,2000 x 1300mm,PVC,,1,fixed,,R500.00,,,,,,yes
+237,Flat Banners - outdoor / indoor ,PVC Banners,,,PVC Banner / Birthday / advertising ,2500 x 1300mm ,PVC,,1,fixed,,R550.00,,,,,,yes
+238,Flat Banners - outdoor / indoor ,PVC Banners,,,PVC Banner / Birthday / advertising ,3000 x 1300mm ,PVC,,1,fixed,,R600.00,,,,,,yes
+239,Flat Banners - outdoor / indoor ,PVC Banners,,,PVC Banner / Birthday / advertising ,4000 x 1300mm ,PVC,,1,fixed,,R800.00,,,,,,yes
+240,Flat Banners - outdoor / indoor ,PVC Banners,,,PVC Banner / Birthday / advertising ,5000 x 1300mm ,PVC,,1,fixed,,"R1,000.00",,,,,,yes
+241,Flat Banners - outdoor / indoor ,PVC Banners,,,PVC Banner / Birthday / advertising ,2000 x 1600mm ,PVC,,1,fixed,,R520.00,,,,,,yes
+242,Flat Banners - outdoor / indoor ,PVC Banners,,,PVC Banner / Birthday / advertising ,3000 x 1600mm ,PVC,,1,fixed,,R720.00,,,,,,yes
+243,Flat Banners - outdoor / indoor ,PVC Banners,,,PVC Banner / Birthday / advertising ,4000 x 1600mm,PVC,,1,fixed,,R960.00,,,,,,yes
+244,Flat Banners - outdoor / indoor ,PVC Banners,,,PVC Banner / Birthday / advertising ,5000 x 1600mm ,PVC,,1,fixed,,"R1,200.00",,,,,,yes
+245,Flat Banners - outdoor / indoor ,PVC Banners,,,PVC Banner / Birthday / advertising ,Custom,PVC,,1,,150,,,,,,,yes
+246,Canvas Block Mount ,Canvas Prints,,,Canvas Digitally Printed & mounted on a Wooden Block,A4,PVC,,1,fixed,,R200.00,,,,,,yes
+247,Canvas Block Mount ,Canvas Prints,,,Canvas Digitally Printed & mounted on a Wooden Block,A3,PVC,,1,fixed,,R275.00,,,,,,yes
+248,Canvas Block Mount ,Canvas Prints,,,Canvas Digitally Printed & mounted on a Wooden Block,A2,PVC,,1,fixed,,R450.00,,,,,,yes
+249,Canvas Block Mount ,Canvas Prints,,,Canvas Digitally Printed & mounted on a Wooden Block,A1,PVC,,1,fixed,,R550.00,,,,,,yes
+250,Canvas Block Mount ,Canvas Prints,,,Canvas Digitally Printed & mounted on a Wooden Block,A0,PVC,,1,fixed,,R850.00,,,,,,yes
+251,Magnetic Signs ,Vehicle Magnets,,,Vehicle Magnets - Pair ,600 x 220mm,Gloss Laminate ,,2,fixed,,R425.00,,,,,,yes
+252,Magnetic Signs ,Vehicle Magnets,,,Vehicle Magnets - Pair ,600 x 270mm,Gloss Laminate ,,2,fixed,,R450.00,,,,,,yes
+253,Magnetic Signs ,Vehicle Magnets,,,Vehicle Magnets - Pair ,600 x 300mm,Gloss Laminate ,,2,fixed,,R475.00,,,,,,yes
+254,Magnetic Signs ,Vehicle Magnets,,,Vehicle Magnets - Pair ,Custom,Gloss Laminate ,,2,,1500,,,,,,,yes
+255,Vehicle Branding ,Vinyl Stickers,,,Vinyl cut stickers - Standard single colors ,200mm L x 100mm H,Gloss ,,1,fixed,,R40.00,,,,,,yes
+256,Vehicle Branding ,Vinyl Stickers,,,Vinyl cut stickers - Standard single colors ,300mm L x 100mm H,Gloss ,,1,fixed,,R50.00,,,,,,yes
+257,Vehicle Branding ,Vinyl Stickers,,,Vinyl cut stickers - Standard single colors ,400mm L x 100mm H,Gloss ,,1,fixed,,R60.00,,,,,,yes
+258,Vehicle Branding ,Vinyl Stickers,,,Vinyl cut stickers - Standard single colors ,500mm L x 100mm H,Gloss ,,1,fixed,,R70.00,,,,,,yes
+259,Vehicle Branding ,Vinyl Stickers,,,Vinyl cut stickers - Standard single colors ,600mm L x 100mm H,Gloss ,,1,fixed,,R80.00,,,,,,yes
+260,Vehicle Branding ,Vinyl Stickers,,,Vinyl cut stickers - Standard single colors ,700mm L x 100mm H,Gloss ,,1,fixed,,R90.00,,,,,,yes
+261,Vehicle Branding ,Vinyl Stickers,,,Vinyl cut stickers - Standard single colors ,800mm L x 100mm H,Gloss ,,1,fixed,,R100.00,,,,,,yes
+262,Vehicle Branding ,Vinyl Stickers,,,Vinyl cut stickers - Standard single colors ,900mm L x 100mm H,Gloss ,,1,fixed,,R110.00,,,,,,yes
+263,Vehicle Branding ,Vinyl Stickers,,,Vinyl cut stickers - Standard single colors ,1000mm L x 100mm H,Gloss ,,1,fixed,,R120.00,,,,,,yes
+264,Vehicle Branding ,Vinyl Stickers,,,Vinyl cut stickers - Standard single colors ,1100mm L x 100mm H,Gloss ,,1,fixed,,R130.00,,,,,,yes
+265,Vehicle Branding ,Vinyl Stickers,,,Vinyl cut stickers - Standard single colors ,1200mm L x 100mm H,Gloss ,,1,fixed,,R140.00,,,,,,yes
+266,Vehicle Branding ,Vinyl Stickers,,,Vinyl cut stickers - Standard 2 colors ,200mm L x 100mm H,Gloss ,,1,fixed,,R60.00,,,,,,yes
+267,Vehicle Branding ,Vinyl Stickers,,,Vinyl cut stickers - Standard 2 colors ,300mm L x 100mm H,Gloss ,,1,fixed,,R70.00,,,,,,yes
+268,Vehicle Branding ,Vinyl Stickers,,,Vinyl cut stickers - Standard 2 colors ,400mm L x 100mm H,Gloss ,,1,fixed,,R100.00,,,,,,yes
+269,Vehicle Branding ,Vinyl Stickers,,,Vinyl cut stickers - Standard 2 colors ,500mm L x 100mm H,Gloss ,,1,fixed,,R110.00,,,,,,yes
+270,Vehicle Branding ,Vinyl Stickers,,,Vinyl cut stickers - Standard 2 colors ,600mm L x 100mm H,Gloss ,,1,fixed,,R120.00,,,,,,yes
+271,Vehicle Branding ,Vinyl Stickers,,,Vinyl cut stickers - Standard 2 colors ,700mm L x 100mm H,Gloss ,,1,fixed,,R130.00,,,,,,yes
+272,Vehicle Branding ,Vinyl Stickers,,,Vinyl cut stickers - Standard 2 colors ,800mm L x 100mm H,Gloss ,,1,fixed,,R140.00,,,,,,yes
+273,Vehicle Branding ,Vinyl Stickers,,,Vinyl cut stickers - Standard 2 colors ,900mm L x 100mm H,Gloss ,,1,fixed,,R150.00,,,,,,yes
+274,Vehicle Branding ,Vinyl Stickers,,,Vinyl cut stickers - Standard 2 colors ,1000mm L x 100mm H,Gloss ,,1,fixed,,R160.00,,,,,,yes
+275,Vehicle Branding ,Vinyl Stickers,,,Vinyl cut stickers - Standard 2 colors ,1100mm L x 100mm H,Gloss ,,1,fixed,,R170.00,,,,,,yes
+276,Vehicle Branding ,Vinyl Stickers,,,Vinyl cut stickers - Standard 2 colors ,1200mm L x 100mm H,Gloss ,,1,fixed,,R180.00,,,,,,yes
+277,Vehicle Branding ,Chrome Stickers,,,Vinyl cut stickers - chrome / holographic ,200mm L x 100mm H,Gloss ,,1,fixed,,R60.00,,,,,,yes
+278,Vehicle Branding ,Chrome Stickers,,,Vinyl cut stickers - chrome / holographic ,300mm L x 100mm H,Gloss ,,1,fixed,,R70.00,,,,,,yes
+279,Vehicle Branding ,Chrome Stickers,,,Vinyl cut stickers - chrome / holographic ,400mm L x 100mm H,Gloss ,,1,fixed,,R100.00,,,,,,yes
+280,Vehicle Branding ,Chrome Stickers,,,Vinyl cut stickers - chrome / holographic ,500mm L x 100mm H,Gloss ,,1,fixed,,R110.00,,,,,,yes
+281,Vehicle Branding ,Chrome Stickers,,,Vinyl cut stickers - chrome / holographic ,600mm L x 100mm H,Gloss ,,1,fixed,,R120.00,,,,,,yes
+282,Vehicle Branding ,Chrome Stickers,,,Vinyl cut stickers - chrome / holographic ,700mm L x 100mm H,Gloss ,,1,fixed,,R130.00,,,,,,yes
+283,Vehicle Branding ,Chrome Stickers,,,Vinyl cut stickers - chrome / holographic ,800mm L x 100mm H,Gloss ,,1,fixed,,R140.00,,,,,,yes
+284,Vehicle Branding ,Chrome Stickers,,,Vinyl cut stickers - chrome / holographic ,900mm L x 100mm H,Gloss ,,1,fixed,,R150.00,,,,,,yes
+285,Vehicle Branding ,Chrome Stickers,,,Vinyl cut stickers - chrome / holographic ,1000mm L x 100mm H,Gloss ,,1,fixed,,R160.00,,,,,,yes
+286,Vehicle Branding ,Chrome Stickers,,,Vinyl cut stickers - chrome / holographic ,1100mm L x 100mm H,Gloss ,,1,fixed,,R170.00,,,,,,yes
+287,Vehicle Branding ,Chrome Stickers,,,Vinyl cut stickers - chrome / holographic ,1200mm L x 100mm H,Gloss ,,1,fixed,,R180.00,,,,,,yes
+288,Vehicle Branding ,Bumper Stickers,,,Bumper Stickers - Single color standard ,150 x 50mm,Gloss ,,50,fixed,,R375.00,,,,,,yes
+289,Vehicle Branding ,Bumper Stickers,,,Bumper Stickers - Chrome / holographic ,150 x 50mm,Gloss ,,50,fixed,,R475.00,,,,,,yes
+290,Vehicle Branding ,Number Plates,,,Perspex Number Plates standard - Fancy Plates ,520 x 113mm ,Gloss ,,1,fixed,,R200.00,,,,,,yes
+291,Vehicle Branding ,Number Plates,,,Perspex Number Plates standard - Fancy Plates ,440 x 113mm,Gloss ,,1,fixed,,R200.00,,,,,,yes
+292,Vehicle Branding ,Number Plates,,,Perspex Number Plate - Bike custom Sizes ,Free Size ,Gloss ,,1,fixed,,R150.00,,,,,,yes
+293,Vehicle Branding ,Number Plates,,,ABS Number Plates standard - Fancy Plates ,520 x 113mm ,Gloss ,,1,fixed,,R80.00,,,,,,yes
+294,Vehicle Branding ,Number Plates,,,ABS Number Plates standard - Fancy Plates ,440 x 113mm,Gloss ,,1,fixed,,R80.00,,,,,,yes
+295,Vehicle Branding ,Vehicle Graphics,,,Digital Print - custom design ,Free Size ,Gloss ,,1,,550,,,,,,,yes
+296,Vehicle Branding ,Vehicle Graphics,,,Basic Design single color Graphics - Text only ,Car / Small bakkie / Double cab ,Gloss ,,1,fixed,,R950.00,,,,,,yes
+297,Vehicle Branding ,Vehicle Graphics,,,Basic Design 2 color Graphics - Text only ,Car / Small bakkie / Double cab ,Gloss ,,1,fixed,,"R1,350.00",,,,,,yes
+298,Vehicle Branding ,Vehicle Graphics,,,Basic Design 2 color with Logo color Graphics - Text only ,Car / Small bakkie / Double cab ,Gloss ,,1,fixed,,"R2,750.00",,,,,,yes
+299,Vehicle Branding ,Vehicle Wraps,,,Partial Wrap - Digital Print With lamination ,Car / Small bakkie / Double cab ,Gloss ,,1,fixed,,"R3,500.00",,,,,,yes
+300,Vehicle Branding ,Vehicle Wraps,,,Partial Wrap - Digital Print With lamination ,Car / Small bakkie / Double cab ,Gloss ,,1,fixed,,"R5,500.00",,,,,,yes
+301,Laser Cutting ,Cake Toppers,,,Cake toppers - Standard single color ,A5,Gloss ,,1,fixed,,R120.00,,,,,,yes
+302,Laser Cutting ,Cake Toppers,,,Cake toppers - Mirror single color ,A5,Gloss ,,1,fixed,,R150.00,,,,,,yes
+303,Laser Cutting ,Cake Toppers,,,Cake toppers - Mirror 2 color ,A5,Gloss ,,1,fixed,,R180.00,,,,,,yes
+304,Laser Cutting ,Cake Toppers,,,Cake toppers - Full color with image ,A5,Gloss ,,1,fixed,,R180.00,,,,,,yes
+305,Laser Cutting ,MDF Cutting,,,3mm MDF wood cutting ,Custom,Standard,,1,,400,,,,,,,yes
+306,Laser Cutting ,MDF Cutting,,,3mm MDF wood cutting & Engraving ,Custom,Standard,,1,,1200,,,,,,,yes

@@ -199,13 +199,15 @@ function saveJsonFile(filePath, value) {
     }
 }
 
-const DEFAULT_CSV = 'ID,Category,Subcategory,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvailable,PolePrice,InstallationFee,RequiresArtwork,Aliases';
-const CSV_SAMPLE_ROW = '1,Paper Printing,Business Cards,Business Cards 300GSM,Standard 90x55mm,Semi Gloss,Single sided,100,fixed,,R120.00,,0,no,,0,yes,visiting cards|biz cards';
+const DEFAULT_CSV = 'ID,Category,Subcategory,SubSubcategory,SubSubSubcategory,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvailable,PolePrice,InstallationFee,RequiresArtwork,Aliases';
+const CSV_SAMPLE_ROW = '1,Paper Printing,Business Cards,Single Sided,,Business Cards 300GSM,Standard 90x55mm,Semi Gloss,Single sided,100,fixed,,R120.00,,0,no,,0,yes,visiting cards|biz cards';
 
 const PRODUCT_FIELD_ALIASES = {
     ID: ['ID', 'ProductID', 'Product Id', 'SKU', 'Code'],
     Category: ['Category', 'Department'],
     Subcategory: ['Subcategory', 'Sub Category', 'Product Type', 'Type'],
+    SubSubcategory: ['SubSubcategory', 'Sub Sub Category', 'Sub-Sub-Category', 'SubSubCategory'],
+    SubSubSubcategory: ['SubSubSubcategory', 'Sub Sub Sub Category', 'Sub-Sub-Sub-Category', 'SubSubSubCategory'],
     Name: ['Name', 'Product', 'Product Name', 'Item', 'Item Name', 'Description'],
     Size: ['Size', 'Dimensions'],
     Finish: ['Finish', 'Material'],
@@ -253,6 +255,8 @@ function normalizeProductRecord(row) {
         ID: getFirstMappedValue(row, 'ID'),
         Category: getFirstMappedValue(row, 'Category'),
         Subcategory: getFirstMappedValue(row, 'Subcategory'),
+        SubSubcategory: getFirstMappedValue(row, 'SubSubcategory'),
+        SubSubSubcategory: getFirstMappedValue(row, 'SubSubSubcategory'),
         Name: getFirstMappedValue(row, 'Name'),
         Size: getFirstMappedValue(row, 'Size'),
         Finish: getFirstMappedValue(row, 'Finish'),
@@ -355,11 +359,15 @@ function findProductsByKeyword(text) {
             const name = normalizeSearchText(product.Name);
             const category = normalizeSearchText(product.Category);
             const subcategory = normalizeSearchText(product.Subcategory);
+            const subSubcategory = normalizeSearchText(product.SubSubcategory || '');
+            const subSubSubcategory = normalizeSearchText(product.SubSubSubcategory || '');
             const aliases = normalizeSearchText(product.Aliases || '');
             const detail = normalizeSearchText([
                 product.Name,
                 product.Category,
                 product.Subcategory,
+                product.SubSubcategory,
+                product.SubSubSubcategory,
                 product.Size,
                 product.Finish,
                 product.SingleOrDoubleSided,
@@ -370,21 +378,27 @@ function findProductsByKeyword(text) {
             if (name && normalized.includes(name)) score += 18;
             if (name && name.includes(normalized)) score += 14;
             if (subcategory && subcategory.includes(normalized)) score += 12;
+            if (subSubcategory && subSubcategory.includes(normalized)) score += 11;
+            if (subSubSubcategory && subSubSubcategory.includes(normalized)) score += 10;
             if (category && category.includes(normalized)) score += 10;
             if (aliases && aliases.includes(normalized)) score += 14;
             if (detail.includes(normalized)) score += 8;
 
             const nameMatches = searchWords.filter((word) => name.includes(word)).length;
             const subcategoryMatches = searchWords.filter((word) => subcategory.includes(word)).length;
+            const subSubcategoryMatches = subSubcategory ? searchWords.filter((word) => subSubcategory.includes(word)).length : 0;
+            const subSubSubcategoryMatches = subSubSubcategory ? searchWords.filter((word) => subSubSubcategory.includes(word)).length : 0;
             const categoryMatches = searchWords.filter((word) => category.includes(word)).length;
             const aliasMatches = aliases ? searchWords.filter((word) => aliases.includes(word)).length : 0;
             const detailMatches = searchWords.filter((word) => detail.includes(word)).length;
 
             score += nameMatches * 5;
             score += subcategoryMatches * 4;
+            score += subSubcategoryMatches * 4;
+            score += subSubSubcategoryMatches * 3;
             score += categoryMatches * 3;
             score += aliasMatches * 5;
-            score += Math.max(0, detailMatches - nameMatches - subcategoryMatches - categoryMatches - aliasMatches);
+            score += Math.max(0, detailMatches - nameMatches - subcategoryMatches - subSubcategoryMatches - subSubSubcategoryMatches - categoryMatches - aliasMatches);
 
             if (searchWords.length > 0 && searchWords.every((word) => name.includes(word))) score += 8;
             if (searchWords.length > 1 && searchWords.every((word) => detail.includes(word))) score += 4;
@@ -403,9 +417,13 @@ function findProductsByKeyword(text) {
             return String(a.product.ID || '').localeCompare(String(b.product.ID || ''));
         });
 
-    // If the top result's subcategory contains every word of the search query,
-    // narrow the results to that subcategory only to avoid showing unrelated products.
+    // Cascaded narrowing: if the top result's category labels (subcategory →
+    // sub-sub-category → sub-sub-sub-category) contain all words of the search
+    // query, narrow results to that level to avoid showing unrelated products.
     if (scored.length > 0) {
+        let narrowed = scored;
+
+        // 1. Narrow to top subcategory
         const topSubcat = scored[0].product.Subcategory;
         if (topSubcat) {
             const topSubcatWords = normalizeSearchText(topSubcat).split(' ').filter(Boolean);
@@ -415,10 +433,46 @@ function findProductsByKeyword(text) {
                     (product.Subcategory || '').toLowerCase().trim() === subcatNorm
                 );
                 if (subcatFiltered.length > 0 && subcatFiltered.length < scored.length) {
-                    return subcatFiltered.map(({ product }) => product);
+                    narrowed = subcatFiltered;
                 }
             }
         }
+
+        // 2. Narrow to top sub-sub-category
+        if (narrowed.length > 0) {
+            const topSubSubcat = narrowed[0].product.SubSubcategory;
+            if (topSubSubcat) {
+                const topSubSubcatWords = normalizeSearchText(topSubSubcat).split(' ').filter(Boolean);
+                if (topSubSubcatWords.length > 0 && topSubSubcatWords.every((w) => normalized.includes(w))) {
+                    const subSubcatNorm = topSubSubcat.toLowerCase().trim();
+                    const subSubcatFiltered = narrowed.filter(({ product }) =>
+                        (product.SubSubcategory || '').toLowerCase().trim() === subSubcatNorm
+                    );
+                    if (subSubcatFiltered.length > 0 && subSubcatFiltered.length < narrowed.length) {
+                        narrowed = subSubcatFiltered;
+                    }
+                }
+            }
+        }
+
+        // 3. Narrow to top sub-sub-sub-category
+        if (narrowed.length > 0) {
+            const topSubSubSubcat = narrowed[0].product.SubSubSubcategory;
+            if (topSubSubSubcat) {
+                const topSubSubSubcatWords = normalizeSearchText(topSubSubSubcat).split(' ').filter(Boolean);
+                if (topSubSubSubcatWords.length > 0 && topSubSubSubcatWords.every((w) => normalized.includes(w))) {
+                    const subSubSubcatNorm = topSubSubSubcat.toLowerCase().trim();
+                    const subSubSubcatFiltered = narrowed.filter(({ product }) =>
+                        (product.SubSubSubcategory || '').toLowerCase().trim() === subSubSubcatNorm
+                    );
+                    if (subSubSubcatFiltered.length > 0 && subSubSubcatFiltered.length < narrowed.length) {
+                        narrowed = subSubSubcatFiltered;
+                    }
+                }
+            }
+        }
+
+        return narrowed.map(({ product }) => product);
     }
 
     return scored.map(({ product }) => product);
@@ -583,6 +637,31 @@ function getSubcategories(categoryName) {
     )];
 }
 
+function getSubSubcategories(categoryName, subcategoryName) {
+    return [...new Set(
+        products
+            .filter((p) =>
+                p.Category.toLowerCase().trim() === categoryName.toLowerCase().trim() &&
+                (p.Subcategory || '').toLowerCase().trim() === subcategoryName.toLowerCase().trim()
+            )
+            .map((p) => p.SubSubcategory)
+            .filter(Boolean)
+    )];
+}
+
+function getSubSubSubcategories(categoryName, subcategoryName, subSubcategoryName) {
+    return [...new Set(
+        products
+            .filter((p) =>
+                p.Category.toLowerCase().trim() === categoryName.toLowerCase().trim() &&
+                (p.Subcategory || '').toLowerCase().trim() === subcategoryName.toLowerCase().trim() &&
+                (p.SubSubcategory || '').toLowerCase().trim() === subSubcategoryName.toLowerCase().trim()
+            )
+            .map((p) => p.SubSubSubcategory)
+            .filter(Boolean)
+    )];
+}
+
 function buildSubcategoryMenuText(categoryName, subcategories) {
     let reply = `*${categoryName.trim()} – Choose a subcategory:*\n\n`;
     subcategories.forEach((sub, i) => {
@@ -590,6 +669,28 @@ function buildSubcategoryMenuText(categoryName, subcategories) {
     });
     reply += '\n0. Back\n';
     reply += '\nReply with a *number* to see products in that subcategory.';
+    reply += `\n${NAVIGATION_HINT}`;
+    return reply;
+}
+
+function buildSubSubcategoryMenuText(subcategoryName, subSubcategories) {
+    let reply = `*${subcategoryName.trim()} – Choose a type:*\n\n`;
+    subSubcategories.forEach((sub, i) => {
+        reply += `${i + 1}. ${sub.trim()}\n`;
+    });
+    reply += '\n0. Back\n';
+    reply += '\nReply with a *number* to see products in that type.';
+    reply += `\n${NAVIGATION_HINT}`;
+    return reply;
+}
+
+function buildSubSubSubcategoryMenuText(subSubcategoryName, subSubSubcategories) {
+    let reply = `*${subSubcategoryName.trim()} – Choose an option:*\n\n`;
+    subSubSubcategories.forEach((sub, i) => {
+        reply += `${i + 1}. ${sub.trim()}\n`;
+    });
+    reply += '\n0. Back\n';
+    reply += '\nReply with a *number* to see products in that option.';
     reply += `\n${NAVIGATION_HINT}`;
     return reply;
 }
@@ -603,6 +704,85 @@ function buildSubcategoryProductListText(subcategoryName, sortedProducts) {
     reply += '\nReply with the *number* of the product you want and I’ll help you price it or add it to your cart.';
     return reply;
 }
+
+/**
+ * Given an array of matched products, determine the next navigation step.
+ * If all matches share the same subcategory and span multiple sub-sub-categories,
+ * returns an action to present a sub-sub-category menu. Similarly cascades to
+ * sub-sub-sub-category when applicable.
+ * @param {Array} matches
+ * @returns {{ action: string, [key]: any }}
+ */
+function getNextNavigationAction(matches) {
+    if (!matches || matches.length === 0) return { action: 'show_products', products: [] };
+
+    // Only drill deeper if all matches share the same subcategory
+    const uniqueSubcats = [...new Set(matches.map((p) => (p.Subcategory || '').toLowerCase().trim()))];
+    if (uniqueSubcats.length !== 1) {
+        return { action: 'show_products', products: matches };
+    }
+
+    // Check for multiple distinct sub-sub-categories
+    const uniqueSubSubcats = [...new Set(matches.map((p) => (p.SubSubcategory || '')).filter(Boolean))];
+    if (uniqueSubSubcats.length > 1) {
+        return {
+            action: 'show_subsubcategory_menu',
+            subcategoryName: matches[0].Subcategory,
+            subSubcategories: uniqueSubSubcats,
+            matches
+        };
+    }
+
+    // One sub-sub-category: check for sub-sub-sub-categories
+    if (uniqueSubSubcats.length === 1) {
+        const uniqueSubSubSubcats = [...new Set(matches.map((p) => (p.SubSubSubcategory || '')).filter(Boolean))];
+        if (uniqueSubSubSubcats.length > 1) {
+            return {
+                action: 'show_subsubsubcategory_menu',
+                subSubcategoryName: uniqueSubSubcats[0],
+                subSubSubcategories: uniqueSubSubSubcats,
+                matches
+            };
+        }
+    }
+
+    return { action: 'show_products', products: matches };
+}
+
+/**
+ * Apply a navigation action (sub-sub or sub-sub-sub category menus) by setting
+ * the user's state and sending the appropriate menu message.
+ * Returns true if an intermediate menu was sent (caller should `continue`),
+ * false if the action is 'show_products' and the caller should render the list.
+ * @param {object} sock
+ * @param {string} jid
+ * @param {{ action: string, [key]: any }} navAction
+ * @returns {Promise<boolean>}
+ */
+async function handleNavigationAction(sock, jid, navAction) {
+    if (navAction.action === 'show_subsubcategory_menu') {
+        userStates[jid] = {
+            step: 'awaiting_subsubcategory_selection',
+            pendingSubcategoryName: navAction.subcategoryName,
+            pendingSubSubcategories: navAction.subSubcategories,
+            pendingMatches: navAction.matches
+        };
+        await sock.sendMessage(jid, { text: buildSubSubcategoryMenuText(navAction.subcategoryName, navAction.subSubcategories) });
+        return true;
+    }
+    if (navAction.action === 'show_subsubsubcategory_menu') {
+        userStates[jid] = {
+            step: 'awaiting_subsubsubcategory_selection',
+            pendingSubSubcategoryName: navAction.subSubcategoryName,
+            pendingSubSubSubcategories: navAction.subSubSubcategories,
+            pendingMatches: navAction.matches
+        };
+        await sock.sendMessage(jid, { text: buildSubSubSubcategoryMenuText(navAction.subSubcategoryName, navAction.subSubSubcategories) });
+        return true;
+    }
+    return false;
+}
+
 
 function toNumber(value, fallback = 0) {
     const normalized = String(value ?? '')
@@ -1460,7 +1640,7 @@ async function startBot() {
                                 await sock.sendMessage(jid, { text: buildSubcategoryMenuText(selectedCat, subcategories) });
                                 continue;
                             }
-                            // Only one subcategory (or none) — go straight to products
+                            // Only one subcategory (or none) — check for sub-sub-categories before showing products
                             const catProducts = products.filter((p) =>
                                 p.Category.toLowerCase().trim() === selectedCat.toLowerCase().trim()
                             );
@@ -1469,6 +1649,8 @@ async function startBot() {
                                 userStates[jid] = { step: 'idle' };
                                 continue;
                             }
+                            const navAction = getNextNavigationAction(catProducts);
+                            if (await handleNavigationAction(sock, jid, navAction)) continue;
                             const sorted = [...catProducts].sort((a, b) => {
                                 const priceA = a.PriceType === 'sqm' ? toNumber(a.PricePerSqm) : toNumber(a.FixedPrice);
                                 const priceB = b.PriceType === 'sqm' ? toNumber(b.PricePerSqm) : toNumber(b.FixedPrice);
@@ -1502,6 +1684,8 @@ async function startBot() {
                                 userStates[jid] = { step: 'idle' };
                                 continue;
                             }
+                            const navAction = getNextNavigationAction(subProducts);
+                            if (await handleNavigationAction(sock, jid, navAction)) continue;
                             const sorted = [...subProducts].sort((a, b) => {
                                 const priceA = a.PriceType === 'sqm' ? toNumber(a.PricePerSqm) : toNumber(a.FixedPrice);
                                 const priceB = b.PriceType === 'sqm' ? toNumber(b.PricePerSqm) : toNumber(b.FixedPrice);
@@ -1513,6 +1697,78 @@ async function startBot() {
                         }
                         // Invalid input — re-show the subcategory menu
                         await sock.sendMessage(jid, { text: `Please reply with a number between 1 and ${subcategories.length}.\n\n${buildSubcategoryMenuText(userState.pendingCategory, subcategories)}` });
+                        continue;
+                    }
+
+                // ── State: awaiting_subsubcategory_selection ───────────────────────
+                    if (userState.step === 'awaiting_subsubcategory_selection') {
+                        const subSubcategories = userState.pendingSubSubcategories || [];
+                        const selectedNumber = extractQuantityFromText(text);
+                        const subSubIdx = selectedNumber ? selectedNumber - 1 : -1;
+                        let selectedSubSub = null;
+                        if (!Number.isNaN(subSubIdx) && subSubIdx >= 0 && subSubIdx < subSubcategories.length) {
+                            selectedSubSub = subSubcategories[subSubIdx];
+                        } else {
+                            selectedSubSub = subSubcategories.find((s) => normalizeText(s) === normalizeText(text)) || null;
+                        }
+                        if (selectedSubSub) {
+                            const allMatches = userState.pendingMatches || products;
+                            const filteredProducts = allMatches.filter((p) =>
+                                (p.SubSubcategory || '').toLowerCase().trim() === selectedSubSub.toLowerCase().trim()
+                            );
+                            if (filteredProducts.length === 0) {
+                                await sock.sendMessage(jid, { text: `❓ No products found for "${selectedSubSub}". Type *menu* to try again.` });
+                                userStates[jid] = { step: 'idle' };
+                                continue;
+                            }
+                            const navAction = getNextNavigationAction(filteredProducts);
+                            if (await handleNavigationAction(sock, jid, navAction)) continue;
+                            const sorted = [...filteredProducts].sort((a, b) => {
+                                const priceA = a.PriceType === 'sqm' ? toNumber(a.PricePerSqm) : toNumber(a.FixedPrice);
+                                const priceB = b.PriceType === 'sqm' ? toNumber(b.PricePerSqm) : toNumber(b.FixedPrice);
+                                return priceA - priceB;
+                            });
+                            userStates[jid] = { step: 'awaiting_quote_product_selection', pendingMatches: sorted };
+                            await sock.sendMessage(jid, { text: buildSubcategoryProductListText(selectedSubSub, sorted) });
+                            continue;
+                        }
+                        // Invalid input — re-show the sub-sub-category menu
+                        await sock.sendMessage(jid, { text: `Please reply with a number between 1 and ${subSubcategories.length}.\n\n${buildSubSubcategoryMenuText(userState.pendingSubcategoryName || '', subSubcategories)}` });
+                        continue;
+                    }
+
+                // ── State: awaiting_subsubsubcategory_selection ────────────────────
+                    if (userState.step === 'awaiting_subsubsubcategory_selection') {
+                        const subSubSubcategories = userState.pendingSubSubSubcategories || [];
+                        const selectedNumber = extractQuantityFromText(text);
+                        const subSubSubIdx = selectedNumber ? selectedNumber - 1 : -1;
+                        let selectedSubSubSub = null;
+                        if (!Number.isNaN(subSubSubIdx) && subSubSubIdx >= 0 && subSubSubIdx < subSubSubcategories.length) {
+                            selectedSubSubSub = subSubSubcategories[subSubSubIdx];
+                        } else {
+                            selectedSubSubSub = subSubSubcategories.find((s) => normalizeText(s) === normalizeText(text)) || null;
+                        }
+                        if (selectedSubSubSub) {
+                            const allMatches = userState.pendingMatches || products;
+                            const filteredProducts = allMatches.filter((p) =>
+                                (p.SubSubSubcategory || '').toLowerCase().trim() === selectedSubSubSub.toLowerCase().trim()
+                            );
+                            if (filteredProducts.length === 0) {
+                                await sock.sendMessage(jid, { text: `❓ No products found for "${selectedSubSubSub}". Type *menu* to try again.` });
+                                userStates[jid] = { step: 'idle' };
+                                continue;
+                            }
+                            const sorted = [...filteredProducts].sort((a, b) => {
+                                const priceA = a.PriceType === 'sqm' ? toNumber(a.PricePerSqm) : toNumber(a.FixedPrice);
+                                const priceB = b.PriceType === 'sqm' ? toNumber(b.PricePerSqm) : toNumber(b.FixedPrice);
+                                return priceA - priceB;
+                            });
+                            userStates[jid] = { step: 'awaiting_quote_product_selection', pendingMatches: sorted };
+                            await sock.sendMessage(jid, { text: buildSubcategoryProductListText(selectedSubSubSub, sorted) });
+                            continue;
+                        }
+                        // Invalid input — re-show the sub-sub-sub-category menu
+                        await sock.sendMessage(jid, { text: `Please reply with a number between 1 and ${subSubSubcategories.length}.\n\n${buildSubSubSubcategoryMenuText(userState.pendingSubSubcategoryName || '', subSubSubcategories)}` });
                         continue;
                     }
 
@@ -2028,6 +2284,8 @@ async function startBot() {
                             await sock.sendMessage(jid, { text: `Got it – *${product.Name}*! ${getQuantityPrompt(product)}` });
                             continue;
                         }
+                        const navAction = getNextNavigationAction(matches);
+                        if (await handleNavigationAction(sock, jid, navAction)) continue;
                         userStates[jid] = { step: 'awaiting_quote_product_selection', pendingMatches: matches };
                         await sock.sendMessage(jid, {
                             text: buildProductMatchesText(
@@ -2143,6 +2401,8 @@ async function startBot() {
                             await sock.sendMessage(jid, { text: `Got it – *${product.Name}*! ${getQuantityPrompt(product)}` });
                             continue;
                         }
+                        const navAction = getNextNavigationAction(matches);
+                        if (await handleNavigationAction(sock, jid, navAction)) continue;
                         userStates[jid] = { step: 'awaiting_add_product_selection', pendingMatches: matches, pendingQty: qty };
                         await sock.sendMessage(jid, {
                             text: buildProductMatchesText(matches, 'I found these options:', 'Reply with the option number to select a product.')
@@ -2389,6 +2649,8 @@ async function startBot() {
                             }
 
                             if (matches.length > 1) {
+                                const navAction = getNextNavigationAction(matches);
+                                if (await handleNavigationAction(sock, jid, navAction)) continue;
                                 userStates[jid] = { step: 'awaiting_quote_product_selection', pendingMatches: matches };
                                 await sock.sendMessage(jid, {
                                     text: buildProductMatchesText(
@@ -2450,6 +2712,8 @@ async function startBot() {
                                 continue;
                             }
 
+                            const navAction = getNextNavigationAction(matches);
+                            if (await handleNavigationAction(sock, jid, navAction)) continue;
                             userStates[jid] = { step: 'awaiting_quote_product_selection', pendingMatches: matches };
                             await sock.sendMessage(jid, {
                                 text: buildProductMatchesText(
@@ -2490,6 +2754,8 @@ async function startBot() {
                         }
 
                         if (matches.length > 1) {
+                            const navAction = getNextNavigationAction(matches);
+                            if (await handleNavigationAction(sock, jid, navAction)) continue;
                             const list = matches.map((p, i) => `${i + 1}. ${p.Name}`).join('\n');
                             userStates[jid] = { step: 'awaiting_add_product_selection', pendingMatches: matches, pendingQty: qty };
                             await sock.sendMessage(jid, { text: `We have a few options:\n${list}\n\nReply with the number to select a product.` });
