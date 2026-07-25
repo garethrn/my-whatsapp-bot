@@ -20,11 +20,15 @@ const { Readable } = require('stream');
 const express = require('express');
 const { rateLimit } = require('express-rate-limit');
 const multer = require('multer');
+const driveStorage = require('./driveStorage');
 
 // --- YOUR CONFIGURATION ---
 const ADMIN_JID = process.env.ADMIN_JID;
 const EMAIL_USER = process.env.EMAIL_USER;
 const EMAIL_PASS = process.env.EMAIL_PASS;
+// Optional plaintext admin password for dashboard login (highly recommended).
+// If not set, dashboard access falls back to QR_ACCESS_TOKEN only.
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 
 const STORAGE_DIR = path.join(__dirname, 'storage');
 const CSV_FILE = path.join(__dirname, 'products.csv');
@@ -32,6 +36,7 @@ const AUTH_DIR = path.join(STORAGE_DIR, 'auth_info');
 const LEARNED_RESPONSES_FILE = path.join(STORAGE_DIR, 'learned_responses.json');
 const LEARNING_LEADS_FILE = path.join(STORAGE_DIR, 'learning_leads.json');
 const ORDERS_FILE = path.join(STORAGE_DIR, 'orders.json');
+const AUDIT_LOG_FILE = path.join(STORAGE_DIR, 'admin_audit.log');
 const MAX_HISTORY = 10;
 const MAX_NAVIGATION_HISTORY = 25;
 const MAX_LEARNING_LEADS = 200;
@@ -180,6 +185,54 @@ let orders = loadJsonFile(ORDERS_FILE, []);
 const MAX_CHAT_LOG = 100;
 let chatLog = {}; // { [jid]: [{ role: 'user'|'bot', text: string, timestamp: string }] }
 let chatLogLastActivity = {}; // { [jid]: ISO timestamp of last message }
+
+// ── Admin dashboard sessions ──────────────────────────────────────────────────
+// In-memory session store: token → { ip, createdAt, expiresAt }
+const ADMIN_SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 hours
+const adminSessions = new Map();
+
+function createAdminSession(ip) {
+    const token = crypto.randomBytes(32).toString('hex');
+    const now = Date.now();
+    adminSessions.set(token, { ip, createdAt: now, expiresAt: now + ADMIN_SESSION_TTL_MS });
+    return token;
+}
+
+function validateAdminSession(token) {
+    if (!token || typeof token !== 'string') return false;
+    const session = adminSessions.get(token);
+    if (!session) return false;
+    if (Date.now() > session.expiresAt) { adminSessions.delete(token); return false; }
+    return true;
+}
+
+function deleteAdminSession(token) {
+    adminSessions.delete(token);
+}
+
+/** Append a one-line entry to the persistent admin audit log. */
+function auditLog(action, detail, ip) {
+    const line = `${new Date().toISOString()} | ${action.padEnd(16)} | ip=${ip || '-'} | ${detail}\n`;
+    try { fs.appendFileSync(AUDIT_LOG_FILE, line); } catch { /* non-fatal */ }
+}
+
+/**
+ * Parse the admin session cookie from an Express request.
+ * Falls back to the ****** / QR_ACCESS_TOKEN query param so existing
+ * integrations using the token continue to work.
+ */
+function getAdminSessionToken(req) {
+    // 1. Cookie set by the login form
+    const cookieHeader = req.get('cookie') || '';
+    for (const part of cookieHeader.split(';')) {
+        const [k, ...v] = part.trim().split('=');
+        if (k === 'adminSession') return decodeURIComponent(v.join('='));
+    }
+    // 2. ****** header
+    const auth = req.get('authorization') || '';
+    if (auth.toLowerCase().startsWith('bearer ')) return auth.slice(7).trim();
+    return null;
+}
 
 function loadJsonFile(filePath, fallbackValue) {
     try {
@@ -1985,16 +2038,19 @@ async function startBot() {
                         const noArtwork = text && ['no artwork', 'no art', "don't have", 'dont have', 'not ready', 'no file'].some((k) => text.includes(k));
 
                         if (hasMedia) {
-                            // Save the uploaded artwork file
+                            // Save the uploaded artwork file (Drive or local fallback)
                             try {
                                 const buffer = await downloadMediaMessage(msg, 'buffer', {});
+                                const mimeType = messageContent.imageMessage ? 'image/jpeg' : (messageContent.documentMessage?.mimetype || 'application/octet-stream');
                                 const ext = messageContent.imageMessage
                                     ? 'jpg'
                                     : (messageContent.documentMessage?.fileName?.split('.').pop() || 'bin');
                                 const artworkFilename = `artwork-${jid.replace(/[^a-z0-9]/gi, '')}-${Date.now()}.${ext}`;
                                 const artworkPath = path.join(STORAGE_DIR, artworkFilename);
-                                fs.writeFileSync(artworkPath, buffer);
+                                fs.writeFileSync(artworkPath, buffer); // always write locally as backup
+                                const fileRef = await driveStorage.uploadFile(buffer, artworkFilename, mimeType, getPhoneFromJid(jid));
                                 item.artworkFile = artworkFilename;
+                                item.fileRef = fileRef;
                             } catch (artErr) {
                                 console.error('⚠️ Failed to save customer artwork:', artErr.message);
                             }
@@ -2041,13 +2097,16 @@ async function startBot() {
                             // They sent a reference image only — save it and ask for text details
                             try {
                                 const buffer = await downloadMediaMessage(msg, 'buffer', {});
+                                const mimeType = messageContent.imageMessage ? 'image/jpeg' : (messageContent.documentMessage?.mimetype || 'application/octet-stream');
                                 const ext = messageContent.imageMessage
                                     ? 'jpg'
                                     : (messageContent.documentMessage?.fileName?.split('.').pop() || 'bin');
                                 const refFilename = `design-ref-${jid.replace(/[^a-z0-9]/gi, '')}-${Date.now()}.${ext}`;
                                 const refPath = path.join(STORAGE_DIR, refFilename);
                                 fs.writeFileSync(refPath, buffer);
+                                const fileRef = await driveStorage.uploadFile(buffer, refFilename, mimeType, getPhoneFromJid(jid));
                                 item.artworkFile = refFilename;
+                                item.fileRef = fileRef;
                             } catch (refErr) {
                                 console.error('⚠️ Failed to save design reference image:', refErr.message);
                             }
@@ -2070,13 +2129,16 @@ async function startBot() {
                         if (hasMedia && !item.artworkFile) {
                             try {
                                 const buffer = await downloadMediaMessage(msg, 'buffer', {});
+                                const mimeType = messageContent.imageMessage ? 'image/jpeg' : (messageContent.documentMessage?.mimetype || 'application/octet-stream');
                                 const ext = messageContent.imageMessage
                                     ? 'jpg'
                                     : (messageContent.documentMessage?.fileName?.split('.').pop() || 'bin');
                                 const refFilename = `design-ref-${jid.replace(/[^a-z0-9]/gi, '')}-${Date.now()}.${ext}`;
                                 const refPath = path.join(STORAGE_DIR, refFilename);
                                 fs.writeFileSync(refPath, buffer);
+                                const fileRef = await driveStorage.uploadFile(buffer, refFilename, mimeType, getPhoneFromJid(jid));
                                 item.artworkFile = refFilename;
+                                item.fileRef = fileRef;
                             } catch (refErr) {
                                 console.error('⚠️ Failed to save design reference image:', refErr.message);
                             }
@@ -3022,6 +3084,8 @@ const productsRouteLimiter = rateLimit({
 });
 
 function productsAuthMiddleware(req, res, next) {
+    const sessionToken = getAdminSessionToken(req);
+    if (validateAdminSession(sessionToken)) return next();
     if (!isAuthorizedQrRequest(getQrAccessToken(req))) {
         return res.status(401).send('<p>Unauthorized. Missing or invalid token.</p>');
     }
@@ -3126,14 +3190,20 @@ const adminRouteLimiter = rateLimit({
 });
 
 function adminAuthMiddleware(req, res, next) {
-    if (!isAuthorizedQrRequest(getQrAccessToken(req))) {
-        const acceptsHtml = (req.get('accept') || '').includes('text/html');
-        if (acceptsHtml) {
-            return res.status(401).send('<p style="font-family:sans-serif;padding:40px">Unauthorized. Pass your <code>QR_ACCESS_TOKEN</code> as a query parameter: <code>?token=YOUR_TOKEN</code> or via the <code>Authorization: ****** header.</p>');
-        }
-        return res.status(401).json({ error: 'Unauthorized' });
+    // 1. Valid session cookie
+    const sessionToken = getAdminSessionToken(req);
+    if (validateAdminSession(sessionToken)) return next();
+
+    // 2. Fallback: QR_ACCESS_TOKEN (legacy / programmatic access)
+    if (isAuthorizedQrRequest(getQrAccessToken(req))) return next();
+
+    // 3. Unauthorized — redirect browsers to the login page, return JSON for API calls
+    const acceptsHtml = (req.get('accept') || '').includes('text/html');
+    if (acceptsHtml) {
+        const loginUrl = `/admin/login?next=${encodeURIComponent(req.originalUrl)}`;
+        return res.redirect(302, loginUrl);
     }
-    next();
+    return res.status(401).json({ error: 'Unauthorized' });
 }
 
 // Helper: derive a human-readable status for a conversation JID
@@ -3226,6 +3296,7 @@ app.post('/admin/api/send', adminRouteLimiter, adminAuthMiddleware, express.json
         await activeSock.sendMessage(jid, { text: message.trim() });
         // Log the admin message as a 'bot' entry (sent on behalf of the business)
         logChatEntry(jid, 'bot', `[Admin] ${message.trim()}`);
+        auditLog('SEND_MSG', `to=${jid}`, req.ip);
         res.json({ ok: true });
     } catch (err) {
         console.error('❌ Admin send failed:', err.message);
@@ -3246,16 +3317,149 @@ app.post('/admin/api/resume', adminRouteLimiter, adminAuthMiddleware, express.js
     try {
         delete handoverSessions[jid];
         await activeSock.sendMessage(jid, { text: '✅ A team member has finished helping. I can assist you again now — send *menu* or *cart* when you are ready.' });
+        auditLog('RESUME_BOT', `for=${jid}`, req.ip);
         res.json({ ok: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// GET /admin — HTML admin dashboard
+// GET /admin/api/orders — all orders with full metadata
+app.get('/admin/api/orders', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
+    const sorted = [...orders].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    res.json({ ok: true, orders: sorted });
+});
+
+// GET /admin/api/leads — top unanswered messages
+app.get('/admin/api/leads', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
+    const sorted = [...learningLeads].sort((a, b) => b.count - a.count);
+    res.json({ ok: true, leads: sorted });
+});
+
+// GET /admin/api/handovers — active human handover sessions
+app.get('/admin/api/handovers', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
+    const active = Object.entries(handoverSessions)
+        .filter(([, s]) => s.active)
+        .map(([jid, s]) => ({
+            jid,
+            phone: getPhoneFromJid(jid),
+            name: userNames[jid] || null,
+            reason: s.reason,
+            requestedAt: s.requestedAt
+        }));
+    res.json({ ok: true, handovers: active });
+});
+
+// GET /admin/api/files/:filename — securely proxy a locally stored file to the admin browser
+app.get('/admin/api/files/:filename', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
+    const filename = path.basename(req.params.filename); // prevent path traversal
+    const filePath = path.join(STORAGE_DIR, filename);
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
+    auditLog('DOWNLOAD_FILE', `file=${filename}`, req.ip);
+    res.download(filePath);
+});
+
+// GET /admin/api/drive/:fileId/download — proxy a Drive file to the admin browser
+app.get('/admin/api/drive/:fileId/download', adminRouteLimiter, adminAuthMiddleware, async (req, res) => {
+    if (!driveStorage.isDriveEnabled()) {
+        return res.status(404).json({ error: 'Google Drive not configured' });
+    }
+    try {
+        const meta = await driveStorage.getFileMeta(req.params.fileId);
+        res.setHeader('Content-Disposition', `attachment; filename="${(meta.name || 'file').replace(/"/g, '')}"`);
+        auditLog('DOWNLOAD_DRIVE', `fileId=${req.params.fileId}`, req.ip);
+        await driveStorage.streamDriveFile(req.params.fileId, res);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ── Admin login / logout ──────────────────────────────────────────────────────
+const loginRateLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 min
+    limit: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: '{"error":"Too many login attempts. Try again later."}'
+});
+
+// GET /admin/login — show login form
+app.get('/admin/login', (req, res) => {
+    const next = (req.query.next && req.query.next.startsWith('/')) ? req.query.next : '/admin';
+    res.send(`<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${BUSINESS_NAME} – Admin Login</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f2f5; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+  .card { background: #fff; border-radius: 12px; padding: 40px; width: 100%; max-width: 360px; box-shadow: 0 4px 24px rgba(0,0,0,.1); }
+  .logo { font-size: 2rem; text-align: center; margin-bottom: 8px; }
+  h1 { font-size: 1.2rem; text-align: center; color: #075e54; margin-bottom: 24px; }
+  label { font-size: .85rem; color: #444; display: block; margin-bottom: 4px; }
+  input[type=password] { width: 100%; padding: 10px 14px; border: 1px solid #ddd; border-radius: 8px; font-size: 1rem; margin-bottom: 16px; outline: none; }
+  input[type=password]:focus { border-color: #075e54; }
+  button { width: 100%; padding: 12px; background: #075e54; color: #fff; border: none; border-radius: 8px; font-size: 1rem; cursor: pointer; }
+  button:hover { background: #054c44; }
+  .err { color: #e74c3c; font-size: .85rem; margin-bottom: 12px; text-align: center; }
+  .hint { font-size: .75rem; color: #aaa; text-align: center; margin-top: 16px; }
+</style>
+</head><body>
+<div class="card">
+  <div class="logo">💬</div>
+  <h1>${BUSINESS_NAME}<br>Admin Dashboard</h1>
+  ${req.query.err === '1' ? '<p class="err">Incorrect password. Please try again.</p>' : ''}
+  <form method="POST" action="/admin/login">
+    <input type="hidden" name="next" value="${next.replace(/"/g, '')}">
+    <label for="pw">Password</label>
+    <input type="password" id="pw" name="password" placeholder="Enter admin password" autofocus required>
+    <button type="submit">Sign In</button>
+  </form>
+  <p class="hint">Set <code>ADMIN_PASSWORD</code> env var to enable password auth.</p>
+</div>
+</body></html>`);
+});
+
+// POST /admin/login — validate password, create session
+app.post('/admin/login', loginRateLimiter, express.urlencoded({ extended: false }), (req, res) => {
+    const { password = '', next: nextPath = '/admin' } = req.body;
+    const redirectTarget = (nextPath && nextPath.startsWith('/')) ? nextPath : '/admin';
+
+    // Password check: ADMIN_PASSWORD env var, or fall back to QR_ACCESS_TOKEN
+    const storedPw = ADMIN_PASSWORD || QR_ACCESS_TOKEN;
+    if (!storedPw) {
+        // No password configured — allow through (open dashboard mode)
+        const token = createAdminSession(req.ip);
+        auditLog('LOGIN', 'no-password-configured', req.ip);
+        res.setHeader('Set-Cookie', `adminSession=${token}; Path=/admin; HttpOnly; SameSite=Strict; Max-Age=${Math.floor(ADMIN_SESSION_TTL_MS / 1000)}`);
+        return res.redirect(302, redirectTarget);
+    }
+
+    const pwBuf = Buffer.from(password);
+    const expectedBuf = Buffer.from(storedPw);
+    const valid = pwBuf.length === expectedBuf.length && crypto.timingSafeEqual(pwBuf, expectedBuf);
+
+    if (!valid) {
+        auditLog('LOGIN_FAIL', `ip=${req.ip}`, req.ip);
+        return res.redirect(302, `/admin/login?err=1&next=${encodeURIComponent(redirectTarget)}`);
+    }
+
+    const token = createAdminSession(req.ip);
+    auditLog('LOGIN', 'success', req.ip);
+    res.setHeader('Set-Cookie', `adminSession=${token}; Path=/admin; HttpOnly; SameSite=Strict; Max-Age=${Math.floor(ADMIN_SESSION_TTL_MS / 1000)}`);
+    res.redirect(302, redirectTarget);
+});
+
+// POST /admin/logout — clear session
+app.post('/admin/logout', adminRouteLimiter, (req, res) => {
+    const token = getAdminSessionToken(req);
+    if (token) { deleteAdminSession(token); auditLog('LOGOUT', '', req.ip); }
+    res.setHeader('Set-Cookie', 'adminSession=; Path=/admin; HttpOnly; SameSite=Strict; Max-Age=0');
+    res.redirect(302, '/admin/login');
+});
+
+
 app.get('/admin', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
-    const token = getQrAccessToken(req);
-    const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
     res.send(`<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -3264,159 +3468,309 @@ app.get('/admin', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
   <title>${BUSINESS_NAME} – Admin Dashboard</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f2f5; height: 100vh; display: flex; flex-direction: column; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f2f5; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
     /* ── Top bar ── */
-    .topbar { background: #075e54; color: #fff; padding: 12px 20px; display: flex; align-items: center; gap: 16px; flex-shrink: 0; }
-    .topbar h1 { font-size: 1.1rem; font-weight: 600; flex: 1; }
-    .topbar .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #ccc; display: inline-block; }
-    .topbar .status-dot.connected { background: #25d366; }
-    .topbar .wa-status { font-size: 0.8rem; opacity: 0.85; }
-    .topbar nav a { color: #fff; text-decoration: none; font-size: 0.85rem; opacity: 0.85; padding: 4px 10px; border: 1px solid rgba(255,255,255,.3); border-radius: 4px; }
-    .topbar nav a:hover { opacity: 1; background: rgba(255,255,255,.1); }
-    /* ── Main layout ── */
-    .main { display: flex; flex: 1; overflow: hidden; }
-    /* ── Sidebar ── */
-    .sidebar { width: 320px; flex-shrink: 0; background: #fff; border-right: 1px solid #ddd; display: flex; flex-direction: column; overflow: hidden; }
-    .sidebar-header { padding: 12px 16px; border-bottom: 1px solid #ddd; display: flex; align-items: center; gap: 8px; }
-    .sidebar-header h2 { font-size: 0.95rem; font-weight: 600; flex: 1; }
-    .sidebar-header .refresh-btn { font-size: 0.8rem; cursor: pointer; color: #075e54; border: none; background: none; padding: 4px 8px; border-radius: 4px; }
-    .sidebar-header .refresh-btn:hover { background: #f0f2f5; }
-    .legend { padding: 8px 16px; font-size: 0.75rem; color: #555; border-bottom: 1px solid #eee; display: flex; gap: 12px; flex-wrap: wrap; }
-    .legend span { display: flex; align-items: center; gap: 4px; }
-    .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+    .topbar { background: #075e54; color: #fff; padding: 0 16px; display: flex; align-items: center; gap: 12px; flex-shrink: 0; height: 52px; }
+    .topbar h1 { font-size: 1rem; font-weight: 600; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .status-dot { width: 9px; height: 9px; border-radius: 50%; background: #ccc; display: inline-block; flex-shrink: 0; }
+    .status-dot.connected { background: #25d366; }
+    .wa-status { font-size: 0.78rem; opacity: 0.85; white-space: nowrap; }
+
+    /* ── Tab navigation ── */
+    .tabs { display: flex; gap: 2px; flex-shrink: 0; }
+    .tab-btn { background: transparent; color: rgba(255,255,255,.75); border: none; padding: 6px 12px; cursor: pointer; font-size: 0.82rem; border-radius: 4px; white-space: nowrap; transition: background .15s; }
+    .tab-btn:hover { background: rgba(255,255,255,.12); color: #fff; }
+    .tab-btn.active { background: rgba(255,255,255,.22); color: #fff; font-weight: 600; }
+    .logout-btn { background: rgba(255,255,255,.15); color: #fff; border: 1px solid rgba(255,255,255,.3); padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 0.78rem; white-space: nowrap; }
+    .logout-btn:hover { background: rgba(255,255,255,.25); }
+
+    /* ── Main / Panels ── */
+    .main { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+    .panel { display: none; flex: 1; overflow: hidden; }
+    .panel.active { display: flex; }
+
+    /* ── CHATS PANEL ── */
+    .chat-layout { display: flex; flex: 1; overflow: hidden; }
+    .sidebar { width: 300px; flex-shrink: 0; background: #fff; border-right: 1px solid #ddd; display: flex; flex-direction: column; overflow: hidden; }
+    .sidebar-header { padding: 10px 14px; border-bottom: 1px solid #ddd; display: flex; align-items: center; gap: 8px; }
+    .sidebar-header h2 { font-size: 0.9rem; font-weight: 600; flex: 1; }
+    .refresh-btn { font-size: 0.78rem; cursor: pointer; color: #075e54; border: none; background: none; padding: 4px 8px; border-radius: 4px; }
+    .refresh-btn:hover { background: #f0f2f5; }
+    .legend { padding: 6px 14px; font-size: 0.72rem; color: #555; border-bottom: 1px solid #eee; display: flex; gap: 10px; flex-wrap: wrap; }
+    .legend span { display: flex; align-items: center; gap: 3px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
     .dot-paid { background: #27ae60; }
     .dot-quoted { background: #2980b9; }
     .dot-in_progress { background: #f39c12; }
     .dot-handover { background: #e74c3c; }
     .dot-idle { background: #aaa; }
     .conv-list { overflow-y: auto; flex: 1; }
-    .conv-item { padding: 12px 16px; cursor: pointer; border-bottom: 1px solid #f0f2f5; display: flex; align-items: flex-start; gap: 10px; }
+    .conv-item { padding: 10px 14px; cursor: pointer; border-bottom: 1px solid #f0f2f5; display: flex; align-items: flex-start; gap: 10px; }
     .conv-item:hover { background: #f5f5f5; }
     .conv-item.active { background: #e9f5e9; }
-    .conv-avatar { width: 40px; height: 40px; border-radius: 50%; background: #ccc; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; color: #fff; font-weight: 700; }
+    .conv-avatar { width: 38px; height: 38px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 1rem; color: #fff; font-weight: 700; }
     .conv-body { flex: 1; overflow: hidden; }
-    .conv-name { font-size: 0.9rem; font-weight: 600; display: flex; align-items: center; gap: 6px; }
-    .conv-phone { font-size: 0.8rem; color: #666; }
-    .conv-preview { font-size: 0.78rem; color: #777; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+    .conv-name { font-size: 0.88rem; font-weight: 600; display: flex; align-items: center; gap: 5px; }
+    .conv-phone { font-size: 0.78rem; color: #666; }
+    .conv-preview { font-size: 0.76rem; color: #777; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
     .conv-meta { text-align: right; flex-shrink: 0; }
-    .conv-time { font-size: 0.72rem; color: #aaa; white-space: nowrap; }
-    .badge { display: inline-block; padding: 2px 6px; border-radius: 10px; font-size: 0.7rem; font-weight: 600; margin-top: 4px; }
+    .conv-time { font-size: 0.7rem; color: #aaa; white-space: nowrap; }
+    .badge { display: inline-block; padding: 2px 6px; border-radius: 10px; font-size: 0.68rem; font-weight: 600; margin-top: 3px; }
     .badge-paid { background: #d5f5e3; color: #1a7a47; }
     .badge-quoted { background: #d6eaf8; color: #1b5e8f; }
     .badge-in_progress { background: #fef9e7; color: #8a6200; }
     .badge-handover { background: #fde8e8; color: #a93226; }
     .badge-idle { background: #f0f0f0; color: #666; }
+
     /* ── Chat area ── */
     .chat-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-    .chat-header { background: #fff; border-bottom: 1px solid #ddd; padding: 12px 20px; display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
-    .chat-header .chat-info { flex: 1; }
-    .chat-header .chat-name { font-size: 1rem; font-weight: 600; }
-    .chat-header .chat-sub { font-size: 0.8rem; color: #666; }
-    .chat-header .btn-resume { padding: 6px 14px; background: #075e54; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 0.82rem; }
-    .chat-header .btn-resume:hover { background: #054c44; }
-    .chat-header .btn-resume:disabled { background: #aaa; cursor: default; }
-    .chat-messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; background: #e5ddd5; }
-    .msg { max-width: 70%; padding: 8px 12px; border-radius: 8px; font-size: 0.88rem; line-height: 1.45; word-break: break-word; white-space: pre-wrap; }
+    .chat-header { background: #fff; border-bottom: 1px solid #ddd; padding: 10px 18px; display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+    .chat-info { flex: 1; overflow: hidden; }
+    .chat-name { font-size: 0.95rem; font-weight: 600; }
+    .chat-sub { font-size: 0.78rem; color: #666; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .btn-resume { padding: 6px 12px; background: #075e54; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 0.8rem; flex-shrink: 0; }
+    .btn-resume:hover { background: #054c44; }
+    .btn-resume:disabled { background: #aaa; cursor: default; }
+    .chat-messages { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 7px; background: #e5ddd5; }
+    .msg { max-width: 72%; padding: 7px 11px; border-radius: 8px; font-size: 0.86rem; line-height: 1.45; word-break: break-word; white-space: pre-wrap; }
     .msg-user { align-self: flex-start; background: #fff; border-bottom-left-radius: 2px; }
     .msg-bot { align-self: flex-end; background: #dcf8c6; border-bottom-right-radius: 2px; }
     .msg-admin { align-self: flex-end; background: #cce5ff; border-bottom-right-radius: 2px; }
-    .msg-time { font-size: 0.68rem; color: #999; margin-top: 3px; text-align: right; }
-    .chat-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: #aaa; font-size: 0.95rem; background: #e5ddd5; }
-    .chat-input-area { background: #f0f2f5; border-top: 1px solid #ddd; padding: 12px 16px; display: flex; gap: 10px; align-items: flex-end; flex-shrink: 0; }
-    .chat-input { flex: 1; border: 1px solid #ddd; border-radius: 20px; padding: 10px 16px; font-size: 0.9rem; resize: none; max-height: 120px; outline: none; font-family: inherit; }
+    .msg-time { font-size: 0.66rem; color: #999; margin-top: 2px; text-align: right; }
+    .msg-file { font-size: 0.78rem; margin-top: 4px; }
+    .msg-file a { color: #075e54; }
+    .chat-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: #aaa; font-size: 0.9rem; background: #e5ddd5; }
+    .chat-input-area { background: #f0f2f5; border-top: 1px solid #ddd; padding: 10px 14px; display: flex; gap: 8px; align-items: flex-end; flex-shrink: 0; }
+    .chat-input { flex: 1; border: 1px solid #ddd; border-radius: 20px; padding: 9px 15px; font-size: 0.88rem; resize: none; max-height: 120px; outline: none; font-family: inherit; }
     .chat-input:focus { border-color: #075e54; }
-    .send-btn { background: #075e54; color: #fff; border: none; border-radius: 50%; width: 44px; height: 44px; cursor: pointer; font-size: 1.1rem; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+    .send-btn { background: #075e54; color: #fff; border: none; border-radius: 50%; width: 42px; height: 42px; cursor: pointer; font-size: 1rem; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
     .send-btn:hover { background: #054c44; }
     .send-btn:disabled { background: #aaa; cursor: default; }
-    .takeover-notice { background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; padding: 8px 14px; font-size: 0.82rem; color: #856404; margin: 0 16px 8px; }
-    .no-conv { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #aaa; gap: 8px; }
-    .no-conv-icon { font-size: 3rem; }
+    .takeover-notice { background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; padding: 7px 12px; font-size: 0.8rem; color: #856404; margin: 0 14px 7px; flex-shrink: 0; }
+    .no-conv { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #aaa; gap: 6px; background: #e5ddd5; }
+    .no-conv-icon { font-size: 2.8rem; }
+
+    /* ── Full-width panels (Orders, Leads, Handovers, QR) ── */
+    .full-panel { flex: 1; overflow-y: auto; padding: 24px; background: #f0f2f5; }
+    .full-panel h2 { font-size: 1.1rem; margin-bottom: 16px; color: #333; }
+    .data-table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.08); font-size: 0.85rem; }
+    .data-table th { background: #075e54; color: #fff; padding: 10px 14px; text-align: left; font-size: 0.8rem; }
+    .data-table td { padding: 9px 14px; border-bottom: 1px solid #f0f2f5; vertical-align: top; }
+    .data-table tr:last-child td { border-bottom: none; }
+    .data-table tr:hover td { background: #f9f9f9; }
+    .btn-sm { padding: 4px 10px; border-radius: 4px; border: 1px solid #ddd; background: #fff; font-size: 0.78rem; cursor: pointer; color: #333; }
+    .btn-sm:hover { background: #f5f5f5; }
+    .btn-sm-primary { background: #075e54; color: #fff; border-color: #075e54; }
+    .btn-sm-primary:hover { background: #054c44; }
+    .empty-state { text-align: center; padding: 48px; color: #aaa; }
+
+    /* ── Products panel ── */
+    .products-panel { flex: 1; overflow-y: auto; padding: 24px; background: #f0f2f5; }
+    .card { border: 1px solid #ddd; border-radius: 8px; padding: 20px; margin-bottom: 20px; background: #fff; }
+    .card h3 { margin-top: 0; font-size: 1rem; margin-bottom: 8px; }
+    .hint { color: #666; font-size: 0.82rem; margin-bottom: 10px; }
+    .btn { display: inline-block; padding: 9px 16px; background: #25d366; color: #fff; text-decoration: none; border: none; border-radius: 6px; cursor: pointer; font-size: 0.9rem; }
+    .btn-sec { background: #444; }
+    input[type=file] { display: block; margin: 10px 0; }
+
+    /* ── QR panel ── */
+    .qr-panel { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; padding: 24px; background: #f0f2f5; }
+    .qr-panel iframe { border: 1px solid #ddd; border-radius: 8px; background: #fff; }
+    .qr-status-box { background: #fff; padding: 20px; border-radius: 8px; text-align: center; min-width: 280px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+    .qr-status-box h3 { margin-bottom: 8px; }
   </style>
 </head>
 <body>
+
+<!-- ── Top bar ── -->
 <div class="topbar">
-  <h1>💬 ${BUSINESS_NAME} – Admin Dashboard</h1>
+  <h1>💬 ${BUSINESS_NAME} – Admin</h1>
   <span class="status-dot" id="waDot"></span>
-  <span class="wa-status" id="waStatus">Checking…</span>
-  <nav style="display:flex;gap:8px">
-    <a href="products${tokenParam}">📦 Products</a>
-    <a href="qr${tokenParam}">📱 QR</a>
-    <a href="health">❤️ Health</a>
-  </nav>
+  <span class="wa-status" id="waStatus">…</span>
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="chats" onclick="switchTab('chats')">💬 Chats</button>
+    <button class="tab-btn" data-tab="orders" onclick="switchTab('orders')">📋 Orders</button>
+    <button class="tab-btn" data-tab="products" onclick="switchTab('products')">📦 Products</button>
+    <button class="tab-btn" data-tab="leads" onclick="switchTab('leads')">💡 Leads</button>
+    <button class="tab-btn" data-tab="handovers" onclick="switchTab('handovers')">🤝 Handovers</button>
+    <button class="tab-btn" data-tab="qr" onclick="switchTab('qr')">📱 QR</button>
+  </div>
+  <form method="POST" action="/admin/logout" style="flex-shrink:0">
+    <button type="submit" class="logout-btn">Sign out</button>
+  </form>
 </div>
+
+<!-- ── Main content ── -->
 <div class="main">
-  <!-- Sidebar -->
-  <div class="sidebar">
-    <div class="sidebar-header">
-      <h2>Conversations</h2>
-      <button class="refresh-btn" onclick="loadConversations()">⟳ Refresh</button>
+
+  <!-- CHATS TAB -->
+  <div id="panel-chats" class="panel active">
+    <div class="chat-layout" style="flex:1;overflow:hidden">
+      <div class="sidebar">
+        <div class="sidebar-header">
+          <h2>Conversations</h2>
+          <button class="refresh-btn" onclick="loadConversations()">⟳ Refresh</button>
+        </div>
+        <div class="legend">
+          <span><span class="dot dot-paid"></span>Paid</span>
+          <span><span class="dot dot-quoted"></span>Quoted</span>
+          <span><span class="dot dot-in_progress"></span>In Progress</span>
+          <span><span class="dot dot-handover"></span>Handover</span>
+          <span><span class="dot dot-idle"></span>Idle</span>
+        </div>
+        <div class="conv-list" id="convList"><p style="padding:16px;color:#aaa;font-size:.82rem">Loading…</p></div>
+      </div>
+      <div class="chat-area" id="chatArea">
+        <div class="no-conv">
+          <div class="no-conv-icon">💬</div>
+          <p>Select a conversation to view</p>
+        </div>
+      </div>
     </div>
-    <div class="legend">
-      <span><span class="dot dot-paid"></span>Paid/Complete</span>
-      <span><span class="dot dot-quoted"></span>Quoted</span>
-      <span><span class="dot dot-in_progress"></span>In Progress</span>
-      <span><span class="dot dot-handover"></span>Handover</span>
-      <span><span class="dot dot-idle"></span>Idle</span>
-    </div>
-    <div class="conv-list" id="convList"><p style="padding:16px;color:#aaa;font-size:.85rem">Loading…</p></div>
   </div>
-  <!-- Chat area -->
-  <div class="chat-area" id="chatArea">
-    <div class="no-conv">
-      <div class="no-conv-icon">💬</div>
-      <p>Select a conversation to view</p>
+
+  <!-- ORDERS TAB -->
+  <div id="panel-orders" class="panel" style="flex-direction:column">
+    <div class="full-panel" id="ordersPanel"><p style="color:#aaa">Loading orders…</p></div>
+  </div>
+
+  <!-- PRODUCTS TAB -->
+  <div id="panel-products" class="panel" style="flex-direction:column">
+    <div class="products-panel">
+      <h2 style="margin-bottom:16px">📦 Products CSV</h2>
+      <div class="card">
+        <h3>Download template</h3>
+        <p class="hint">Blank CSV with headers and one sample row.</p>
+        <a class="btn btn-sec" href="/products/template">⬇ Download template</a>
+      </div>
+      <div class="card">
+        <h3>Download current products</h3>
+        <p class="hint">Download the live products.csv for editing.</p>
+        <a class="btn btn-sec" href="/products/csv">⬇ Download products.csv</a>
+      </div>
+      <div class="card">
+        <h3>Upload updated CSV</h3>
+        <p class="hint">Replace the live catalogue. The bot reloads immediately.</p>
+        <form method="POST" action="/products/upload" enctype="multipart/form-data">
+          <input type="file" name="file" accept=".csv">
+          <button class="btn" type="submit">⬆ Upload</button>
+        </form>
+      </div>
     </div>
   </div>
+
+  <!-- LEADS TAB -->
+  <div id="panel-leads" class="panel" style="flex-direction:column">
+    <div class="full-panel" id="leadsPanel"><p style="color:#aaa">Loading leads…</p></div>
+  </div>
+
+  <!-- HANDOVERS TAB -->
+  <div id="panel-handovers" class="panel" style="flex-direction:column">
+    <div class="full-panel" id="handoversPanel"><p style="color:#aaa">Loading handovers…</p></div>
+  </div>
+
+  <!-- QR TAB -->
+  <div id="panel-qr" class="panel" style="flex-direction:column">
+    <div class="qr-panel" id="qrPanel">
+      <div class="qr-status-box">
+        <h3 id="qrStatusTitle">Checking WhatsApp…</h3>
+        <p id="qrStatusSub" style="font-size:.85rem;color:#666;margin-top:6px"></p>
+        <div id="qrImgWrap" style="margin-top:16px;display:none">
+          <img id="qrImg" src="" style="max-width:260px;border:1px solid #ccc;padding:8px;border-radius:4px">
+          <p style="font-size:.75rem;color:#aaa;margin-top:6px">QR refreshes automatically every 55 s.</p>
+        </div>
+        <button class="btn btn-sec" style="margin-top:16px;font-size:.82rem" onclick="refreshQrPanel()">⟳ Refresh</button>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <script>
-const TOKEN_PARAM = ${JSON.stringify(tokenParam)};
-let activeJid = null;
-let pollInterval = null;
-let convData = [];
-
-function apiUrl(path) {
-  return path + (TOKEN_PARAM ? (path.includes('?') ? '&' : '?') + TOKEN_PARAM.slice(1) : '');
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 function fmtTime(iso) {
   if (!iso) return '';
   const d = new Date(iso);
   const now = new Date();
-  const isToday = d.toDateString() === now.toDateString();
-  if (isToday) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  return d.toLocaleDateString([], { day: '2-digit', month: 'short' });
+  if (d.toDateString() === now.toDateString())
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleDateString([], { day: '2-digit', month: 'short', year: '2-digit' });
 }
 
 function statusLabel(s) {
-  return { paid: 'Paid', quoted: 'Quoted', in_progress: 'In Progress', handover: 'Handover', idle: 'Idle' }[s] || s;
+  return { paid:'Paid', quoted:'Quoted', in_progress:'In Progress', handover:'Handover', idle:'Idle' }[s] || s;
 }
 
 function avatarLetter(name, phone) {
-  const src = name || phone || '?';
-  return src.charAt(0).toUpperCase();
+  return (name || phone || '?').charAt(0).toUpperCase();
 }
 
 function avatarColor(jid) {
   const colors = ['#25d366','#075e54','#128c7e','#2980b9','#8e44ad','#c0392b','#d35400','#16a085'];
-  let h = 0; for (let i = 0; i < jid.length; i++) h = (h * 31 + jid.charCodeAt(i)) >>> 0;
+  let h = 0; for (let i = 0; i < jid.length; i++) h = (h*31 + jid.charCodeAt(i)) >>> 0;
   return colors[h % colors.length];
 }
 
+// ── Tab switching ─────────────────────────────────────────────────────────────
+let currentTab = 'chats';
+function switchTab(name) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  document.getElementById('panel-' + name).classList.add('active');
+  currentTab = name;
+  if (name === 'orders') loadOrders();
+  else if (name === 'leads') loadLeads();
+  else if (name === 'handovers') loadHandovers();
+  else if (name === 'qr') refreshQrPanel();
+}
+
+// ── WhatsApp status ───────────────────────────────────────────────────────────
+let waPhase = 'unknown';
+async function checkWaStatus() {
+  try {
+    const r = await fetch('/health');
+    const data = await r.json();
+    waPhase = (data.whatsapp && data.whatsapp.phase) || 'unknown';
+    const dot = document.getElementById('waDot');
+    const statusEl = document.getElementById('waStatus');
+    if (dot) dot.className = 'status-dot' + (waPhase === 'connected' ? ' connected' : '');
+    if (statusEl) statusEl.textContent = waPhase;
+  } catch(e) {}
+}
+
+// ── Conversations (Chat tab) ──────────────────────────────────────────────────
+let activeJid = null;
+let pollInterval = null;
+let convDataHash = '';
+let chatFrameBuilt = false; // true once the static chat area frame has been rendered
+let lastMsgCount = 0;
+
 function renderConversations(list) {
-  convData = list;
+  const hash = JSON.stringify(list.map(c => c.jid + c.status + (c.lastActivity||'')));
+  if (hash === convDataHash) return; // nothing changed — skip re-render
+  convDataHash = hash;
+
   const el = document.getElementById('convList');
-  if (!list.length) { el.innerHTML = '<p style="padding:16px;color:#aaa;font-size:.85rem">No conversations yet.</p>'; return; }
+  if (!list.length) {
+    el.innerHTML = '<p style="padding:16px;color:#aaa;font-size:.82rem">No conversations yet.</p>';
+    return;
+  }
   el.innerHTML = list.map(c => {
     const isActive = c.jid === activeJid;
     const label = c.name || c.phone || c.jid;
     const preview = c.lastMessage ? (c.lastMessage.role === 'user' ? '' : '🤖 ') + c.lastMessage.text : 'No messages yet';
-    return \`<div class="conv-item\${isActive?' active':''}" onclick="selectConv('\${encodeURIComponent(c.jid)}')">
-      <div class="conv-avatar" style="background:\${avatarColor(c.jid)}">\${avatarLetter(c.name, c.phone)}</div>
+    const enc = encodeURIComponent(c.jid);
+    return \`<div class="conv-item\${isActive?' active':''}" onclick="selectConv('\${enc}')">
+      <div class="conv-avatar" style="background:\${avatarColor(c.jid)}">\${avatarLetter(c.name,c.phone)}</div>
       <div class="conv-body">
-        <div class="conv-name"><span>\${escHtml(label)}</span><span class="dot dot-\${c.status}" title="\${statusLabel(c.status)}"></span></div>
-        \${c.name ? '<div class="conv-phone">'+escHtml(c.phone)+'</div>' : ''}
-        <div class="conv-preview">\${escHtml(preview)}</div>
+        <div class="conv-name"><span>\${esc(label)}</span><span class="dot dot-\${c.status}" title="\${statusLabel(c.status)}"></span></div>
+        \${c.name ? '<div class="conv-phone">'+esc(c.phone)+'</div>' : ''}
+        <div class="conv-preview">\${esc(preview)}</div>
       </div>
       <div class="conv-meta">
         <div class="conv-time">\${fmtTime(c.lastActivity)}</div>
@@ -3428,88 +3782,145 @@ function renderConversations(list) {
 
 async function loadConversations() {
   try {
-    const r = await fetch(apiUrl('/admin/api/conversations'));
+    const r = await fetch('/admin/api/conversations');
+    if (r.status === 401) { location.href='/admin/login'; return; }
     const data = await r.json();
     if (data.ok) renderConversations(data.conversations);
-  } catch(e) { console.error('Failed to load conversations', e); }
-}
-
-function escHtml(s) {
-  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-function renderMessages(messages) {
-  if (!messages.length) return '<div class="chat-empty">No messages yet</div>';
-  return '<div class="chat-messages" id="msgContainer">' + messages.map(m => {
-    const cls = m.role === 'user' ? 'msg-user' : (m.text && m.text.startsWith('[Admin]') ? 'msg-admin' : 'msg-bot');
-    const label = m.role === 'user' ? '' : (m.text && m.text.startsWith('[Admin]') ? '👤 Admin  ' : '🤖 Bot  ');
-    return \`<div class="msg \${cls}">\${escHtml(label+m.text)}<div class="msg-time">\${fmtTime(m.timestamp)}</div></div>\`;
-  }).join('') + '</div>';
+  } catch(e) {}
 }
 
 async function selectConv(encodedJid) {
+  if (pollInterval) clearInterval(pollInterval);
   activeJid = decodeURIComponent(encodedJid);
-  // Highlight active item
-  document.querySelectorAll('.conv-item').forEach(el => el.classList.remove('active'));
-  const items = document.querySelectorAll('.conv-item');
-  items.forEach(el => { if (el.onclick.toString().includes(encodedJid)) el.classList.add('active'); });
+  chatFrameBuilt = false;
+  lastMsgCount = 0;
+
+  document.querySelectorAll('.conv-item').forEach(el => {
+    el.classList.toggle('active', decodeURIComponent(el.onclick.toString().match(/'([^']+)'/)?.[1]||'') === activeJid);
+  });
 
   await refreshChat();
-  // Poll for new messages every 4 seconds
-  if (pollInterval) clearInterval(pollInterval);
   pollInterval = setInterval(refreshChat, 4000);
 }
 
 async function refreshChat() {
   if (!activeJid) return;
   try {
-    const r = await fetch(apiUrl('/admin/api/conversations/' + encodeURIComponent(activeJid)));
+    const r = await fetch('/admin/api/conversations/' + encodeURIComponent(activeJid));
+    if (r.status === 401) { location.href='/admin/login'; return; }
     const data = await r.json();
     if (!data.ok) return;
-    renderChatArea(data);
-    // Also refresh sidebar list
+    if (!chatFrameBuilt) {
+      buildChatFrame(data);
+    } else {
+      updateChatContent(data);
+    }
+    // Refresh sidebar count/status without full re-render
     loadConversations();
-  } catch(e) { console.error('Failed to load chat', e); }
+  } catch(e) { console.error('chat refresh error', e); }
 }
 
-function renderChatArea(data) {
-  const label = data.name || data.phone || data.jid;
-  const isHandover = data.isHandover;
-  const cartInfo = data.cart && data.cart.length ? \`🛒 \${data.cart.length} item(s) in cart\` : '';
-  const stepInfo = data.step && data.step !== 'idle' ? \`Step: \${data.step}\` : '';
-  const subParts = [cartInfo, stepInfo].filter(Boolean);
-  const wasAtBottom = isScrolledToBottom();
-
-  document.getElementById('chatArea').innerHTML = \`
-    <div class="chat-header">
-      <div class="conv-avatar" style="background:\${avatarColor(data.jid)};width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:1.1rem;flex-shrink:0">\${avatarLetter(data.name, data.phone)}</div>
-      <div class="chat-info">
-        <div class="chat-name">\${escHtml(label)} <span class="badge badge-\${data.status}" style="font-size:.72rem">\${statusLabel(data.status)}</span></div>
-        <div class="chat-sub">\${escHtml(subParts.join(' · ') || data.jid)}</div>
-      </div>
-      \${isHandover
-        ? \`<button class="btn-resume" onclick="resumeBot()">✅ Resume Bot</button>\`
-        : ''}
-    </div>
-    \${isHandover ? '<div class="takeover-notice">🤝 <strong>Human handover active.</strong> The bot is paused. Messages you send below will go directly to the customer. Click <em>Resume Bot</em> to hand back to the bot.</div>' : ''}
-    \${renderMessages(data.messages)}
+/** First-time render of the static chat frame (header + input area). */
+function buildChatFrame(data) {
+  chatFrameBuilt = true;
+  const area = document.getElementById('chatArea');
+  area.innerHTML = \`
+    <div class="chat-header" id="chatHeader"></div>
+    <div class="takeover-notice" id="takeoverNotice" style="display:none;margin:0 14px 7px;"></div>
+    <div class="chat-messages" id="msgContainer"></div>
     <div class="chat-input-area">
-      <textarea class="chat-input" id="msgInput" rows="1" placeholder="Type a message… (sending will activate human takeover)" oninput="autoResize(this)" onkeydown="handleKey(event)"></textarea>
+      <textarea class="chat-input" id="msgInput" rows="1"
+        placeholder="Type a message… (sending will activate human takeover)"
+        oninput="autoResize(this)" onkeydown="handleKey(event)"></textarea>
       <button class="send-btn" onclick="sendMsg()" title="Send">➤</button>
     </div>
   \`;
-  if (wasAtBottom) scrollToBottom();
+  updateChatContent(data);
 }
 
-function isScrolledToBottom() {
-  const el = document.getElementById('msgContainer');
-  if (!el) return true;
-  return el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-}
+/** Incremental update — only touches elements that may have changed. */
+function updateChatContent(data) {
+  const label = data.name || data.phone || data.jid;
+  const isHandover = data.isHandover;
 
-function scrollToBottom() {
-  const el = document.getElementById('msgContainer');
-  if (el) el.scrollTop = el.scrollHeight;
+  // ── Header ────────────────────────────────────────────────────────────────
+  const cartInfo = data.cart && data.cart.length ? \`🛒 \${data.cart.length} item(s) in cart\` : '';
+  const stepInfo = data.step && data.step !== 'idle' ? \`Step: \${data.step}\` : '';
+  const sub = [cartInfo, stepInfo].filter(Boolean).join(' · ') || data.jid;
+  const headerEl = document.getElementById('chatHeader');
+  if (headerEl) {
+    headerEl.innerHTML = \`
+      <div class="conv-avatar" style="background:\${avatarColor(data.jid)};width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:1rem;flex-shrink:0">\${avatarLetter(data.name,data.phone)}</div>
+      <div class="chat-info">
+        <div class="chat-name">\${esc(label)} <span class="badge badge-\${data.status}">\${statusLabel(data.status)}</span></div>
+        <div class="chat-sub">\${esc(sub)}</div>
+      </div>
+      \${isHandover ? '<button class="btn-resume" onclick="resumeBot()">✅ Resume Bot</button>' : ''}
+    \`;
+  }
+
+  // ── Handover notice ────────────────────────────────────────────────────────
+  const noticeEl = document.getElementById('takeoverNotice');
+  if (noticeEl) {
+    noticeEl.style.display = isHandover ? 'block' : 'none';
+    if (isHandover) noticeEl.innerHTML = '🤝 <strong>Human handover active.</strong> Messages you type go directly to the customer. Click <em>Resume Bot</em> to hand back.';
+  }
+
+  // ── Messages ───────────────────────────────────────────────────────────────
+  const msgContainer = document.getElementById('msgContainer');
+  if (!msgContainer) return;
+
+  const msgs = data.messages || [];
+  if (msgs.length === lastMsgCount) return; // nothing new
+
+  const wasAtBottom = msgContainer.scrollHeight - msgContainer.scrollTop - msgContainer.clientHeight < 50;
+
+  if (msgs.length < lastMsgCount) {
+    // Rare case (e.g. log trimmed): full re-render
+    msgContainer.innerHTML = '';
+  }
+
+  // Append only new messages
+  const startIdx = Math.max(0, lastMsgCount);
+  const fragment = document.createDocumentFragment();
+  for (let i = startIdx; i < msgs.length; i++) {
+    const m = msgs[i];
+    const cls = m.role === 'user' ? 'msg-user' : (m.text && m.text.startsWith('[Admin]') ? 'msg-admin' : 'msg-bot');
+    const prefix = m.role !== 'user' ? (m.text && m.text.startsWith('[Admin]') ? '👤 Admin  ' : '🤖 Bot  ') : '';
+    const div = document.createElement('div');
+    div.className = 'msg ' + cls;
+    div.innerHTML = esc(prefix + m.text) + '<div class="msg-time">' + fmtTime(m.timestamp) + '</div>';
+    // Attach file links if present
+    if (m.fileRef) {
+      const link = document.createElement('div');
+      link.className = 'msg-file';
+      if (m.fileRef.provider === 'googledrive') {
+        link.innerHTML = '📎 <a href="/admin/api/drive/' + esc(m.fileRef.driveFileId) + '/download" target="_blank">Download file (Drive)</a>';
+      } else if (m.fileRef.localFilename) {
+        link.innerHTML = '📎 <a href="/admin/api/files/' + esc(m.fileRef.localFilename) + '" target="_blank">Download file</a>';
+      }
+      div.appendChild(link);
+    }
+    fragment.appendChild(div);
+  }
+  if (msgs.length < lastMsgCount) {
+    // After full clear, add all messages
+    const fragment2 = document.createDocumentFragment();
+    for (const m of msgs) {
+      const cls = m.role === 'user' ? 'msg-user' : (m.text && m.text.startsWith('[Admin]') ? 'msg-admin' : 'msg-bot');
+      const prefix = m.role !== 'user' ? (m.text && m.text.startsWith('[Admin]') ? '👤 Admin  ' : '🤖 Bot  ') : '';
+      const div = document.createElement('div');
+      div.className = 'msg ' + cls;
+      div.innerHTML = esc(prefix + m.text) + '<div class="msg-time">' + fmtTime(m.timestamp) + '</div>';
+      fragment2.appendChild(div);
+    }
+    msgContainer.appendChild(fragment2);
+  } else {
+    msgContainer.appendChild(fragment);
+  }
+  lastMsgCount = msgs.length;
+
+  if (wasAtBottom) msgContainer.scrollTop = msgContainer.scrollHeight;
 }
 
 function autoResize(el) {
@@ -3528,55 +3939,173 @@ async function sendMsg() {
   if (!text) return;
   input.value = '';
   input.style.height = 'auto';
-
   const btn = document.querySelector('.send-btn');
   if (btn) btn.disabled = true;
-
   try {
-    const r = await fetch(apiUrl('/admin/api/send'), {
+    const r = await fetch('/admin/api/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ jid: activeJid, message: text })
     });
+    if (r.status === 401) { location.href='/admin/login'; return; }
     const data = await r.json();
     if (!data.ok) alert('Send failed: ' + (data.error || 'unknown error'));
     else await refreshChat();
-  } catch(e) {
-    alert('Send failed: ' + e.message);
-  } finally {
-    if (btn) btn.disabled = false;
-    input.focus();
-  }
+  } catch(e) { alert('Send failed: ' + e.message); }
+  finally { if (btn) btn.disabled = false; input.focus(); }
 }
 
 async function resumeBot() {
   if (!activeJid) return;
   if (!confirm('Resume bot control for this customer? The human handover will end.')) return;
   try {
-    const r = await fetch(apiUrl('/admin/api/resume'), {
+    const r = await fetch('/admin/api/resume', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ jid: activeJid })
     });
     const data = await r.json();
     if (!data.ok) alert('Failed: ' + (data.error || 'unknown'));
-    else await refreshChat();
+    else { chatFrameBuilt = false; await refreshChat(); }
   } catch(e) { alert('Error: ' + e.message); }
 }
 
-async function checkWaStatus() {
+// ── Orders tab ────────────────────────────────────────────────────────────────
+async function loadOrders() {
+  const el = document.getElementById('ordersPanel');
+  if (!el) return;
+  try {
+    const r = await fetch('/admin/api/orders');
+    if (r.status === 401) { location.href='/admin/login'; return; }
+    const data = await r.json();
+    if (!data.ok) { el.innerHTML = '<p class="empty-state">Failed to load orders.</p>'; return; }
+    const orders = data.orders;
+    if (!orders.length) { el.innerHTML = '<h2>📋 Orders</h2><p class="empty-state">No orders yet.</p>'; return; }
+    el.innerHTML = '<h2>📋 Orders</h2>' +
+      '<table class="data-table"><thead><tr>' +
+      '<th>Date</th><th>Customer</th><th>Status</th><th>Total</th><th>Quote</th><th>Files</th>' +
+      '</tr></thead><tbody>' +
+      orders.map(o => {
+        const quoteLink = o.invoiceNinjaLink
+          ? \`<a href="\${esc(o.invoiceNinjaLink)}" target="_blank">\${esc(o.invoiceNinjaQuoteNumber||'View')}</a>\`
+          : (o.invoiceNinjaQuoteNumber ? esc(o.invoiceNinjaQuoteNumber) : '—');
+        const files = (o.cart || []).flatMap(item => {
+          const links = [];
+          if (item.fileRef) {
+            if (item.fileRef.provider === 'googledrive' && item.fileRef.driveFileId) {
+              links.push(\`<a href="/admin/api/drive/\${esc(item.fileRef.driveFileId)}/download" target="_blank">📎 Drive</a>\`);
+            } else if (item.fileRef.localFilename) {
+              links.push(\`<a href="/admin/api/files/\${esc(item.fileRef.localFilename)}" target="_blank">📎 Local</a>\`);
+            }
+          }
+          if (item.artworkFile) links.push(\`<a href="/admin/api/files/\${esc(item.artworkFile)}" target="_blank">🖼 Artwork</a>\`);
+          return links;
+        }).join(' ');
+        return \`<tr>
+          <td>\${fmtTime(o.createdAt)}</td>
+          <td>\${esc(o.customerName||o.customerPhone||o.jid)}</td>
+          <td><span class="badge badge-\${o.status}">\${statusLabel(o.status)}</span></td>
+          <td>R\${(o.grandTotal||0).toFixed(2)}</td>
+          <td>\${quoteLink}</td>
+          <td>\${files||'—'}</td>
+        </tr>\`;
+      }).join('') +
+      '</tbody></table>';
+  } catch(e) { el.innerHTML = '<p class="empty-state">Error loading orders.</p>'; }
+}
+
+// ── Leads tab ─────────────────────────────────────────────────────────────────
+async function loadLeads() {
+  const el = document.getElementById('leadsPanel');
+  if (!el) return;
+  try {
+    const r = await fetch('/admin/api/leads');
+    if (r.status === 401) { location.href='/admin/login'; return; }
+    const data = await r.json();
+    if (!data.ok) { el.innerHTML = '<p class="empty-state">Failed to load leads.</p>'; return; }
+    const leads = data.leads;
+    if (!leads.length) { el.innerHTML = '<h2>💡 Unanswered Messages (Leads)</h2><p class="empty-state">No leads yet.</p>'; return; }
+    el.innerHTML = '<h2>💡 Unanswered Messages (Leads)</h2>' +
+      '<table class="data-table"><thead><tr><th>#</th><th>Example message</th><th>Count</th><th>Last seen</th></tr></thead><tbody>' +
+      leads.map((l, i) => \`<tr>
+        <td>\${i+1}</td>
+        <td>\${esc(l.example)}</td>
+        <td>\${l.count}</td>
+        <td>\${fmtTime(l.lastSeen)}</td>
+      </tr>\`).join('') +
+      '</tbody></table>';
+  } catch(e) { el.innerHTML = '<p class="empty-state">Error loading leads.</p>'; }
+}
+
+// ── Handovers tab ─────────────────────────────────────────────────────────────
+async function loadHandovers() {
+  const el = document.getElementById('handoversPanel');
+  if (!el) return;
+  try {
+    const r = await fetch('/admin/api/handovers');
+    if (r.status === 401) { location.href='/admin/login'; return; }
+    const data = await r.json();
+    if (!data.ok) { el.innerHTML = '<p class="empty-state">Failed to load handovers.</p>'; return; }
+    const handovers = data.handovers;
+    if (!handovers.length) { el.innerHTML = '<h2>🤝 Active Handovers</h2><p class="empty-state">No active handovers.</p>'; return; }
+    el.innerHTML = '<h2>🤝 Active Handovers</h2>' +
+      '<table class="data-table"><thead><tr><th>Customer</th><th>Phone</th><th>Reason</th><th>Since</th><th>Action</th></tr></thead><tbody>' +
+      handovers.map(h => \`<tr>
+        <td>\${esc(h.name||h.jid)}</td>
+        <td>\${esc(h.phone)}</td>
+        <td>\${esc(h.reason||'')}</td>
+        <td>\${fmtTime(h.requestedAt)}</td>
+        <td>
+          <button class="btn-sm" onclick="switchTab('chats');selectConv('\${encodeURIComponent(h.jid)}')">💬 Open chat</button>
+          <button class="btn-sm btn-sm-primary" onclick="resumeHandover('\${encodeURIComponent(h.jid)}')">✅ Resume bot</button>
+        </td>
+      </tr>\`).join('') +
+      '</tbody></table>';
+  } catch(e) { el.innerHTML = '<p class="empty-state">Error loading handovers.</p>'; }
+}
+
+async function resumeHandover(encodedJid) {
+  const jid = decodeURIComponent(encodedJid);
+  if (!confirm('Resume bot for ' + jid + '?')) return;
+  try {
+    const r = await fetch('/admin/api/resume', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jid })
+    });
+    const data = await r.json();
+    if (!data.ok) alert('Failed: ' + (data.error||'unknown'));
+    else loadHandovers();
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+// ── QR tab ────────────────────────────────────────────────────────────────────
+async function refreshQrPanel() {
   try {
     const r = await fetch('/health');
     const data = await r.json();
-    const dot = document.getElementById('waDot');
-    const status = document.getElementById('waStatus');
-    const phase = data.whatsapp && data.whatsapp.phase;
-    dot.className = 'status-dot' + (phase === 'connected' ? ' connected' : '');
-    status.textContent = phase || 'unknown';
+    const phase = (data.whatsapp && data.whatsapp.phase) || 'unknown';
+    const title = document.getElementById('qrStatusTitle');
+    const sub = document.getElementById('qrStatusSub');
+    const wrap = document.getElementById('qrImgWrap');
+    const img = document.getElementById('qrImg');
+    if (title) title.textContent = phase === 'connected' ? '✅ WhatsApp Connected' : '⏳ Status: ' + phase;
+    if (sub) sub.textContent = phase === 'connected'
+      ? 'The bot is live and handling messages.'
+      : 'Open the QR page to scan and link your WhatsApp account.';
+    if (wrap && img) {
+      if (phase !== 'connected') {
+        wrap.style.display = 'block';
+        img.src = '/qr'; // embed as iframe or link
+        wrap.innerHTML = '<p style="font-size:.85rem">👉 <a href="/qr" target="_blank" style="color:#075e54">Open QR Code page</a> to scan with WhatsApp.</p>';
+      } else {
+        wrap.style.display = 'none';
+      }
+    }
   } catch(e) {}
 }
 
-// Init
+// ── Init ──────────────────────────────────────────────────────────────────────
 loadConversations();
 checkWaStatus();
 setInterval(loadConversations, 10000);
@@ -3585,6 +4114,7 @@ setInterval(checkWaStatus, 15000);
 </body>
 </html>`);
 });
+
 
 const server = app.listen(PORT, () => {
     const railwayUrl = getRailwayQrUrl();

@@ -293,6 +293,23 @@ In Railway, add these variables:
 - `EMAIL_USER`
 - `EMAIL_PASS`
 - `QR_ACCESS_TOKEN` (optional but recommended for securing `/qr`)
+- `ADMIN_PASSWORD` – **recommended** – password to log into the admin dashboard. If omitted, the dashboard uses `QR_ACCESS_TOKEN` as the password.
+
+#### Google Drive file storage (optional)
+
+When set, design files and artwork uploaded by customers are stored in your Google Drive so they are always accessible and downloadable from the admin dashboard.
+
+1. Create a [Google Cloud service account](https://cloud.google.com/iam/docs/service-accounts-create) with the **Google Drive API** enabled.
+2. Create a Drive folder and share it with the service account email (Editor role).
+3. Add these environment variables:
+
+| Variable | Description |
+|---|---|
+| `GOOGLE_DRIVE_CLIENT_EMAIL` | Service account e-mail from the JSON key file |
+| `GOOGLE_DRIVE_PRIVATE_KEY` | Private key from the JSON key file (newlines as `\n`) |
+| `GOOGLE_DRIVE_FOLDER_ID` | ID of the shared Drive folder (from the URL) |
+
+Without these variables, files are stored on local disk only (still accessible via the dashboard's file download endpoint).
 
 #### Invoice Ninja (optional)
 
@@ -467,7 +484,7 @@ Check that:
 
 ## Admin Dashboard
 
-The bot includes a live admin dashboard that lets you see all conversations, watch them in real time, and take over from the bot by typing a message.
+The bot includes a live admin dashboard accessible from any browser. It gives you full visibility into customer conversations, orders, and bot status.
 
 ### How to access the dashboard
 
@@ -477,37 +494,25 @@ Open your browser and navigate to:
 https://your-app.up.railway.app/admin
 ```
 
-If you have a `QR_ACCESS_TOKEN` set (recommended), add it as a query parameter:
+You will be prompted to sign in. Use the password you set in `ADMIN_PASSWORD`. If `ADMIN_PASSWORD` is not set, the dashboard falls back to accepting `QR_ACCESS_TOKEN` as the password (or allows anyone in if neither is configured).
 
-```
-https://your-app.up.railway.app/admin?token=YOUR_TOKEN
-```
+Sessions are stored server-side in memory with an 8-hour expiry.
 
-On your local machine use:
+### Dashboard tabs
 
-```
-http://localhost:3000/admin?token=YOUR_TOKEN
-```
-
-### What the dashboard shows
-
-- **Sidebar (left):** All customer conversations sorted by most recent activity.  
-  Each conversation has a colour-coded status dot:
-  - 🟢 **Paid** – order paid/complete
-  - 🔵 **Quoted** – quote sent, awaiting approval
-  - 🟡 **In Progress** – customer is in the middle of a flow or has items in the cart
-  - 🔴 **Handover** – a human agent has taken over (bot is paused)
-  - ⚪ **Idle** – no recent activity
-- **Chat area (right):** Click any conversation to view the full message history (customer and bot messages).
-- **Status bar:** Shows whether the WhatsApp connection is live.
-
-### Watching without disturbing the bot
-
-Simply click on a conversation to view it. The bot continues to run normally; you are in read-only observer mode.
+| Tab | What it shows |
+|---|---|
+| 💬 **Chats** | All customer conversations with live updates. Click any chat to read the history and take over from the bot. |
+| 📋 **Orders** | Every order submitted by customers. Shows status, quote link, and downloadable design/artwork files. |
+| 📦 **Products** | Download or upload the products CSV without leaving the dashboard. |
+| 💡 **Leads** | Unanswered customer messages, sorted by frequency. Use these to teach the bot new replies. |
+| 🤝 **Handovers** | All currently active human handover sessions. Resume bot control for any customer from here. |
+| 📱 **QR** | WhatsApp connection status. Links to the QR code page when the bot is not yet linked. |
 
 ### Taking over from the bot
 
-Type a message in the text box at the bottom and press **Enter** or click **Send**. The first message you send will:
+Type a message in the chat text box and press **Enter** or click **Send**. The first message you send will:
+
 1. Pause the bot for that customer.
 2. Notify the customer that a team member has taken over.
 3. Send your message to the customer.
@@ -516,6 +521,19 @@ All subsequent messages you type also go to the customer while the handover is a
 
 ### Handing back to the bot
 
-Click the **Resume Bot** button in the chat header (visible during a handover). The bot will take over again and notify the customer.
+Click the **Resume Bot** button in the chat header (visible during a handover), or use the **Handovers** tab. The bot will take over again and notify the customer.
+
+### Downloading design and artwork files
+
+When a customer uploads artwork or design files during an order:
+
+- If Google Drive is configured, files are uploaded to Drive and accessible via the **Orders** tab.
+- If Google Drive is not configured, files are stored on disk and still downloadable via the **Orders** tab using a secure backend proxy.
+
+Files are never served directly from an unauthenticated URL — downloads always go through the authenticated dashboard.
+
+### Admin audit log
+
+All admin actions (login, send message, resume bot, file download) are appended to `./storage/admin_audit.log`.
 
 That is the full setup and operating guide.
