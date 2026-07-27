@@ -633,6 +633,25 @@ function buildQuoteText(product, requestedQty, total) {
     return quoteText;
 }
 
+async function promptForDesignChoiceIfNeeded(sock, jid, product, item) {
+    const designFee = item.designFee > 0
+        ? item.designFee
+        : calcScaledDesignFee(product, item.qty || 1);
+
+    if (designFee <= 0) return false;
+
+    if (item.designFee === 0) {
+        item.designFee = designFee;
+        item.total += designFee;
+    }
+
+    userStates[jid] = { step: 'awaiting_design_choice', pendingProduct: product, pendingItem: item };
+    await sock.sendMessage(jid, {
+        text: `Do you have your own design/artwork ready?\n\n1. Yes – I have my own design\n2. No – I need design work done (Design/Layout fee: ${formatCurrency(designFee)})\n0. Back\n\nReply *1* or *2*.`
+    });
+    return true;
+}
+
 function greetUser(jid) {
     const name = userNames[jid];
     return name ? `Hi there ${name}! 👋` : 'Hi there! 👋';
@@ -2305,11 +2324,7 @@ async function startBot() {
                             if (wholesaleMultiplier < 1) item.wholesaleDiscount = rawMaterial - discountedMaterial;
                             item.total = discountedMaterial + item.designFee + item.polesCost + item.installationFee;
                         }
-                        if (item.designFee > 0) {
-                            userStates[jid] = { step: 'awaiting_design_choice', pendingProduct: product, pendingItem: item };
-                            await sock.sendMessage(jid, {
-                                text: `Do you have your own design/artwork ready?\n\n1. Yes – I have my own design\n2. No – I need design work done (Design/Layout fee: ${formatCurrency(item.designFee)})\n0. Back\n\nReply *1* or *2*.`
-                            });
+                        if (await promptForDesignChoiceIfNeeded(sock, jid, product, item)) {
                             continue;
                         }
                         if (!userCarts[jid]) userCarts[jid] = [];
@@ -2345,11 +2360,7 @@ async function startBot() {
                             qty,
                             ...(wholesaleDiscount > 0 && { wholesaleDiscount })
                         };
-                        if (designFee > 0) {
-                            userStates[jid] = { step: 'awaiting_design_choice', pendingProduct: product, pendingItem: item };
-                            await sock.sendMessage(jid, {
-                                text: `Do you have your own design/artwork ready?\n\n1. Yes – I have my own design\n2. No – I need design work done (Design/Layout fee: ${formatCurrency(designFee)})\n0. Back\n\nReply *1* or *2*.`
-                            });
+                        if (await promptForDesignChoiceIfNeeded(sock, jid, product, item)) {
                             continue;
                         }
                         if (!userCarts[jid]) userCarts[jid] = [];
@@ -2507,11 +2518,7 @@ async function startBot() {
                                 qty,
                                 ...(wholesaleDiscount > 0 && { wholesaleDiscount })
                             };
-                            if (designFee > 0) {
-                                userStates[jid] = { step: 'awaiting_design_choice', pendingProduct: product, pendingItem: item };
-                                await sock.sendMessage(jid, {
-                                    text: `Do you have your own design/artwork ready?\n\n1. Yes – I have my own design\n2. No – I need design work done (Design/Layout fee: ${formatCurrency(designFee)})\n0. Back\n\nReply *1* or *2*.`
-                                });
+                            if (await promptForDesignChoiceIfNeeded(sock, jid, product, item)) {
                                 continue;
                             }
                             if (!userCarts[jid]) userCarts[jid] = [];
@@ -2683,11 +2690,7 @@ async function startBot() {
                             qty,
                             ...(wholesaleDiscount > 0 && { wholesaleDiscount })
                         };
-                        if (designFee > 0) {
-                            userStates[jid] = { step: 'awaiting_design_choice', pendingProduct: product, pendingItem: item };
-                            await sock.sendMessage(jid, {
-                                text: `Do you have your own design/artwork ready?\n\n1. Yes – I have my own design\n2. No – I need design work done (Design/Layout fee: ${formatCurrency(designFee)})\n0. Back\n\nReply *1* or *2*.`
-                            });
+                        if (await promptForDesignChoiceIfNeeded(sock, jid, product, item)) {
                             continue;
                         }
                         if (!userCarts[jid]) userCarts[jid] = [];
