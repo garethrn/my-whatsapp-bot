@@ -37,6 +37,7 @@ const LEARNED_RESPONSES_FILE = path.join(STORAGE_DIR, 'learned_responses.json');
 const LEARNING_LEADS_FILE = path.join(STORAGE_DIR, 'learning_leads.json');
 const ORDERS_FILE = path.join(STORAGE_DIR, 'orders.json');
 const AUDIT_LOG_FILE = path.join(STORAGE_DIR, 'admin_audit.log');
+const SETTINGS_FILE = path.join(STORAGE_DIR, 'settings.json');
 const MAX_HISTORY = 10;
 const MAX_NAVIGATION_HISTORY = 25;
 const MAX_LEARNING_LEADS = 200;
@@ -181,6 +182,9 @@ let userNames = {};
 let fallbackCounts = {};
 let userEmails = {};
 let orders = loadJsonFile(ORDERS_FILE, []);
+let settings = loadJsonFile(SETTINGS_FILE, { wholesalePassword: '' });
+// Tracks which customer JIDs have authenticated as wholesale clients in this session.
+let wholesaleActiveSessions = {};
 // Full conversation log keyed by JID – stores both user and bot messages for the admin dashboard.
 const MAX_CHAT_LOG = 100;
 let chatLog = {}; // { [jid]: [{ role: 'user'|'bot', text: string, timestamp: string }] }
@@ -545,6 +549,29 @@ function calcFixedQuoteForQty(product, qty) {
     return packs * packPrice;
 }
 
+/**
+ * Returns the design fee scaled by the number of sets/packs for pack-based products.
+ * For single-unit products the fee is returned flat (charged once per order).
+ */
+function calcScaledDesignFee(product, qty) {
+    const baseFee = toNumber(product.DesignFee);
+    if (baseFee === 0) return 0;
+    const profile = getProductQuantityProfile(product);
+    if (profile.mode === 'sets') return baseFee * qty;
+    return baseFee;
+}
+
+/**
+ * Returns the wholesale price multiplier for a given customer and product.
+ * Products in the 'Supplies' category are excluded from the discount.
+ */
+function getWholesaleMultiplier(jid, product) {
+    if (!wholesaleActiveSessions[jid]) return 1;
+    const cat = (product?.Category || '').trim().toLowerCase();
+    if (cat === 'supplies') return 1;
+    return 0.8; // 20% off
+}
+
 function pluralizeWord(word, count) {
     return count === 1 ? word : `${word}s`;
 }
@@ -612,6 +639,9 @@ function greetUser(jid) {
 }
 
 function buildWelcomeText(jid) {
+    const wholesaleLine = wholesaleActiveSessions[jid]
+        ? '5. ✅ Wholesale Mode Active'
+        : '5. Wholesale Clients';
     return [
         greetUser(jid),
         `Thank you for contacting *${BUSINESS_NAME}*. I'm AutoBot, your virtual assistant. Let me know how I can assist you today:`,
@@ -620,6 +650,7 @@ function buildWelcomeText(jid) {
         '2. Product List',
         '3. Track My Order',
         '4. Store Contact Details',
+        wholesaleLine,
         '',
         '0. Back',
         '',
@@ -949,6 +980,7 @@ function buildOrderSummary(cart, options = {}) {
         if (item.qty > 1) summary += ` ×${item.qty}`;
         summary += '\n';
         summary += `   Material: ${formatCurrency(item.total - (item.designFee || 0) - (item.polesCost || 0) - (item.installationFee || 0))}\n`;
+        if (item.wholesaleDiscount > 0) summary += `   🏷️ Wholesale Discount (20%): -${formatCurrency(item.wholesaleDiscount)}\n`;
         if (item.designFee > 0) summary += `   Design/Layout Fee: ${formatCurrency(item.designFee)}\n`;
         if (item.polesCost > 0) summary += `   Poles (×${item.poles}): ${formatCurrency(item.polesCost)}\n`;
         if (item.installationFee > 0) summary += `   Installation: ${formatCurrency(item.installationFee)}\n`;
@@ -1667,8 +1699,48 @@ async function startBot() {
                             await sock.sendMessage(jid, { text: buildContactDetailsText() });
                             continue;
                         }
+                        if (text === '5' || /wholesale/.test(text)) {
+                            if (wholesaleActiveSessions[jid]) {
+                                await sock.sendMessage(jid, {
+                                    text: `✅ *Wholesale mode is already active* for your session.\n\nYou receive a 20% discount on all products (excluding Supplies).\n\n${NAVIGATION_HINT}`
+                                });
+                                continue;
+                            }
+                            if (!settings.wholesalePassword) {
+                                await sock.sendMessage(jid, {
+                                    text: `❌ Wholesale pricing is not available at this time. Please contact us directly for more information.\n\n${NAVIGATION_HINT}`
+                                });
+                                continue;
+                            }
+                            userStates[jid] = { step: 'awaiting_wholesale_password' };
+                            await sock.sendMessage(jid, {
+                                text: `🔐 *Wholesale Client Access*\n\nPlease enter your wholesale password to activate discounted pricing:\n\n0. Back`
+                            });
+                            continue;
+                        }
                         await sock.sendMessage(jid, {
-                            text: 'Please reply with a number:\n\n1. Place a new order\n2. Product List\n3. Track My Order\n4. Store Contact Details\n0. Back'
+                            text: 'Please reply with a number:\n\n1. Place a new order\n2. Product List\n3. Track My Order\n4. Store Contact Details\n5. Wholesale Clients\n0. Back'
+                        });
+                        continue;
+                    }
+
+                // ── State: awaiting_wholesale_password ────────────────────────────
+                    if (userState.step === 'awaiting_wholesale_password') {
+                        if (text === '0' || text === 'back') {
+                            userStates[jid] = { step: 'awaiting_main_menu' };
+                            await sock.sendMessage(jid, { text: buildWelcomeText(jid) });
+                            continue;
+                        }
+                        if (settings.wholesalePassword && text === settings.wholesalePassword) {
+                            wholesaleActiveSessions[jid] = true;
+                            userStates[jid] = { step: 'awaiting_main_menu' };
+                            await sock.sendMessage(jid, {
+                                text: `✅ *Wholesale pricing activated!*\n\nYou now have a *20% discount* on all products (excluding Supplies) for this session.\n\n${buildWelcomeText(jid)}`
+                            });
+                            continue;
+                        }
+                        await sock.sendMessage(jid, {
+                            text: `❌ Incorrect password. Please try again or type *0* to go back.`
                         });
                         continue;
                     }
@@ -1986,7 +2058,10 @@ async function startBot() {
                     if (userState.step === 'awaiting_design_choice') {
                         const item = userState.pendingItem;
                         const product = userState.pendingProduct;
-                        const originalDesignFee = toNumber(product.DesignFee);
+                        // Use the fee already on the item (which may be scaled for pack products).
+                        const originalDesignFee = item.designFee > 0
+                            ? item.designFee
+                            : calcScaledDesignFee(product, item.qty || 1);
 
                         const isYes = text === '1' || ['yes', 'y', 'own', 'i have', 'have design', 'my design'].some((k) => text.includes(k));
                         const isNo = text === '2' || ['no', 'n', 'need design', 'no design', 'create'].some((k) => text.includes(k));
@@ -2066,8 +2141,9 @@ async function startBot() {
 
                         if (noArtwork) {
                             // Customer said they had their own design but doesn't have the artwork ready.
-                            // Restore the original design fee — they will need design work done.
-                            const originalDesignFee = toNumber(userState.pendingProduct?.DesignFee);
+                            // Restore the design fee (scaled for pack products) — they will need design work done.
+                            const product = userState.pendingProduct;
+                            const originalDesignFee = calcScaledDesignFee(product, item.qty || 1);
                             if (originalDesignFee > 0 && item.designFee === 0) {
                                 item.designFee = originalDesignFee;
                                 item.total += originalDesignFee;
@@ -2214,13 +2290,20 @@ async function startBot() {
                         }
                         item.qty = qty;
                         const labelProfile = getProductQuantityProfile(product);
+                        const wholesaleMultiplier = getWholesaleMultiplier(jid, product);
                         if (labelProfile.mode === 'labels' && item.dimLength && item.dimHeight) {
                             // For labels: total area = L × B × Qty; apply min price to the full order
                             const totalSqm = (item.dimLength / MM_PER_METER) * (item.dimHeight / MM_PER_METER) * qty;
-                            item.sqmPrice = Math.max(totalSqm * toNumber(product.PricePerSqm), toNumber(product.MinPrice));
+                            const rawSqmPrice = Math.max(totalSqm * toNumber(product.PricePerSqm), toNumber(product.MinPrice));
+                            const discountedSqmPrice = rawSqmPrice * wholesaleMultiplier;
+                            if (wholesaleMultiplier < 1) item.wholesaleDiscount = rawSqmPrice - discountedSqmPrice;
+                            item.sqmPrice = discountedSqmPrice;
                             item.total = item.sqmPrice + item.designFee + item.polesCost + item.installationFee;
                         } else {
-                            item.total = (item.sqmPrice * qty) + item.designFee + item.polesCost + item.installationFee;
+                            const rawMaterial = item.sqmPrice * qty;
+                            const discountedMaterial = rawMaterial * wholesaleMultiplier;
+                            if (wholesaleMultiplier < 1) item.wholesaleDiscount = rawMaterial - discountedMaterial;
+                            item.total = discountedMaterial + item.designFee + item.polesCost + item.installationFee;
                         }
                         if (item.designFee > 0) {
                             userStates[jid] = { step: 'awaiting_design_choice', pendingProduct: product, pendingItem: item };
@@ -2247,7 +2330,10 @@ async function startBot() {
                             continue;
                         }
                         const materialTotal = calcFixedQuoteForQty(product, getPricedQuantity(product, qty));
-                        const designFee = toNumber(product.DesignFee);
+                        const wholesaleMultiplier = getWholesaleMultiplier(jid, product);
+                        const discountedMaterial = materialTotal * wholesaleMultiplier;
+                        const wholesaleDiscount = materialTotal - discountedMaterial;
+                        const designFee = calcScaledDesignFee(product, qty);
                         const item = {
                             name: product.Name,
                             sqmPrice: toNumber(product.FixedPrice),
@@ -2255,8 +2341,9 @@ async function startBot() {
                             polesCost: 0,
                             poles: 0,
                             installationFee: 0,
-                            total: materialTotal + designFee,
-                            qty
+                            total: discountedMaterial + designFee,
+                            qty,
+                            ...(wholesaleDiscount > 0 && { wholesaleDiscount })
                         };
                         if (designFee > 0) {
                             userStates[jid] = { step: 'awaiting_design_choice', pendingProduct: product, pendingItem: item };
@@ -2390,10 +2477,11 @@ async function startBot() {
                             await sock.sendMessage(jid, { text: `${getQuantityValidationPrompt(product)} Type *cancel* to go back.` });
                             continue;
                         }
-                        const total = calcFixedQuoteForQty(product, getPricedQuantity(product, qty));
-                        const quoteText = buildQuoteText(product, qty, total);
+                        const materialTotal = calcFixedQuoteForQty(product, getPricedQuantity(product, qty));
+                        const discountedTotal = materialTotal * getWholesaleMultiplier(jid, product);
+                        const quoteText = buildQuoteText(product, qty, discountedTotal);
                         userProductContext[jid] = product;
-                        userStates[jid] = { step: 'awaiting_quote_confirm', pendingProduct: product, pendingQty: qty, pendingTotal: total };
+                        userStates[jid] = { step: 'awaiting_quote_confirm', pendingProduct: product, pendingQty: qty, pendingTotal: discountedTotal };
                         await sock.sendMessage(jid, { text: quoteText });
                         continue;
                     }
@@ -2403,8 +2491,11 @@ async function startBot() {
                         if (text === '1' || ['yes', 'y', 'add', 'yes add', 'yeah', 'yep', 'sure'].includes(text)) {
                             const product = userState.pendingProduct;
                             const qty = userState.pendingQty;
-                            const materialTotal = userState.pendingTotal;
-                            const designFee = toNumber(product.DesignFee);
+                            const discountedMaterial = userState.pendingTotal;
+                            const wholesaleMultiplier = getWholesaleMultiplier(jid, product);
+                            const rawMaterial = wholesaleMultiplier < 1 ? discountedMaterial / wholesaleMultiplier : discountedMaterial;
+                            const wholesaleDiscount = rawMaterial - discountedMaterial;
+                            const designFee = calcScaledDesignFee(product, qty);
                             const item = {
                                 name: product.Name,
                                 sqmPrice: toNumber(product.FixedPrice),
@@ -2412,8 +2503,9 @@ async function startBot() {
                                 polesCost: 0,
                                 poles: 0,
                                 installationFee: 0,
-                                total: materialTotal + designFee,
-                                qty
+                                total: discountedMaterial + designFee,
+                                qty,
+                                ...(wholesaleDiscount > 0 && { wholesaleDiscount })
                             };
                             if (designFee > 0) {
                                 userStates[jid] = { step: 'awaiting_design_choice', pendingProduct: product, pendingItem: item };
@@ -2491,8 +2583,9 @@ async function startBot() {
                         }
                         if (qty) {
                             const materialTotal = calcFixedQuoteForQty(product, getPricedQuantity(product, qty));
-                            userStates[jid] = { step: 'awaiting_quote_confirm', pendingProduct: product, pendingQty: qty, pendingTotal: materialTotal };
-                            await sock.sendMessage(jid, { text: buildQuoteText(product, qty, materialTotal) });
+                            const discountedTotal = materialTotal * getWholesaleMultiplier(jid, product);
+                            userStates[jid] = { step: 'awaiting_quote_confirm', pendingProduct: product, pendingQty: qty, pendingTotal: discountedTotal };
+                            await sock.sendMessage(jid, { text: buildQuoteText(product, qty, discountedTotal) });
                             continue;
                         }
                         userStates[jid] = { step: 'awaiting_quote_quantity', pendingProduct: product };
@@ -2575,7 +2668,10 @@ async function startBot() {
                                 continue;
                         }
                         const materialTotal = calcFixedQuoteForQty(product, getPricedQuantity(product, qty));
-                        const designFee = toNumber(product.DesignFee);
+                        const wholesaleMultiplier = getWholesaleMultiplier(jid, product);
+                        const discountedMaterial = materialTotal * wholesaleMultiplier;
+                        const wholesaleDiscount = materialTotal - discountedMaterial;
+                        const designFee = calcScaledDesignFee(product, qty);
                         const item = {
                             name: product.Name,
                             sqmPrice: price,
@@ -2583,8 +2679,9 @@ async function startBot() {
                             polesCost: 0,
                             poles: 0,
                             installationFee: 0,
-                            total: materialTotal + designFee,
-                            qty
+                            total: discountedMaterial + designFee,
+                            qty,
+                            ...(wholesaleDiscount > 0 && { wholesaleDiscount })
                         };
                         if (designFee > 0) {
                             userStates[jid] = { step: 'awaiting_design_choice', pendingProduct: product, pendingItem: item };
@@ -3330,6 +3427,26 @@ app.get('/admin/api/orders', adminRouteLimiter, adminAuthMiddleware, (req, res) 
     res.json({ ok: true, orders: sorted });
 });
 
+// GET /admin/api/settings — retrieve bot settings (sensitive values are masked)
+app.get('/admin/api/settings', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
+    res.json({
+        ok: true,
+        wholesalePasswordSet: !!(settings.wholesalePassword)
+    });
+});
+
+// POST /admin/api/settings — update bot settings
+app.post('/admin/api/settings', adminRouteLimiter, adminAuthMiddleware, express.json(), (req, res) => {
+    const { wholesalePassword } = req.body || {};
+    if (typeof wholesalePassword !== 'string') {
+        return res.status(400).json({ error: 'wholesalePassword must be a string' });
+    }
+    settings.wholesalePassword = wholesalePassword;
+    saveJsonFile(SETTINGS_FILE, settings);
+    auditLog('SETTINGS_UPDATE', 'wholesalePassword updated', req.ip);
+    res.json({ ok: true });
+});
+
 // GET /admin/api/leads — top unanswered messages
 app.get('/admin/api/leads', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
     const sorted = [...learningLeads].sort((a, b) => b.count - a.count);
@@ -3593,6 +3710,7 @@ app.get('/admin', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
     <button class="tab-btn" data-tab="products" onclick="switchTab('products')">📦 Products</button>
     <button class="tab-btn" data-tab="leads" onclick="switchTab('leads')">💡 Leads</button>
     <button class="tab-btn" data-tab="handovers" onclick="switchTab('handovers')">🤝 Handovers</button>
+    <button class="tab-btn" data-tab="settings" onclick="switchTab('settings')">⚙️ Settings</button>
     <button class="tab-btn" data-tab="qr" onclick="switchTab('qr')">📱 QR</button>
   </div>
   <form method="POST" action="/admin/logout" style="flex-shrink:0">
@@ -3669,6 +3787,24 @@ app.get('/admin', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
     <div class="full-panel" id="handoversPanel"><p style="color:#aaa">Loading handovers…</p></div>
   </div>
 
+  <!-- SETTINGS TAB -->
+  <div id="panel-settings" class="panel" style="flex-direction:column">
+    <div class="products-panel">
+      <h2 style="margin-bottom:16px">⚙️ Settings</h2>
+      <div class="card">
+        <h3>🏷️ Wholesale Client Password</h3>
+        <p class="hint">Set a password that wholesale clients can enter in the bot to unlock a 20% discount on all products (excluding the Supplies category). Leave blank to disable wholesale pricing.</p>
+        <div id="wholesaleStatus" style="margin-bottom:10px;font-size:.85rem;color:#666">Loading…</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input type="password" id="wholesalePasswordInput" placeholder="New wholesale password" style="padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:.88rem;flex:1;min-width:200px">
+          <button class="btn" onclick="saveWholesalePassword()" style="flex-shrink:0">💾 Save Password</button>
+          <button class="btn btn-sec" onclick="clearWholesalePassword()" style="flex-shrink:0">🗑️ Clear (Disable)</button>
+        </div>
+        <p id="wholesaleSaveMsg" style="margin-top:8px;font-size:.82rem;display:none"></p>
+      </div>
+    </div>
+  </div>
+
   <!-- QR TAB -->
   <div id="panel-qr" class="panel" style="flex-direction:column">
     <div class="qr-panel" id="qrPanel">
@@ -3725,7 +3861,69 @@ function switchTab(name) {
   if (name === 'orders') loadOrders();
   else if (name === 'leads') loadLeads();
   else if (name === 'handovers') loadHandovers();
+  else if (name === 'settings') loadSettings();
   else if (name === 'qr') refreshQrPanel();
+}
+
+// ── Settings tab ──────────────────────────────────────────────────────────────
+async function loadSettings() {
+  const statusEl = document.getElementById('wholesaleStatus');
+  if (!statusEl) return;
+  try {
+    const r = await fetch('/admin/api/settings');
+    if (r.status === 401) { location.href='/admin/login'; return; }
+    const data = await r.json();
+    if (data.ok) {
+      statusEl.textContent = data.wholesalePasswordSet
+        ? '✅ Wholesale password is currently set.'
+        : '⚠️ No wholesale password set — wholesale pricing is disabled.';
+    }
+  } catch(e) { statusEl.textContent = 'Error loading settings.'; }
+}
+
+async function saveWholesalePassword() {
+  const input = document.getElementById('wholesalePasswordInput');
+  const msg = document.getElementById('wholesaleSaveMsg');
+  const pw = (input && input.value) || '';
+  if (!pw) { alert('Please enter a password first.'); return; }
+  try {
+    const r = await fetch('/admin/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ wholesalePassword: pw })
+    });
+    if (r.status === 401) { location.href='/admin/login'; return; }
+    const data = await r.json();
+    if (data.ok) {
+      if (msg) { msg.style.display='block'; msg.style.color='#27ae60'; msg.textContent='✅ Wholesale password saved successfully.'; }
+      if (input) input.value = '';
+      loadSettings();
+    } else {
+      if (msg) { msg.style.display='block'; msg.style.color='#c0392b'; msg.textContent='Error: ' + (data.error||'Unknown error'); }
+    }
+  } catch(e) {
+    if (msg) { msg.style.display='block'; msg.style.color='#c0392b'; msg.textContent='Error: ' + e.message; }
+  }
+}
+
+async function clearWholesalePassword() {
+  if (!confirm('Are you sure you want to disable wholesale pricing? This will clear the wholesale password.')) return;
+  const msg = document.getElementById('wholesaleSaveMsg');
+  try {
+    const r = await fetch('/admin/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ wholesalePassword: '' })
+    });
+    if (r.status === 401) { location.href='/admin/login'; return; }
+    const data = await r.json();
+    if (data.ok) {
+      if (msg) { msg.style.display='block'; msg.style.color='#27ae60'; msg.textContent='✅ Wholesale password cleared. Wholesale pricing is now disabled.'; }
+      loadSettings();
+    }
+  } catch(e) {
+    if (msg) { msg.style.display='block'; msg.style.color='#c0392b'; msg.textContent='Error: ' + e.message; }
+  }
 }
 
 // ── WhatsApp status ───────────────────────────────────────────────────────────
