@@ -315,7 +315,8 @@ Without these variables, files are stored on local disk only (still accessible v
 
 To automatically create quotes in Invoice Ninja when customers check out, add:
 
-- `INVOICE_NINJA_URL` – base URL of your Invoice Ninja instance, e.g. `https://app.invoicing.co`
+- `INVOICE_NINJA_URL` – base URL of your Invoice Ninja instance, e.g. `https://app.invoicing.co`  
+  **Important:** do _not_ include `/api/v1` in this URL — the bot appends it automatically.
 - `INVOICE_NINJA_API_TOKEN` – API token from Invoice Ninja → Settings → API Tokens
 - `INVOICE_NINJA_TAX_NAME` – tax label used on quote line items (default: `VAT`)
 - `INVOICE_NINJA_TAX_RATE` – tax rate as a percentage (default: `15`)
@@ -327,6 +328,20 @@ When `INVOICE_NINJA_URL` and `INVOICE_NINJA_API_TOKEN` are set, the bot will:
 3. Create a quote with itemised line items (material, design, poles, installation)
 4. Send the customer a link to view and approve their quote
 5. Notify admin when a quote is approved or paid (via webhook)
+
+**Troubleshooting Invoice Ninja quote creation:**
+
+If quotes are not being created, check the following:
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| Admin receives `⚠️ Quote creation failed – manual follow-up needed.` with an error | Wrong URL or token | Check `INVOICE_NINJA_URL` (no trailing `/api/v1`) and `INVOICE_NINJA_API_TOKEN` in Railway variables |
+| `Invoice Ninja API 401` error | Invalid API token | Generate a new token in Invoice Ninja → Settings → API Tokens |
+| `Invalid INVOICE_NINJA_URL` error | Malformed URL | Must start with `https://` and have no trailing slash |
+| `Invoice Ninja API 422` error | Missing required field | Check Railway logs for the full error body |
+| No error but no quote | `isConfigured()` returns false | Both `INVOICE_NINJA_URL` and `INVOICE_NINJA_API_TOKEN` must be set |
+
+Check Railway logs (`node index.js` output) for lines beginning with `❌ Invoice Ninja` for the full error details.
 
 ### Step 4: Add persistent storage
 
@@ -347,12 +362,16 @@ On Railway, add a persistent volume and mount it to **`/app/storage`**. This kee
 To receive status notifications (quote approved, payment received), register a webhook in Invoice Ninja:
 
 1. In Invoice Ninja go to **Settings → Webhooks → New Webhook**.
-2. Set the webhook URL to `https://your-app.up.railway.app/webhook/invoice-ninja` (must be a `POST` endpoint).
+2. Set the webhook URL to `https://your-app.up.railway.app/webhook/invoice-ninja`.  
+   - REST method: **POST**
 3. Select quote status events so updates include the quote record ID used by this bot:
    - **Quote Approved**
    - **Quote Updated**
 4. (Optional but recommended) Enable webhook signing in Invoice Ninja, copy the generated secret, and set it as `INVOICE_NINJA_WEBHOOK_SECRET` in Railway.
-5. Save the webhook and trigger a test quote approval/payment update to confirm bot and admin notifications are received.
+5. Save the webhook. Invoice Ninja may perform a `GET` request to verify the endpoint is live — the bot handles this and returns `200 OK` automatically.
+6. Trigger a test quote approval/payment update to confirm bot and admin notifications are received.
+
+> **`Cannot GET /webhook/invoice-ninja`?** This just means Invoice Ninja (or a browser) opened the URL in a browser or via a GET request to verify it. The bot now handles this correctly with a 200 OK response. The real webhook events use POST and will work as expected.
 
 ### Step 5: Deploy
 

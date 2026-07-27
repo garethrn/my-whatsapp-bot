@@ -1380,7 +1380,7 @@ async function submitOrderForReview(sock, jid, cart) {
 
     const quoteNote = quoteInfo
         ? `\n\n📄 Quote *${quoteInfo.number}* created: ${quoteInfo.url || '(no link)'}`
-        : (invoiceNinja.isConfigured() ? '\n\n⚠️ Quote creation failed – manual follow-up needed.' : '');
+        : (invoiceNinja.isConfigured() ? `\n\n⚠️ Quote creation failed – manual follow-up needed.\nError: ${orderRecord.error || 'unknown'}` : '');
 
     const adminMessage = [
         '🆕 *New order request*',
@@ -3066,6 +3066,13 @@ app.get('/qr', qrRouteLimiter, (req, res) => {
 // --- INVOICE NINJA WEBHOOK ---
 // Configure this URL in Invoice Ninja → Settings → Webhooks
 // POST https://your-app.up.railway.app/webhook/invoice-ninja
+//
+// Invoice Ninja performs a GET request to verify the endpoint is reachable when
+// you first register the webhook. This handler returns 200 OK for that check.
+app.get('/webhook/invoice-ninja', (_req, res) => {
+    res.json({ ok: true, service: 'whatsapp-bot', endpoint: 'webhook/invoice-ninja' });
+});
+
 app.post('/webhook/invoice-ninja', (req, res, next) => {
     // Capture raw body so we can verify the HMAC signature when a secret is configured
     const chunks = [];
