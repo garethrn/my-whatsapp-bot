@@ -346,10 +346,13 @@ On Railway, add a persistent volume and mount it to **`/app/storage`**. This kee
 
 To receive status notifications (quote approved, payment received), register a webhook in Invoice Ninja:
 
-1. In Invoice Ninja go to **Settings → Webhooks → New Webhook**
-2. Set the URL to `https://your-app.up.railway.app/webhook/invoice-ninja`
-3. Select events: **Quote Updated**, **Quote Approved**, **Invoice Updated**, **Payment Created**
-4. Copy the webhook secret (if offered) and set it as `INVOICE_NINJA_WEBHOOK_SECRET` in Railway
+1. In Invoice Ninja go to **Settings → Webhooks → New Webhook**.
+2. Set the webhook URL to `https://your-app.up.railway.app/webhook/invoice-ninja` (must be a `POST` endpoint).
+3. Select quote status events so updates include the quote record ID used by this bot:
+   - **Quote Approved**
+   - **Quote Updated**
+4. (Optional but recommended) Enable webhook signing in Invoice Ninja, copy the generated secret, and set it as `INVOICE_NINJA_WEBHOOK_SECRET` in Railway.
+5. Save the webhook and trigger a test quote approval/payment update to confirm bot and admin notifications are received.
 
 ### Step 5: Deploy
 
