@@ -592,12 +592,13 @@ function calcScaledDesignFee(product, qty) {
 
 /**
  * Returns the wholesale price multiplier for a given customer and product.
- * Products in the 'Supplies' category are excluded from the discount.
+ * Products in the 'Supplies' or 'Large Format Printing' categories are excluded from the discount.
  */
 function getWholesaleMultiplier(jid, product) {
     if (!wholesaleActiveSessions[jid]) return 1;
     const cat = (product?.Category || '').trim().toLowerCase();
     if (cat === 'supplies') return 1;
+    if (cat.startsWith('large format printing')) return 1;
     return 0.8; // 20% off
 }
 
@@ -1735,10 +1736,8 @@ async function startBot() {
                 // ── State: awaiting_main_menu ──────────────────────────────────────
                     if (userState.step === 'awaiting_main_menu') {
                         if (text === '1' || /place.*(new\s+)?order|new order/.test(text)) {
-                            userStates[jid] = { step: 'awaiting_quote_product' };
-                            await sock.sendMessage(jid, {
-                                text: `Tell us what you require and I'll find the closest options for you.\n\nFor example: _banners_, _flyers_, _business cards_, _vehicle graphics_\n\nOr type *menu* to browse our full product catalogue.`
-                            });
+                            userStates[jid] = { step: 'awaiting_category_selection' };
+                            await sock.sendMessage(jid, { text: buildMenuText() });
                             continue;
                         }
                         if (text === '2' || /product\s*list|catalogue|browse|products/.test(text)) {
@@ -1759,7 +1758,7 @@ async function startBot() {
                         if (text === '5' || /wholesale/.test(text)) {
                             if (wholesaleActiveSessions[jid]) {
                                 await sock.sendMessage(jid, {
-                                    text: `✅ *Wholesale mode is already active* for your session.\n\nYou receive a 20% discount on all products (excluding Supplies).\n\n${NAVIGATION_HINT}`
+                                    text: `✅ *Wholesale mode is already active* for your session.\n\nYou receive a 20% discount on all products (excluding Supplies and Large Format Printing).\n\n${NAVIGATION_HINT}`
                                 });
                                 continue;
                             }
@@ -1792,7 +1791,7 @@ async function startBot() {
                             wholesaleActiveSessions[jid] = true;
                             userStates[jid] = { step: 'awaiting_main_menu' };
                             await sock.sendMessage(jid, {
-                                text: `✅ *Wholesale pricing activated!*\n\nYou now have a *20% discount* on all products (excluding Supplies) for this session.\n\n${buildWelcomeText(jid)}`
+                                text: `✅ *Wholesale pricing activated!*\n\nYou now have a *20% discount* on all products (excluding Supplies and Large Format Printing) for this session.\n\n${buildWelcomeText(jid)}`
                             });
                             continue;
                         }
@@ -2291,9 +2290,9 @@ async function startBot() {
                 // ── State: awaiting_post_cart_add ────────────────────────────────────
                     if (userState.step === 'awaiting_post_cart_add') {
                         if (text === '1' || ['yes', 'y', 'more', 'add', 'another'].some((k) => text.includes(k))) {
-                            userStates[jid] = { step: 'awaiting_add_product' };
+                            userStates[jid] = { step: 'awaiting_category_selection' };
                             await sock.sendMessage(jid, {
-                                text: `What else would you like to add? E.g. _A5 flyers_, _business cards_, _banners_.\n\nType *cancel* to go back or *menu* to browse.`
+                                text: `Please browse our product categories and select the item you would like to add.\n\n${buildMenuText()}`
                             });
                             continue;
                         }
@@ -2317,7 +2316,7 @@ async function startBot() {
                             if (invoiceNinja.isConfigured() && !userEmails[jid]) {
                                 userStates[jid] = { step: 'awaiting_customer_email', pendingCart: cart };
                                 await sock.sendMessage(jid, {
-                                    text: `📧 To generate your quote, please send your *email address*.\n\nOr type *skip* to continue without one.`
+                                    text: `📧 Please send your *email address* so we can send your quote to you.`
                                 });
                                 continue;
                             }
@@ -2423,13 +2422,11 @@ async function startBot() {
                             await sock.sendMessage(jid, { text: '🛒 Your cart is empty.' });
                             continue;
                         }
-                        if (text === 'skip') {
-                            // Proceed without email
-                        } else if (/.+@.+\..+/.test(text)) {
+                        if (/.+@.+\..+/.test(text)) {
                             userEmails[jid] = rawText.trim();
                         } else {
                             await sock.sendMessage(jid, {
-                                text: `Please send a valid email address (for example _you@example.com_).\n\nOr type *skip* to continue without one.`
+                                text: `Please send a valid email address (for example _you@example.com_).`
                             });
                             continue;
                         }
@@ -2470,34 +2467,9 @@ async function startBot() {
 
                 // ── State: awaiting_quote_product ───────────────────────────────────
                     if (userState.step === 'awaiting_quote_product') {
-                        const matches = findProductsByKeyword(text);
-                        if (matches.length === 0) {
-                            await sock.sendMessage(jid, { text: `I couldn't find that product. Could you clarify? E.g. _business cards_, _flyers_, _banners_.\n\nType *cancel* to go back.` });
-                            continue;
-                        }
-                        if (matches.length === 1) {
-                            const product = matches[0];
-                            userProductContext[jid] = product;
-                            if (product.PriceType === 'sqm') {
-                                userStates[jid] = { step: 'awaiting_dimensions', pendingProduct: product };
-                                await sock.sendMessage(jid, { text: `📐 *${product.Name}*\nTo give you an accurate quote, please send the *length x height in mm*, for example _${DIMENSION_FORMAT_EXAMPLE}_.\n\nType *cancel* to go back.` });
-                                continue;
-                            }
-                            userStates[jid] = { step: 'awaiting_quote_quantity', pendingProduct: product };
-                            await sock.sendMessage(jid, { text: `Got it – *${product.Name}*! ${getQuantityPrompt(product)}` });
-                            continue;
-                        }
-                        const navAction = getNextNavigationAction(matches);
-                        if (await handleNavigationAction(sock, jid, navAction)) continue;
-                        userStates[jid] = { step: 'awaiting_quote_product_selection', pendingMatches: matches };
+                        userStates[jid] = { step: 'awaiting_category_selection' };
                         await sock.sendMessage(jid, {
-                            text: buildProductMatchesText(
-                                matches,
-                                'I found these options:',
-                                matches.every((product) => product.PriceType === 'sqm')
-                                    ? 'Reply with the option number and then I’ll ask for the size in mm to calculate the price.'
-                                    : 'Reply with the option number for a quote.'
-                            )
+                            text: `Please browse our product categories below and select the item you are looking for.\n\n${buildMenuText()}`
                         });
                         continue;
                     }
@@ -2580,35 +2552,9 @@ async function startBot() {
 
                 // ── State: awaiting_add_product ─────────────────────────────────────
                     if (userState.step === 'awaiting_add_product') {
-                        const qty = extractQuantityFromText(text) || userState.pendingQty || null;
-                        const matches = findProductsByKeyword(text);
-                        if (matches.length === 0) {
-                            await sock.sendMessage(jid, { text: `I couldn't find that product. What would you like to add? E.g. _500 A5 flyers_, _100 business cards_.\n\nType *cancel* to go back.` });
-                            continue;
-                        }
-                        if (matches.length === 1) {
-                            const product = matches[0];
-                            userProductContext[jid] = product;
-                            if (product.PriceType === 'sqm') {
-                                userStates[jid] = { step: 'awaiting_dimensions', pendingProduct: product };
-                                await sock.sendMessage(jid, { text: `📐 *${product.Name}*\nPlease send the *length x height in mm*, for example _${DIMENSION_FORMAT_EXAMPLE}_.\n\nType *cancel* to go back.` });
-                                continue;
-                            }
-                            if (qty) {
-                                const materialTotal = calcFixedQuoteForQty(product, getPricedQuantity(product, qty));
-                                userStates[jid] = { step: 'awaiting_quote_confirm', pendingProduct: product, pendingQty: qty, pendingTotal: materialTotal };
-                                await sock.sendMessage(jid, { text: buildQuoteText(product, qty, materialTotal) });
-                                continue;
-                            }
-                            userStates[jid] = { step: 'awaiting_quote_quantity', pendingProduct: product };
-                            await sock.sendMessage(jid, { text: `Got it – *${product.Name}*! ${getQuantityPrompt(product)}` });
-                            continue;
-                        }
-                        const navAction = getNextNavigationAction(matches);
-                        if (await handleNavigationAction(sock, jid, navAction)) continue;
-                        userStates[jid] = { step: 'awaiting_add_product_selection', pendingMatches: matches, pendingQty: qty };
+                        userStates[jid] = { step: 'awaiting_category_selection' };
                         await sock.sendMessage(jid, {
-                            text: buildProductMatchesText(matches, 'I found these options:', 'Reply with the option number to select a product.')
+                            text: `Please browse our product categories and select the item you would like to add.\n\n${buildMenuText()}`
                         });
                         continue;
                     }
@@ -2783,7 +2729,7 @@ async function startBot() {
                         if (invoiceNinja.isConfigured() && !userEmails[jid]) {
                             userStates[jid] = { step: 'awaiting_customer_email', pendingCart: cart };
                             await sock.sendMessage(jid, {
-                                text: `📧 To generate your quote, please send your *email address*.\n\nOr type *skip* to continue without one.`
+                                text: `📧 Please send your *email address* so we can send your quote to you.`
                             });
                             continue;
                         }
@@ -2830,46 +2776,8 @@ async function startBot() {
                     if (/\b(quote|estimate|how much|rate)\b/.test(text) || (/\b(price|cost)\b/.test(text) && !/products/.test(text))) {
                         if (userState.step === 'idle') {
                             fallbackCounts[jid] = 0;
-                            const qty = extractQuantityFromText(text);
-                            const matches = findProductsByKeyword(text);
-
-                            if (matches.length === 1) {
-                                const product = matches[0];
-                                userProductContext[jid] = product;
-                                if (product.PriceType === 'sqm') {
-                                    userStates[jid] = { step: 'awaiting_dimensions', pendingProduct: product };
-                                    await sock.sendMessage(jid, { text: `📐 *${product.Name}*\nTo give you an accurate quote, please send the *length x height in mm*, for example _${DIMENSION_FORMAT_EXAMPLE}_.\n\nType *cancel* to go back.` });
-                                    continue;
-                                }
-                                if (qty) {
-                                    const total = calcFixedQuoteForQty(product, getPricedQuantity(product, qty));
-                                    const quoteText = buildQuoteText(product, qty, total);
-                                    userStates[jid] = { step: 'awaiting_quote_confirm', pendingProduct: product, pendingQty: qty, pendingTotal: total };
-                                    await sock.sendMessage(jid, { text: quoteText });
-                                    continue;
-                                }
-                                userStates[jid] = { step: 'awaiting_quote_quantity', pendingProduct: product };
-                                await sock.sendMessage(jid, { text: `Great! To give you an accurate quote for *${product.Name}* – ${getQuantityPrompt(product)}` });
-                                continue;
-                            }
-
-                            if (matches.length > 1) {
-                                const navAction = getNextNavigationAction(matches);
-                                if (await handleNavigationAction(sock, jid, navAction)) continue;
-                                userStates[jid] = { step: 'awaiting_quote_product_selection', pendingMatches: matches };
-                                await sock.sendMessage(jid, {
-                                    text: buildProductMatchesText(
-                                        matches,
-                                        'I found these options:',
-                                        matches.every((product) => product.PriceType === 'sqm')
-                                            ? 'Reply with the option number and then I’ll ask for the size in mm to calculate the price.'
-                                            : 'Reply with the option number for a quote.'
-                                    )
-                                });
-                                continue;
-                            }
-
                             const previousProduct = userProductContext[jid];
+                            const qty = extractQuantityFromText(text);
                             if (previousProduct) {
                                 if (qty) {
                                     const total = calcFixedQuoteForQty(previousProduct, getPricedQuantity(previousProduct, qty));
@@ -2882,93 +2790,32 @@ async function startBot() {
                                 await sock.sendMessage(jid, { text: `Still on *${previousProduct.Name}*.\n${getQuantityPrompt(previousProduct)}` });
                                 continue;
                             }
-
-                            await sock.sendMessage(jid, { text: `To give you an accurate quote, I need:\n1) Product type (e.g. _flyers_, _banners_, _business cards_)\n2) Quantity\n3) Paper type / finishing (e.g. gloss/matte)\n\nCould you provide these?` });
-                            userStates[jid] = { step: 'awaiting_quote_product' };
-                            continue;
-                        }
-                    }
-
-                // ── Intent: product search / browse ──────────────────────────────────
-                    if (userState.step === 'idle') {
-                        const matches = findProductsByKeyword(text);
-                        if (isProductInquiry(text, matches)) {
-                            fallbackCounts[jid] = 0;
-
-                            if (matches.length === 1) {
-                                const [product] = matches;
-                                userProductContext[jid] = product;
-                                if (product.PriceType === 'sqm') {
-                                    userStates[jid] = { step: 'awaiting_dimensions', pendingProduct: product };
-                                    await sock.sendMessage(jid, {
-                                        text: `📐 *${product.Name}*\nThis item is priced by size.\nPlease send the *length x height in mm*, for example _${DIMENSION_FORMAT_EXAMPLE}_, and I’ll calculate the price for you.`
-                                    });
-                                    continue;
-                                }
-
-                                userStates[jid] = { step: 'awaiting_quote_quantity', pendingProduct: product };
-                                await sock.sendMessage(jid, {
-                                    text: buildProductMatchesText(
-                                        matches,
-                                        'I found this option:',
-                                        getQuantityPrompt(product)
-                                    )
-                                });
-                                continue;
-                            }
-
-                            const navAction = getNextNavigationAction(matches);
-                            if (await handleNavigationAction(sock, jid, navAction)) continue;
-                            userStates[jid] = { step: 'awaiting_quote_product_selection', pendingMatches: matches };
+                            userStates[jid] = { step: 'awaiting_category_selection' };
                             await sock.sendMessage(jid, {
-                                text: buildProductMatchesText(
-                                    matches,
-                                    'I found these options:',
-                                    matches.every((product) => product.PriceType === 'sqm')
-                                        ? 'Reply with the option number and then I’ll ask for the size in mm to calculate the price.'
-                                        : 'Reply with the option number and I’ll help you price it or add it to your cart.'
-                                )
+                                text: `To get a quote, please browse our categories and select the product you are interested in.\n\n${buildMenuText()}`
                             });
                             continue;
                         }
                     }
 
+                // ── Intent: product search / browse ──────────────────────────────────
+                // Search by keyword is disabled — customers must browse via the menu.
+                    if (userState.step === 'idle' && isProductInquiry(text, findProductsByKeyword(text))) {
+                        fallbackCounts[jid] = 0;
+                        userStates[jid] = { step: 'awaiting_category_selection' };
+                        await sock.sendMessage(jid, {
+                            text: `Please browse our product categories to find what you are looking for.\n\n${buildMenuText()}`
+                        });
+                        continue;
+                    }
+
                 // ── Intent: add to cart (conversational) ────────────────────────────
                     if ((/\b(add|adding)\b/.test(text) || text === '+') && userState.step === 'idle') {
                         fallbackCounts[jid] = 0;
-                        const qty = extractQuantityFromText(text);
-                        const matches = findProductsByKeyword(text);
-
-                        if (matches.length === 1) {
-                            const product = matches[0];
-                            userProductContext[jid] = product;
-                            if (product.PriceType === 'sqm') {
-                                userStates[jid] = { step: 'awaiting_dimensions', pendingProduct: product };
-                                await sock.sendMessage(jid, { text: `📐 *${product.Name}*\nPlease send the *length x height in mm*, for example _${DIMENSION_FORMAT_EXAMPLE}_.\n\nType *cancel* to go back.` });
-                                continue;
-                            }
-                            if (qty) {
-                                const materialTotal = calcFixedQuoteForQty(product, getPricedQuantity(product, qty));
-                                userStates[jid] = { step: 'awaiting_quote_confirm', pendingProduct: product, pendingQty: qty, pendingTotal: materialTotal };
-                                await sock.sendMessage(jid, { text: buildQuoteText(product, qty, materialTotal) });
-                                continue;
-                            }
-                            userStates[jid] = { step: 'awaiting_quote_quantity', pendingProduct: product };
-                            await sock.sendMessage(jid, { text: `Got it – *${product.Name}*! ${getQuantityPrompt(product)}` });
-                            continue;
-                        }
-
-                        if (matches.length > 1) {
-                            const navAction = getNextNavigationAction(matches);
-                            if (await handleNavigationAction(sock, jid, navAction)) continue;
-                            const list = matches.map((p, i) => `${i + 1}. ${p.Name}`).join('\n');
-                            userStates[jid] = { step: 'awaiting_add_product_selection', pendingMatches: matches, pendingQty: qty };
-                            await sock.sendMessage(jid, { text: `We have a few options:\n${list}\n\nReply with the number to select a product.` });
-                            continue;
-                        }
-
-                        userStates[jid] = { step: 'awaiting_add_product', pendingQty: qty };
-                        await sock.sendMessage(jid, { text: `Which product would you like to add? E.g. _A5 flyers_, _business cards_, _banners_.\n\nType *cancel* to go back or *menu* to browse.` });
+                        userStates[jid] = { step: 'awaiting_category_selection' };
+                        await sock.sendMessage(jid, {
+                            text: `Please browse our product categories and select the item you would like to add.\n\n${buildMenuText()}`
+                        });
                         continue;
                     }
 
@@ -3880,7 +3727,7 @@ app.get('/admin', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
       <h2 style="margin-bottom:16px">⚙️ Settings</h2>
       <div class="card">
         <h3>🏷️ Wholesale Client Password</h3>
-        <p class="hint">Set a password that wholesale clients can enter in the bot to unlock a 20% discount on all products (excluding the Supplies category). Leave blank to disable wholesale pricing.</p>
+        <p class="hint">Set a password that wholesale clients can enter in the bot to unlock a 20% discount on all products (excluding Supplies and Large Format Printing). Leave blank to disable wholesale pricing.</p>
         <div id="wholesaleStatus" style="margin-bottom:10px;font-size:.85rem;color:#666">Loading…</div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <input type="password" id="wholesalePasswordInput" placeholder="New wholesale password" style="padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:.88rem;flex:1;min-width:200px">
