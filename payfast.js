@@ -66,16 +66,28 @@ function computeSignature(data) {
         .map(([k, v]) => `${k}=${phpUrlencode(v)}`);
 
     let paramString = parts.join('&');
-    if (PASSPHRASE) {
+    const hasPassphrase = !!(PASSPHRASE);
+    if (hasPassphrase) {
         paramString += `&passphrase=${phpUrlencode(PASSPHRASE)}`;
     }
+
+    // Debug: log the param string (with passphrase value masked) so it
+    // appears in server logs (e.g. Railway) and can be compared against
+    // what PayFast expects. Remove or disable this once the issue is resolved.
+    const debugString = hasPassphrase
+        ? paramString.replace(/&passphrase=[^&]*$/, '&passphrase=[REDACTED]')
+        : paramString;
+    console.log('[PayFast] signature param string:', debugString);
+    console.log('[PayFast] passphrase configured:', hasPassphrase ? 'YES' : 'NO');
 
     // PayFast requires MD5 for their payment signature algorithm — this is
     // a request-signing operation mandated by the PayFast API specification,
     // NOT a password-storage or password-verification hash.
     // See: https://developers.payfast.co.za/docs#checkout_page_submission
     // lgtm[js/insufficient-password-hash]
-    return crypto.createHash('md5').update(paramString).digest('hex');
+    const sig = crypto.createHash('md5').update(paramString).digest('hex');
+    console.log('[PayFast] computed signature:', sig);
+    return sig;
 }
 
 /**
