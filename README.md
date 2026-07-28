@@ -204,15 +204,16 @@ Open:
 
 `./storage/products.csv`
 
-The CSV has 20 columns:
+The CSV has 21 columns:
 
 ```csv
-ID,Category,Subcategory,SubSubcategory,SubSubSubcategory,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvailable,PolePrice,InstallationFee,RequiresArtwork,Aliases
+ID,SKU,Category,Subcategory,SubSubcategory,SubSubSubcategory,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvailable,PolePrice,InstallationFee,RequiresArtwork,Aliases
 ```
 
 | Column | Description |
 |---|---|
 | `ID` | Unique numeric ID |
+| `SKU` | *(Optional)* Stock-keeping unit code used as the `product_key` when creating Invoice Ninja line items. Set this to match the SKU code of the corresponding product in Invoice Ninja so that quotes are correctly linked to your product catalogue. When left blank the product name is used instead. Example values: `PP-0001`, `BC-SS-100`. |
 | `Category` | Product category (for example `Banners`, `Signs`, `Stickers`) |
 | `Subcategory` | Product family within the category (for example `Business Cards`, `Flyers`) |
 | `SubSubcategory` | *(Optional)* A second level within the subcategory (for example `Single Sided`, `Double Sided`). Leave blank for products that do not need this level. When products in the same subcategory have different `SubSubcategory` values the bot will ask the customer to choose before showing the product list. |
@@ -325,9 +326,19 @@ To automatically create quotes in Invoice Ninja when customers check out, add:
 When `INVOICE_NINJA_URL` and `INVOICE_NINJA_API_TOKEN` are set, the bot will:
 1. Ask customers for their email address at checkout (they can type `skip` to omit it)
 2. Find or create a client record in Invoice Ninja
-3. Create a quote with itemised line items (material, design, poles, installation)
-4. Send the customer a link to view and approve their quote
+3. Create a quote with itemised line items (material, design, poles, installation). The `SKU` column in your products CSV is used as the `product_key` on each line item so that Invoice Ninja matches it to the correct product in your catalogue.
+4. Send the customer a link to **view their PDF quote directly** — no Invoice Ninja login required (see below)
 5. Notify admin when a quote is approved or paid (via webhook)
+
+#### Direct PDF quote link (no login required)
+
+By default the quote link sent to the customer opens the Invoice Ninja client portal, which may require a login. To bypass this, set the `BOT_PUBLIC_URL` environment variable to the public URL of your bot (e.g. `https://my-app.up.railway.app`). The bot will then send the customer a direct PDF link like:
+
+```
+https://my-app.up.railway.app/quote-pdf/<invitation-key>
+```
+
+This URL is publicly accessible — no login is needed. The invitation key acts as a secure capability token (only someone who received the WhatsApp message can access it). On Railway the `RAILWAY_PUBLIC_DOMAIN` variable is usually set automatically and will be used if `BOT_PUBLIC_URL` is not set.
 
 **Troubleshooting Invoice Ninja quote creation:**
 

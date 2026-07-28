@@ -137,13 +137,17 @@ function cartToLineItems(cart) {
         const qty = (Number.isFinite(item.qty) && item.qty > 0) ? item.qty : 1;
         // sqmPrice is the total material cost for the item; derive the unit cost
         const unitCost = parseFloat(((item.sqmPrice || 0) / qty).toFixed(4));
+        // Use the product's SKU code as the product_key so Invoice Ninja can match
+        // line items to the correct product in its catalogue. Fall back to the
+        // product name when no SKU is set.
+        const productKey = (item.sku && String(item.sku).trim()) ? String(item.sku).trim() : item.name;
 
         const noteParts = [label];
         if (item.artworkReceived) noteParts.push('Artwork uploaded by customer');
         if (item.designNotes) noteParts.push(`Design requirements: ${item.designNotes}`);
 
         lines.push({
-            product_key: item.name,
+            product_key: productKey,
             notes: noteParts.join(' | '),
             quantity: qty,
             cost: unitCost,
@@ -221,11 +225,67 @@ function getQuoteUrl(quote) {
     return `${IN_URL}/client/quotes/${key}`;
 }
 
+/**
+ * Extract the first invitation key from a quote object.
+ * @param {object} quote  Quote object returned from createQuote
+ * @returns {string|null}
+ */
+function getQuoteInvitationKey(quote) {
+    return quote?.invitations?.[0]?.key || null;
+}
+
+/**
+ * Download the PDF for a quote from Invoice Ninja using the server-side API token.
+ * Returns the PDF as a Buffer.
+ * @param {string} quoteId  Invoice Ninja quote ID
+ * @returns {Promise<Buffer>}
+ */
+async function getQuotePdf(quoteId) {
+    return new Promise((resolve, reject) => {
+        let base;
+        try {
+            base = new URL(IN_URL);
+        } catch (e) {
+            return reject(new Error(`Invalid INVOICE_NINJA_URL: "${IN_URL}"`));
+        }
+
+        const basePath = base.pathname.replace(/\/+$/, '');
+        const options = {
+            hostname: base.hostname,
+            port: base.port || (base.protocol === 'https:' ? 443 : 80),
+            path: `${basePath}/api/v1/quotes/${encodeURIComponent(quoteId)}/download`,
+            method: 'GET',
+            headers: {
+                'X-API-Token': IN_TOKEN,
+                Accept: 'application/pdf, application/octet-stream, */*'
+            }
+        };
+
+        const lib = base.protocol === 'https:' ? https : http;
+        const req = lib.request(options, (res) => {
+            const chunks = [];
+            res.on('data', (chunk) => chunks.push(chunk));
+            res.on('end', () => {
+                if (res.statusCode >= 200 && res.statusCode < 300) {
+                    resolve(Buffer.concat(chunks));
+                } else {
+                    reject(new Error(`Invoice Ninja PDF download ${res.statusCode}: ${Buffer.concat(chunks).toString('utf8', 0, 400)}`));
+                }
+            });
+        });
+
+        req.on('error', reject);
+        req.end();
+    });
+}
+
 module.exports = {
     isConfigured,
     apiRequest,
     findOrCreateClient,
     cartToLineItems,
     createQuote,
-    getQuoteUrl
+    getQuoteUrl,
+    getQuoteInvitationKey,
+    getQuotePdf
 };

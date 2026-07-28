@@ -138,6 +138,22 @@ function getRailwayQrUrl() {
     }
 }
 
+/**
+ * Return the bot's public HTTPS origin (e.g. https://my-app.up.railway.app).
+ * Used to build customer-facing links such as the quote PDF proxy.
+ * Set BOT_PUBLIC_URL, RAILWAY_PUBLIC_DOMAIN, or RAILWAY_STATIC_URL in the environment.
+ */
+function getBotPublicOrigin() {
+    const raw = process.env.BOT_PUBLIC_URL || process.env.RAILWAY_PUBLIC_DOMAIN || process.env.RAILWAY_STATIC_URL;
+    if (!raw) return null;
+    try {
+        const withProtocol = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+        return new URL(withProtocol).origin;
+    } catch {
+        return null;
+    }
+}
+
 function validateConfig() {
     const missingConfig = [
         ['ADMIN_JID', ADMIN_JID],
@@ -257,11 +273,12 @@ function saveJsonFile(filePath, value) {
     }
 }
 
-const DEFAULT_CSV = 'ID,Category,Subcategory,SubSubcategory,SubSubSubcategory,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvailable,PolePrice,InstallationFee,RequiresArtwork,Aliases';
-const CSV_SAMPLE_ROW = '1,Paper Printing,Business Cards,Single Sided,,Business Cards 300GSM,Standard 90x55mm,Semi Gloss,Single sided,100,fixed,,R120.00,,0,no,,0,yes,visiting cards|biz cards';
+const DEFAULT_CSV = 'ID,SKU,Category,Subcategory,SubSubcategory,SubSubSubcategory,Name,Size,Finish,SingleOrDoubleSided,UnitsPerProduct,PriceType,PricePerSqm,FixedPrice,MinPrice,DesignFee,PolesAvailable,PolePrice,InstallationFee,RequiresArtwork,Aliases';
+const CSV_SAMPLE_ROW = '1,PP-0001,Paper Printing,Business Cards,Single Sided,,Business Cards 300GSM,Standard 90x55mm,Semi Gloss,Single sided,100,fixed,,R120.00,,0,no,,0,yes,visiting cards|biz cards';
 
 const PRODUCT_FIELD_ALIASES = {
-    ID: ['ID', 'ProductID', 'Product Id', 'SKU', 'Code'],
+    ID: ['ID', 'ProductID', 'Product Id', 'Code'],
+    SKU: ['SKU', 'Sku', 'ProductSKU', 'Product SKU', 'Part Number', 'PartNo', 'Part No', 'Stock Code', 'StockCode', 'Item Code', 'ItemCode'],
     Category: ['Category', 'Department'],
     Subcategory: ['Subcategory', 'Sub Category', 'Product Type', 'Type'],
     SubSubcategory: ['SubSubcategory', 'Sub Sub Category', 'Sub-Sub-Category', 'SubSubCategory'],
@@ -311,6 +328,7 @@ function getFirstMappedValue(row, fieldName) {
 function normalizeProductRecord(row) {
     const product = {
         ID: getFirstMappedValue(row, 'ID'),
+        SKU: getFirstMappedValue(row, 'SKU'),
         Category: getFirstMappedValue(row, 'Category'),
         Subcategory: getFirstMappedValue(row, 'Subcategory'),
         SubSubcategory: getFirstMappedValue(row, 'SubSubcategory'),
@@ -1356,6 +1374,7 @@ async function submitOrderForReview(sock, jid, cart) {
         createdAt: new Date().toISOString(),
         invoiceNinjaQuoteId: null,
         invoiceNinjaQuoteNumber: null,
+        invoiceNinjaInvitationKey: null,
         invoiceNinjaLink: null,
         status: 'pending',
         error: null
@@ -1370,10 +1389,17 @@ async function submitOrderForReview(sock, jid, cart) {
                 email: customerEmail
             });
             const quote = await invoiceNinja.createQuote(client.id, cart, ARTWORK_DISCLAIMER);
-            const quoteUrl = invoiceNinja.getQuoteUrl(quote);
-            quoteInfo = { id: quote.id, number: quote.number, url: quoteUrl };
+            const invitationKey = invoiceNinja.getQuoteInvitationKey(quote);
+            const portalUrl = invoiceNinja.getQuoteUrl(quote);
+            // Build a bot-side PDF proxy URL so the customer can view the PDF
+            // directly without needing to log in to the Invoice Ninja client portal.
+            const botOrigin = getBotPublicOrigin();
+            const pdfUrl = (botOrigin && invitationKey) ? `${botOrigin}/quote-pdf/${invitationKey}` : null;
+            const quoteUrl = pdfUrl || portalUrl;
+            quoteInfo = { id: quote.id, number: quote.number, url: quoteUrl, portalUrl };
             orderRecord.invoiceNinjaQuoteId = quote.id;
             orderRecord.invoiceNinjaQuoteNumber = quote.number;
+            orderRecord.invoiceNinjaInvitationKey = invitationKey;
             orderRecord.invoiceNinjaLink = quoteUrl;
             orderRecord.status = 'quoted';
         } catch (inError) {
@@ -1404,7 +1430,7 @@ async function submitOrderForReview(sock, jid, cart) {
 
     if (quoteInfo?.url) {
         await sock.sendMessage(jid, {
-            text: `📄 Your quote *${quoteInfo.number}* has been created!\n\nView and approve it here:\n${quoteInfo.url}\n\nA ${BUSINESS_NAME} team member will follow up with you shortly.`
+            text: `📄 Your quote *${quoteInfo.number}* has been created!\n\nView and download your PDF quote here:\n${quoteInfo.url}\n\nA ${BUSINESS_NAME} team member will follow up with you shortly.`
         });
     }
 
@@ -1979,6 +2005,7 @@ async function startBot() {
 
                     const pendingItem = {
                         name: product.Name,
+                        sku: product.SKU || product.ID,
                         dimensions: `${dims.length}×${dims.height}mm`,
                         dimLength: dims.length,
                         dimHeight: dims.height,
@@ -2357,6 +2384,7 @@ async function startBot() {
                         const designFee = calcScaledDesignFee(product, qty);
                         const item = {
                             name: product.Name,
+                            sku: product.SKU || product.ID,
                             sqmPrice: toNumber(product.FixedPrice),
                             designFee,
                             polesCost: 0,
@@ -2515,17 +2543,8 @@ async function startBot() {
                             const designFee = calcScaledDesignFee(product, qty);
                             const item = {
                                 name: product.Name,
+                                sku: product.SKU || product.ID,
                                 sqmPrice: toNumber(product.FixedPrice),
-                                designFee,
-                                polesCost: 0,
-                                poles: 0,
-                                installationFee: 0,
-                                total: discountedMaterial + designFee,
-                                qty,
-                                ...(wholesaleDiscount > 0 && { wholesaleDiscount })
-                            };
-                            if (await promptForDesignChoiceIfNeeded(sock, jid, product, item)) {
-                                continue;
                             }
                             if (!userCarts[jid]) userCarts[jid] = [];
                             userCarts[jid].push(item);
@@ -2687,6 +2706,7 @@ async function startBot() {
                         const designFee = calcScaledDesignFee(product, qty);
                         const item = {
                             name: product.Name,
+                            sku: product.SKU || product.ID,
                             sqmPrice: price,
                             designFee,
                             polesCost: 0,
@@ -3176,6 +3196,39 @@ app.post('/webhook/invoice-ninja', (req, res, next) => {
 
 // --- PRODUCTS CSV DOWNLOAD / UPLOAD ---
 // All endpoints are protected by the same QR_ACCESS_TOKEN auth used for /qr, and rate-limited.
+
+// GET /quote-pdf/:invitationKey — public route to serve the Invoice Ninja quote PDF directly.
+// The invitation key acts as a capability token: only someone who received the WhatsApp
+// message with the key can access this URL. No additional login is required.
+app.get('/quote-pdf/:invitationKey', async (req, res) => {
+    if (!invoiceNinja.isConfigured()) {
+        return res.status(503).send('Invoice Ninja is not configured on this server.');
+    }
+
+    const { invitationKey } = req.params;
+    if (!invitationKey || !/^[a-zA-Z0-9_-]{8,}$/.test(invitationKey)) {
+        return res.status(400).send('Invalid invitation key.');
+    }
+
+    // Find the order that has this invitation key so we can retrieve the quote ID.
+    const order = orders.find((o) => o.invoiceNinjaInvitationKey === invitationKey);
+    if (!order || !order.invoiceNinjaQuoteId) {
+        return res.status(404).send('Quote not found.');
+    }
+
+    try {
+        const pdfBuffer = await invoiceNinja.getQuotePdf(order.invoiceNinjaQuoteId);
+        const filename = `Quote-${order.invoiceNinjaQuoteNumber || order.invoiceNinjaQuoteId}.pdf`;
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+        res.setHeader('Content-Length', pdfBuffer.length);
+        res.send(pdfBuffer);
+    } catch (err) {
+        console.error('❌ Quote PDF proxy error:', err.message);
+        res.status(502).send('Could not retrieve the quote PDF. Please contact us for assistance.');
+    }
+});
+
 const csvUpload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB max
