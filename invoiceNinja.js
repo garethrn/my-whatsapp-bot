@@ -21,8 +21,8 @@ const IN_URL = (process.env.INVOICE_NINJA_URL || '')
     .replace(/\/api\/v1$/i, '');
 const IN_TOKEN = process.env.INVOICE_NINJA_API_TOKEN || '';
 const IN_TAX_NAME = process.env.INVOICE_NINJA_TAX_NAME || 'VAT';
-const parsedTaxRate = parseFloat(process.env.INVOICE_NINJA_TAX_RATE || '15');
-const IN_TAX_RATE = Number.isFinite(parsedTaxRate) ? parsedTaxRate : 15;
+const parsedTaxRate = parseFloat(process.env.INVOICE_NINJA_TAX_RATE || '0');
+const IN_TAX_RATE = Number.isFinite(parsedTaxRate) ? parsedTaxRate : 0;
 
 /**
  * Returns true when the minimum Invoice Ninja configuration is present.
@@ -131,6 +131,8 @@ async function findOrCreateClient({ name, phone, email }) {
  */
 function cartToLineItems(cart) {
     const lines = [];
+    // Only attach tax fields when a non-zero rate is configured
+    const taxFields = IN_TAX_RATE > 0 ? { tax_name1: IN_TAX_NAME, tax_rate1: IN_TAX_RATE } : {};
 
     for (const item of cart) {
         const label = item.dimensions ? `${item.name} (${item.dimensions})` : item.name;
@@ -151,8 +153,7 @@ function cartToLineItems(cart) {
             notes: noteParts.join(' | '),
             quantity: qty,
             cost: unitCost,
-            tax_name1: IN_TAX_NAME,
-            tax_rate1: IN_TAX_RATE
+            ...taxFields
         });
 
         if ((item.designFee || 0) > 0) {
@@ -161,8 +162,7 @@ function cartToLineItems(cart) {
                 notes: `Design/Layout Fee for ${item.name}`,
                 quantity: 1,
                 cost: parseFloat((item.designFee).toFixed(4)),
-                tax_name1: IN_TAX_NAME,
-                tax_rate1: IN_TAX_RATE
+                ...taxFields
             });
         }
 
@@ -172,8 +172,7 @@ function cartToLineItems(cart) {
                 notes: `Poles ×${item.poles} for ${item.name}`,
                 quantity: item.poles,
                 cost: parseFloat((item.polesCost / item.poles).toFixed(4)),
-                tax_name1: IN_TAX_NAME,
-                tax_rate1: IN_TAX_RATE
+                ...taxFields
             });
         }
 
@@ -183,8 +182,7 @@ function cartToLineItems(cart) {
                 notes: `Installation for ${item.name}`,
                 quantity: 1,
                 cost: parseFloat((item.installationFee).toFixed(4)),
-                tax_name1: IN_TAX_NAME,
-                tax_rate1: IN_TAX_RATE
+                ...taxFields
             });
         }
     }

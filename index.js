@@ -75,6 +75,11 @@ const DEFAULT_RESTART_DELAY_MS = 5000;
 const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 10000;
 // Optional webhook secret for verifying Invoice Ninja webhook requests
 const INVOICE_NINJA_WEBHOOK_SECRET = process.env.INVOICE_NINJA_WEBHOOK_SECRET || '';
+// Mirror of invoiceNinja.js IN_TAX_RATE used to conditionally display VAT in quote messages
+const DISPLAY_TAX_RATE = (() => {
+    const r = parseFloat(process.env.INVOICE_NINJA_TAX_RATE || '0');
+    return Number.isFinite(r) ? r : 0;
+})();
 
 const whatsappRuntime = {
     phase: 'booting',
@@ -653,7 +658,7 @@ function buildQuoteText(product, requestedQty, total) {
         quoteText = `💰 *Quote for ${requestedQty.toLocaleString()} ${pluralizeWord(profile.baseUnit, requestedQty)} of ${product.Name}*\n`;
     }
 
-    quoteText += `Estimated total: *${formatCurrency(total)}* (incl. VAT, excl. delivery)\n\n1. Yes – add to cart\n2. No – cancel\n0. Back\n\n– ${BUSINESS_NAME} Team`;
+    quoteText += `Estimated total: *${formatCurrency(total)}*${DISPLAY_TAX_RATE > 0 ? ' (incl. VAT)' : ''} (excl. delivery)\n\n1. Yes – add to cart\n2. No – cancel\n0. Back\n\n– ${BUSINESS_NAME} Team`;
     return quoteText;
 }
 
@@ -1586,6 +1591,7 @@ async function startBot() {
                             try {
                                 const parsedProducts = await parseProductsCsvBuffer(buffer);
                                 fs.writeFileSync(CSV_FILE, buffer);
+                                try { fs.writeFileSync(LEGACY_CSV_FILE, buffer); } catch { /* non-fatal fallback */ }
                                 products = parsedProducts;
                                 await sock.sendMessage(jid, { text: `📦 Products updated! Loaded ${products.length} products.` });
                             } catch (error) {
@@ -1852,7 +1858,9 @@ async function startBot() {
                             selectedSub = subcategories.find((s) => normalizeText(s) === normalizeText(text)) || null;
                         }
                         if (selectedSub) {
+                            const pendingCategory = userState.pendingCategory || '';
                             const subProducts = products.filter((p) =>
+                                (!pendingCategory || p.Category.toLowerCase().trim() === pendingCategory.toLowerCase().trim()) &&
                                 (p.Subcategory || '').toLowerCase().trim() === selectedSub.toLowerCase().trim()
                             );
                             if (subProducts.length === 0) {
@@ -2355,6 +2363,7 @@ async function startBot() {
                             const rawMaterial = item.sqmPrice * qty;
                             const discountedMaterial = rawMaterial * wholesaleMultiplier;
                             if (wholesaleMultiplier < 1) item.wholesaleDiscount = rawMaterial - discountedMaterial;
+                            item.sqmPrice = discountedMaterial;
                             item.total = discountedMaterial + item.designFee + item.polesCost + item.installationFee;
                         }
                         if (await promptForDesignChoiceIfNeeded(sock, jid, product, item)) {
@@ -2385,7 +2394,7 @@ async function startBot() {
                         const item = {
                             name: product.Name,
                             sku: product.SKU || product.ID,
-                            sqmPrice: toNumber(product.FixedPrice),
+                            sqmPrice: discountedMaterial,
                             designFee,
                             polesCost: 0,
                             poles: 0,
@@ -2544,12 +2553,20 @@ async function startBot() {
                             const item = {
                                 name: product.Name,
                                 sku: product.SKU || product.ID,
-                                sqmPrice: toNumber(product.FixedPrice),
-                            }
+                                sqmPrice: discountedMaterial,
+                                designFee,
+                                polesCost: 0,
+                                poles: 0,
+                                installationFee: 0,
+                                total: discountedMaterial + designFee,
+                                qty,
+                                ...(wholesaleDiscount > 0 && { wholesaleDiscount })
+                            };
+                            if (await promptForDesignChoiceIfNeeded(sock, jid, product, item)) continue;
                             if (!userCarts[jid]) userCarts[jid] = [];
                             userCarts[jid].push(item);
                             userStates[jid] = { step: 'awaiting_post_cart_add' };
-                            await sock.sendMessage(jid, { text: `✅ Added to your cart! *Total: ${formatCurrency(item.total)}*\n\n${buildPostCartText(userCarts[jid].length)}` });
+                            await sock.sendMessage(jid, { text: `✅ Added ${qty.toLocaleString()} × *${product.Name}* to your cart! *Total: ${formatCurrency(item.total)}*\n\n${buildPostCartText(userCarts[jid].length)}` });
                             continue;
                         }
                         if (text === '2' || ['no', 'n', 'nope', 'nah'].includes(text)) {
@@ -2707,7 +2724,7 @@ async function startBot() {
                         const item = {
                             name: product.Name,
                             sku: product.SKU || product.ID,
-                            sqmPrice: price,
+                            sqmPrice: discountedMaterial,
                             designFee,
                             polesCost: 0,
                             poles: 0,
@@ -3288,6 +3305,7 @@ app.post('/products/upload', productsRouteLimiter, productsAuthMiddleware, (req,
         try {
             const parsedProducts = await parseProductsCsvBuffer(req.file.buffer);
             fs.writeFileSync(CSV_FILE, req.file.buffer);
+            try { fs.writeFileSync(LEGACY_CSV_FILE, req.file.buffer); } catch { /* non-fatal fallback */ }
             products = parsedProducts;
             res.send(`<!DOCTYPE html><html><head><title>Upload complete</title></head><body style="font-family:sans-serif;padding:40px;text-align:center"><h2>✅ Products updated!</h2><p>The products CSV has been replaced and reloaded with ${products.length} products.</p><p><a href="products">← Back to Products Admin</a></p></body></html>`);
         } catch (error) {
