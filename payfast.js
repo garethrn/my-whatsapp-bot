@@ -65,6 +65,11 @@ function computeSignature(data) {
         paramString += `&passphrase=${phpUrlencode(PASSPHRASE)}`;
     }
 
+    // PayFast requires MD5 for their payment signature algorithm — this is
+    // a request-signing operation mandated by the PayFast API specification,
+    // NOT a password-storage or password-verification hash.
+    // See: https://developers.payfast.co.za/docs#checkout_page_submission
+    // lgtm[js/insufficient-password-hash]
     return crypto.createHash('md5').update(paramString).digest('hex');
 }
 
