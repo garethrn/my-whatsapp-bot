@@ -31,7 +31,8 @@ const EMAIL_PASS = process.env.EMAIL_PASS;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 
 const STORAGE_DIR = path.join(__dirname, 'storage');
-const CSV_FILE = path.join(__dirname, 'products.csv');
+const CSV_FILE = path.join(STORAGE_DIR, 'products.csv');
+const LEGACY_CSV_FILE = path.join(__dirname, 'products.csv');
 const AUTH_DIR = path.join(STORAGE_DIR, 'auth_info');
 const LEARNED_RESPONSES_FILE = path.join(STORAGE_DIR, 'learned_responses.json');
 const LEARNING_LEADS_FILE = path.join(STORAGE_DIR, 'learning_leads.json');
@@ -380,7 +381,12 @@ function parseProductsCsvBuffer(buffer) {
 
 async function loadProducts() {
     if (!fs.existsSync(CSV_FILE)) {
-        fs.writeFileSync(CSV_FILE, DEFAULT_CSV);
+        if (fs.existsSync(LEGACY_CSV_FILE)) {
+            fs.copyFileSync(LEGACY_CSV_FILE, CSV_FILE);
+            console.log('ℹ️ Migrated products.csv to persistent storage folder.');
+        } else {
+            fs.writeFileSync(CSV_FILE, DEFAULT_CSV);
+        }
     }
 
     try {

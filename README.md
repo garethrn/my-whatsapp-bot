@@ -42,7 +42,7 @@ This is not a full AI model training pipeline. It is a practical, controlled way
 ## Files that matter
 
 - `./index.js` - the bot code
-- `./products.csv` - your product list
+- `./storage/products.csv` - your live product list used by the bot (auto-migrated from `./products.csv` on first run)
 - `./storage/` - created automatically for login files, learning data, and QR images
 - `./nixpacks.toml` - Railway/Nixpacks start configuration
 
@@ -202,7 +202,7 @@ Expected result:
 
 Open:
 
-`./products.csv`
+`./storage/products.csv`
 
 The CSV has 20 columns:
 
@@ -354,6 +354,7 @@ The bot stores these items in `/storage`:
 - learned replies
 - unanswered learning leads
 - confirmed orders (for Invoice Ninja linkage)
+- live products CSV (`products.csv`)
 
 On Railway, add a persistent volume and mount it to **`/app/storage`**. This keeps the bot data between restarts and deploys. Railway/Nixpacks normally runs this app from `/app`, which is why `./storage` maps to `/app/storage` there. If you do not use persistent storage, the bot may need to be linked again and may lose its learned responses.
 
@@ -425,7 +426,7 @@ Check:
 
 To reduce frustration:
 
-- keep `products.csv` clean and accurate
+- keep `storage/products.csv` clean and accurate
 - teach common questions with the `teach` command
 - review `leads` regularly and add new taught replies
 - use `human` handover quickly when a customer sounds upset or needs a special answer
@@ -464,7 +465,7 @@ You forgot to set one of these:
 
 Check:
 
-`./products.csv`
+`./storage/products.csv`
 
 ### Bot loses its session or learned replies on Railway
 

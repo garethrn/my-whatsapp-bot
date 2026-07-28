@@ -15,10 +15,14 @@
 const https = require('https');
 const http = require('http');
 
-const IN_URL = (process.env.INVOICE_NINJA_URL || '').replace(/\/+$/, '');
+const IN_URL = (process.env.INVOICE_NINJA_URL || '')
+    .trim()
+    .replace(/\/+$/, '')
+    .replace(/\/api\/v1$/i, '');
 const IN_TOKEN = process.env.INVOICE_NINJA_API_TOKEN || '';
 const IN_TAX_NAME = process.env.INVOICE_NINJA_TAX_NAME || 'VAT';
-const IN_TAX_RATE = parseFloat(process.env.INVOICE_NINJA_TAX_RATE || '15');
+const parsedTaxRate = parseFloat(process.env.INVOICE_NINJA_TAX_RATE || '15');
+const IN_TAX_RATE = Number.isFinite(parsedTaxRate) ? parsedTaxRate : 15;
 
 /**
  * Returns true when the minimum Invoice Ninja configuration is present.
@@ -65,10 +69,16 @@ function apiRequest(method, apiPath, body) {
             res.on('data', (chunk) => { data += chunk; });
             res.on('end', () => {
                 if (res.statusCode >= 200 && res.statusCode < 300) {
+                    const payload = String(data || '').trim();
+                    if (!payload) {
+                        resolve({});
+                        return;
+                    }
                     try {
-                        resolve(JSON.parse(data));
+                        resolve(JSON.parse(payload));
                     } catch (e) {
-                        reject(new Error(`Invoice Ninja non-JSON response (${res.statusCode}): ${data.slice(0, 300)}`));
+                        const contentType = res.headers['content-type'] || 'unknown';
+                        reject(new Error(`Invoice Ninja non-JSON response (${res.statusCode}, content-type: ${contentType}): ${payload.slice(0, 300)}`));
                     }
                 } else {
                     reject(new Error(`Invoice Ninja API ${res.statusCode}: ${data.slice(0, 400)}`));
@@ -107,7 +117,10 @@ async function findOrCreateClient({ name, phone, email }) {
     };
 
     const result = await apiRequest('POST', '/clients', clientBody);
-    return result?.data;
+    if (!result?.data?.id) {
+        throw new Error('Invoice Ninja create-client response missing client data. Check INVOICE_NINJA_URL and INVOICE_NINJA_API_TOKEN.');
+    }
+    return result.data;
 }
 
 /**
@@ -189,7 +202,10 @@ async function createQuote(clientId, cart, publicNotes) {
         public_notes: publicNotes || '',
         terms: 'Quote valid for 14 days. Artwork disclaimer accepted by customer via WhatsApp.'
     });
-    return result?.data;
+    if (!result?.data?.id) {
+        throw new Error('Invoice Ninja quote response missing quote data. Check INVOICE_NINJA_URL (without /api/v1) and API token permissions.');
+    }
+    return result.data;
 }
 
 /**
