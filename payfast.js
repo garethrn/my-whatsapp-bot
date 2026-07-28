@@ -39,11 +39,16 @@ function isSandbox() {
 
 /**
  * Encode a value using PHP-compatible URL encoding (spaces become +).
+ * PHP's urlencode() encodes all characters except A-Z a-z 0-9 _ - .
+ * JavaScript's encodeURIComponent() additionally leaves ! ~ * ' ( ) unencoded,
+ * so we must percent-encode those manually to match PHP's output exactly.
  * @param {string} value
  * @returns {string}
  */
 function phpUrlencode(value) {
-    return encodeURIComponent(String(value).trim()).replace(/%20/g, '+');
+    return encodeURIComponent(String(value).trim())
+        .replace(/%20/g, '+')
+        .replace(/[!'()*~]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
 }
 
 /**
