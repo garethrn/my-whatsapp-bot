@@ -354,6 +354,58 @@ If quotes are not being created, check the following:
 
 Check Railway logs (`node index.js` output) for lines beginning with `❌ Invoice Ninja` for the full error details.
 
+#### PayFast online payments (optional)
+
+PayFast is a South African payment gateway. When configured, the bot sends the customer a payment link immediately after they confirm their order.
+
+**How to get your PayFast credentials:**
+
+1. Log in to [PayFast](https://www.payfast.co.za) (or create a free account).
+2. Go to **Settings → Integration**.
+3. Copy your **Merchant ID** and **Merchant Key**.
+4. Optionally set a **Passphrase** in PayFast → Settings → Integration and copy it.
+
+**Environment variables to add in Railway:**
+
+| Variable | Required | Description |
+|---|---|---|
+| `PAYFAST_MERCHANT_ID` | ✅ | Your PayFast Merchant ID |
+| `PAYFAST_MERCHANT_KEY` | ✅ | Your PayFast Merchant Key |
+| `PAYFAST_PASSPHRASE` | ☑️ Recommended | Security passphrase set in PayFast → Settings → Integration |
+| `PAYFAST_SANDBOX` | ☑️ For testing | Set to `true` to use the PayFast sandbox. Remove or set to `false` for live payments. |
+
+> **Important:** `BOT_PUBLIC_URL` or `RAILWAY_PUBLIC_DOMAIN` must also be set so the bot can generate the customer-facing payment link and the webhook `notify_url`. On Railway, `RAILWAY_PUBLIC_DOMAIN` is usually set automatically.
+
+**Payment flow once configured:**
+
+1. Customer confirms their order on WhatsApp.
+2. Bot sends the customer a payment link: `https://your-app.up.railway.app/pay/<order-id>`
+3. Customer opens the link in a browser and is shown the order amount.
+4. Customer clicks **Pay now via PayFast** and is redirected to PayFast to complete payment.
+5. PayFast sends an ITN (Instant Transaction Notification) to the bot's webhook.
+6. Bot verifies the payment and sends a WhatsApp confirmation to both the customer and the admin.
+
+**Testing with the PayFast sandbox:**
+
+1. Set `PAYFAST_SANDBOX=true`.
+2. Use the [PayFast sandbox test credentials](https://developers.payfast.co.za/docs#testing):
+   - Merchant ID: `10004002`
+   - Merchant Key: `q1cd2rdny4a53`
+3. Complete a test payment — no real money is charged.
+4. Remove `PAYFAST_SANDBOX` (or set it to `false`) before going live.
+
+**Troubleshooting PayFast payments:**
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| No payment link sent to customer | `BOT_PUBLIC_URL` not set | Set `BOT_PUBLIC_URL` or ensure `RAILWAY_PUBLIC_DOMAIN` is set by Railway |
+| `⚠️ PayFast ITN signature verification failed` in logs | Wrong passphrase or merchant credentials | Check `PAYFAST_MERCHANT_ID`, `PAYFAST_MERCHANT_KEY`, and `PAYFAST_PASSPHRASE` match your PayFast account |
+| `⚠️ PayFast ITN amount mismatch` in logs | Customer tampered with the amount | This is a security check — the order status will not be updated |
+| `⚠️ PayFast ITN server validation returned INVALID` | PayFast could not verify the request | Check that `notify_url` is publicly accessible (not `localhost`) |
+| Payment link shows "Online payments are not enabled" | Missing env vars | Both `PAYFAST_MERCHANT_ID` and `PAYFAST_MERCHANT_KEY` must be set |
+
+Check Railway logs for lines beginning with `❌ PayFast` or `⚠️ PayFast` for the full error details.
+
 ### Step 4: Add persistent storage
 
 This is important.
@@ -444,17 +496,19 @@ To reduce frustration:
 - test sqm pricing flows after every catalog change
 - keep Railway storage persistent so sessions and learned replies do not disappear
 
-## Future PayFast payment feature
+## PayFast payment integration
 
-PayFast is not yet connected in this version.
+When `PAYFAST_MERCHANT_ID` and `PAYFAST_MERCHANT_KEY` are set (see the Railway deployment section above), the bot:
 
-A good later phase is:
+1. Generates a unique payment link for each order: `https://your-app.up.railway.app/pay/<order-id>`
+2. Sends the link to the customer on WhatsApp immediately after they confirm their order
+3. The customer opens the link, sees the total, and clicks **Pay now via PayFast**
+4. After payment, the bot notifies both the customer and the admin on WhatsApp
+5. The order status in the admin dashboard updates to `paid`
 
-1. create an order reference at checkout
-2. generate a PayFast payment link
-3. send that payment link on WhatsApp
-4. confirm payment status before production starts
-5. notify admin when payment succeeds or fails
+The payment link is publicly accessible — no login is needed. The 12-character random order ID acts as a secure capability token.
+
+Use `PAYFAST_SANDBOX=true` for testing. See the full setup guide under **Railway → PayFast online payments**.
 
 ## Common problems
 

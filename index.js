@@ -10,6 +10,7 @@ const {
 const { Boom } = require('@hapi/boom');
 const crypto = require('crypto');
 const invoiceNinja = require('./invoiceNinja');
+const payfast = require('./payfast');
 const fs = require('fs');
 const csv = require('csv-parser');
 const pino = require('pino');
@@ -929,6 +930,15 @@ function formatCurrency(value) {
     return `R${toNumber(value).toFixed(2)}`;
 }
 
+function escapeHtml(str) {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
 // Calculate sqm price from mm dimensions, applying the minimum price floor
 function calcSqmPrice(product, lengthMm, heightMm) {
     const sqm = (lengthMm / MM_PER_METER) * (heightMm / MM_PER_METER);
@@ -1416,9 +1426,21 @@ async function submitOrderForReview(sock, jid, cart) {
     }
     saveOrder(orderRecord);
 
+    // Build a PayFast payment link when configured and a public origin is known
+    let paymentLink = null;
+    if (payfast.isConfigured()) {
+        const botOrigin = getBotPublicOrigin();
+        if (botOrigin) {
+            paymentLink = `${botOrigin}/pay/${orderId}`;
+        } else {
+            console.warn('⚠️ PayFast is configured but BOT_PUBLIC_URL / RAILWAY_PUBLIC_DOMAIN is not set — cannot generate payment link.');
+        }
+    }
+
     const quoteNote = quoteInfo
         ? `\n\n📄 Quote *${quoteInfo.number}* created: ${quoteInfo.url || '(no link)'}`
         : (invoiceNinja.isConfigured() ? `\n\n⚠️ Quote creation failed – manual follow-up needed.\nError: ${orderRecord.error || 'unknown'}` : '');
+    const paymentNote = paymentLink ? `\n\n💳 Payment link: ${paymentLink}` : '';
 
     const adminMessage = [
         '🆕 *New order request*',
@@ -1429,7 +1451,8 @@ async function submitOrderForReview(sock, jid, cart) {
         'Artwork disclaimer accepted: Yes',
         '',
         summary,
-        quoteNote
+        quoteNote,
+        paymentNote
     ].join('\n');
 
     await sock.sendMessage(ADMIN_JID, { text: adminMessage });
@@ -1440,7 +1463,13 @@ async function submitOrderForReview(sock, jid, cart) {
         });
     }
 
-    return { quoteCreated: !!(quoteInfo?.url) };
+    if (paymentLink) {
+        await sock.sendMessage(jid, {
+            text: `💳 *Pay for your order online*\n\nClick the link below to pay securely via PayFast:\n${paymentLink}\n\nOnce payment is received, we will begin production. 😊\n\n– ${BUSINESS_NAME} Team`
+        });
+    }
+
+    return { quoteCreated: !!(quoteInfo?.url), paymentSent: !!(paymentLink) };
 }
 
 async function startBot() {
@@ -2448,10 +2477,10 @@ async function startBot() {
                             continue;
                         }
 
-                        const { quoteCreated } = await submitOrderForReview(sock, jid, cart);
+                        const { quoteCreated, paymentSent } = await submitOrderForReview(sock, jid, cart);
                         delete userCarts[jid];
                         userStates[jid] = { step: 'idle' };
-                        if (!quoteCreated) {
+                        if (!quoteCreated && !paymentSent) {
                             await sock.sendMessage(jid, {
                                 text: `✅ Thank you. Your quote/request has been sent to ${BUSINESS_NAME} for follow-up. A team member will contact you if anything needs clarification.`
                             });
@@ -3054,6 +3083,215 @@ app.post('/webhook/invoice-ninja', (req, res, next) => {
             }
         } catch (err) {
             console.error('❌ Error processing Invoice Ninja webhook:', err);
+        }
+    })();
+});
+
+// --- PAYFAST PAYMENT ROUTES ---
+
+// GET /pay/:orderId — public page that auto-submits a payment form to PayFast.
+// The order ID (12-char random hex) acts as a capability token; only someone
+// who received the WhatsApp message with the link can access this URL.
+app.get('/pay/:orderId', (req, res) => {
+    if (!payfast.isConfigured()) {
+        return res.status(503).send('Online payments are not enabled on this server.');
+    }
+
+    const { orderId } = req.params;
+    if (!orderId || !/^[a-f0-9]{12}$/.test(orderId)) {
+        return res.status(400).send('Invalid order reference.');
+    }
+
+    const order = orders.find((o) => o.id === orderId);
+    if (!order) {
+        return res.status(404).send('Order not found.');
+    }
+
+    if (order.status === 'paid') {
+        return res.send(`<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Already paid – ${escapeHtml(BUSINESS_NAME)}</title>
+<style>body{font-family:sans-serif;text-align:center;padding:60px 20px}h1{color:#27ae60}p{color:#555}</style>
+</head><body>
+<h1>✅ Payment already received</h1>
+<p>This order has already been paid. Thank you!</p>
+<p style="margin-top:24px;font-size:.9rem;color:#aaa">Order reference: ${escapeHtml(orderId)}</p>
+</body></html>`);
+    }
+
+    const botOrigin = getBotPublicOrigin() || `http://localhost:${PORT}`;
+    const notifyUrl = `${botOrigin}/webhook/payfast`;
+    const returnUrl = `${botOrigin}/pay/${orderId}/thank-you`;
+    const cancelUrl = `${botOrigin}/pay/${orderId}/cancelled`;
+    const itemName = `${BUSINESS_NAME} Order ${orderId}`;
+
+    const paymentData = payfast.buildPaymentData(order, notifyUrl, returnUrl, cancelUrl, itemName);
+    const paymentUrl = payfast.getPaymentUrl();
+
+    const formInputs = Object.entries(paymentData)
+        .map(([k, v]) => `<input type="hidden" name="${escapeHtml(k)}" value="${escapeHtml(String(v))}">`)
+        .join('\n        ');
+
+    const sandboxBanner = payfast.isSandbox()
+        ? '<p style="background:#fff3cd;color:#856404;padding:8px 12px;border-radius:6px;font-size:.85rem;margin-bottom:16px">⚠️ <strong>Test mode</strong> – payments will not be charged</p>'
+        : '';
+
+    res.send(`<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pay for your order – ${escapeHtml(BUSINESS_NAME)}</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f2f5; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+  .card { background: #fff; border-radius: 12px; padding: 40px; width: 100%; max-width: 400px; box-shadow: 0 4px 24px rgba(0,0,0,.1); text-align: center; }
+  .logo { font-size: 2rem; margin-bottom: 8px; }
+  h1 { font-size: 1.15rem; color: #075e54; margin-bottom: 6px; }
+  .amount { font-size: 1.8rem; font-weight: 700; color: #111; margin: 16px 0; }
+  .order-ref { font-size: .8rem; color: #aaa; margin-bottom: 20px; }
+  .btn { display: inline-block; width: 100%; padding: 14px; background: #0f9d58; color: #fff; border: none; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; text-decoration: none; }
+  .btn:hover { background: #0b8044; }
+  .powered { font-size: .72rem; color: #bbb; margin-top: 20px; }
+</style>
+</head><body>
+<div class="card">
+  <div class="logo">💳</div>
+  <h1>Pay for your order</h1>
+  ${sandboxBanner}
+  <div class="amount">R ${escapeHtml(parseFloat(order.grandTotal || 0).toFixed(2))}</div>
+  <div class="order-ref">Order ref: ${escapeHtml(orderId)}</div>
+  <form id="pf" method="POST" action="${escapeHtml(paymentUrl)}">
+    ${formInputs}
+    <button class="btn" type="submit">Pay now via PayFast</button>
+  </form>
+  <p class="powered">Secured by PayFast · ${escapeHtml(BUSINESS_NAME)}</p>
+</div>
+<script>
+  // Auto-submit after a short delay so the customer can see the amount
+  // before being redirected to PayFast. Remove if you prefer manual click.
+  // document.getElementById('pf').submit();
+</script>
+</body></html>`);
+});
+
+// GET /pay/:orderId/thank-you — PayFast return URL after successful payment
+app.get('/pay/:orderId/thank-you', (req, res) => {
+    const { orderId } = req.params;
+    res.send(`<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Payment complete – ${escapeHtml(BUSINESS_NAME)}</title>
+<style>body{font-family:sans-serif;text-align:center;padding:60px 20px}h1{color:#27ae60}p{color:#555}.ref{font-size:.85rem;color:#aaa;margin-top:12px}</style>
+</head><body>
+<h1>🎉 Thank you for your payment!</h1>
+<p>Your payment is being processed. We will send you a WhatsApp confirmation shortly.</p>
+<p>You can close this window.</p>
+<p class="ref">Order ref: ${escapeHtml(orderId || '')}</p>
+</body></html>`);
+});
+
+// GET /pay/:orderId/cancelled — PayFast cancel URL
+app.get('/pay/:orderId/cancelled', (req, res) => {
+    const { orderId } = req.params;
+    const order = orders.find((o) => o.id === orderId);
+    const botOrigin = getBotPublicOrigin() || '';
+    const retryLink = botOrigin ? `<p style="margin-top:20px"><a href="${escapeHtml(`${botOrigin}/pay/${orderId}`)}" style="color:#0f9d58">Try again</a></p>` : '';
+    res.send(`<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Payment cancelled – ${escapeHtml(BUSINESS_NAME)}</title>
+<style>body{font-family:sans-serif;text-align:center;padding:60px 20px}h1{color:#e74c3c}p{color:#555}.ref{font-size:.85rem;color:#aaa;margin-top:12px}</style>
+</head><body>
+<h1>Payment cancelled</h1>
+<p>Your payment was not completed. Your order has been saved and you can pay at any time.</p>
+${retryLink}
+<p class="ref">Order ref: ${escapeHtml(orderId || '')}</p>
+</body></html>`);
+});
+
+// POST /webhook/payfast — ITN (Instant Transaction Notification) handler.
+// PayFast POSTs to this URL when a payment is completed or fails.
+app.post('/webhook/payfast', express.urlencoded({ extended: false }), (req, res) => {
+    // PayFast requires an HTTP 200 response immediately; process asynchronously.
+    res.status(200).end();
+
+    (async () => {
+        try {
+            const { valid, status, orderId, amount } = payfast.verifyItn(req.body);
+
+            if (!valid) {
+                console.warn('⚠️ PayFast ITN signature verification failed');
+                return;
+            }
+
+            if (!orderId) {
+                console.warn('⚠️ PayFast ITN missing m_payment_id');
+                return;
+            }
+
+            const order = orders.find((o) => o.id === orderId);
+            if (!order) {
+                console.warn(`⚠️ PayFast ITN for unknown order: ${orderId}`);
+                return;
+            }
+
+            // Verify the amount matches our order to prevent tampering
+            const expectedAmount = parseFloat(order.grandTotal || 0);
+            if (Math.abs(amount - expectedAmount) > 0.01) {
+                console.warn(`⚠️ PayFast ITN amount mismatch: expected ${expectedAmount.toFixed(2)}, got ${amount.toFixed(2)} for order ${orderId}`);
+                return;
+            }
+
+            // Confirm with PayFast's server-to-server validation endpoint
+            let pfValid = false;
+            try {
+                pfValid = await payfast.validateItnWithPayFast(req.body);
+            } catch (err) {
+                console.error('❌ PayFast ITN server-to-server validation error:', err.message);
+                return;
+            }
+            if (!pfValid) {
+                console.warn(`⚠️ PayFast ITN server validation returned INVALID for order ${orderId}`);
+                return;
+            }
+
+            const jid = order.jid;
+            const waSock = activeSock;
+            const waConnected = whatsappRuntime.phase === 'connected';
+
+            if (status === 'COMPLETE') {
+                const idx = orders.findIndex((o) => o.id === orderId);
+                if (idx >= 0) { orders[idx].status = 'paid'; saveJsonFile(ORDERS_FILE, orders); }
+                console.log(`✅ PayFast payment COMPLETE for order ${orderId}`);
+
+                if (waSock && waConnected) {
+                    await waSock.sendMessage(jid, {
+                        text: `💳 Payment received for your order *${orderId}*. Thank you! 🎉\n\nWe will begin production shortly.\n\n– ${BUSINESS_NAME} Team`
+                    });
+                    await waSock.sendMessage(ADMIN_JID, {
+                        text: `💳 *PayFast payment received*\nCustomer: ${jid}\nOrder: ${orderId}\nAmount: R${amount.toFixed(2)}`
+                    });
+                }
+            } else if (status === 'FAILED') {
+                const idx = orders.findIndex((o) => o.id === orderId);
+                if (idx >= 0) { orders[idx].status = 'payment_failed'; saveJsonFile(ORDERS_FILE, orders); }
+                console.log(`❌ PayFast payment FAILED for order ${orderId}`);
+
+                if (waSock && waConnected) {
+                    const botOrigin = getBotPublicOrigin();
+                    const retryMsg = botOrigin
+                        ? `\n\nYou can try again here: ${botOrigin}/pay/${orderId}`
+                        : '';
+                    await waSock.sendMessage(jid, {
+                        text: `⚠️ Your payment for order *${orderId}* could not be processed.${retryMsg}\n\nIf you need help, type *human* to speak with a team member.\n\n– ${BUSINESS_NAME} Team`
+                    });
+                    await waSock.sendMessage(ADMIN_JID, {
+                        text: `⚠️ *PayFast payment failed*\nCustomer: ${jid}\nOrder: ${orderId}`
+                    });
+                }
+            }
+        } catch (err) {
+            console.error('❌ PayFast ITN processing error:', err);
         }
     })();
 });
