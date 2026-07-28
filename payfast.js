@@ -100,7 +100,14 @@ function buildPaymentData(order, notifyUrl, returnUrl, cancelUrl, itemName) {
     if (nameFirst) data.name_first = nameFirst;
     if (nameLast) data.name_last = nameLast;
     if (order.customerEmail) data.email_address = order.customerEmail;
-    if (order.customerPhone) data.cell_number = order.customerPhone;
+    // Only include cell_number when it is a valid South African mobile number.
+    // PayFast rejects numbers that don't match +27[6-8]XXXXXXXX or 0[6-8]XXXXXXXX.
+    if (order.customerPhone) {
+        const phone = String(order.customerPhone).replace(/\s/g, '');
+        if (/^(\+27|0)[6-8][0-9]{8}$/.test(phone)) {
+            data.cell_number = phone;
+        }
+    }
     data.m_payment_id = order.id;
     data.amount = amount;
     data.item_name = (itemName || `Order ${order.id}`).slice(0, 100);

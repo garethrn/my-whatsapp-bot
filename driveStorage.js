@@ -186,9 +186,66 @@ async function getFileMeta(fileId) {
     return res.data;
 }
 
+// Fixed filename used to back up and restore the products catalogue on Drive.
+const PRODUCTS_CSV_DRIVE_NAME = 'products_catalogue.csv';
+
+/**
+ * Back up the products CSV to Google Drive, replacing any previous backup.
+ * No-op when Drive is not configured.
+ *
+ * @param {Buffer} buffer - The CSV file contents.
+ * @returns {Promise<string|null>} The Drive file ID, or null when Drive is off.
+ */
+async function uploadProductsCsv(buffer) {
+    if (!driveClient) return null;
+
+    // Remove any previous backup so we always have exactly one copy.
+    const existing = await driveClient.files.list({
+        q: `name='${PRODUCTS_CSV_DRIVE_NAME}' and '${DRIVE_FOLDER_ID}' in parents and trashed=false`,
+        fields: 'files(id)',
+        spaces: 'drive',
+    });
+    for (const f of (existing.data.files || [])) {
+        try { await driveClient.files.delete({ fileId: f.id }); } catch { /* ignore */ }
+    }
+
+    const res = await driveClient.files.create({
+        requestBody: { name: PRODUCTS_CSV_DRIVE_NAME, parents: [DRIVE_FOLDER_ID] },
+        media: { mimeType: 'text/csv', body: Readable.from(buffer) },
+        fields: 'id',
+    });
+    return res.data.id;
+}
+
+/**
+ * Restore the products CSV from the Google Drive backup.
+ * Returns null when Drive is not configured or no backup exists.
+ *
+ * @returns {Promise<Buffer|null>}
+ */
+async function downloadProductsCsv() {
+    if (!driveClient) return null;
+
+    const res = await driveClient.files.list({
+        q: `name='${PRODUCTS_CSV_DRIVE_NAME}' and '${DRIVE_FOLDER_ID}' in parents and trashed=false`,
+        fields: 'files(id)',
+        spaces: 'drive',
+    });
+    if (!res.data.files || res.data.files.length === 0) return null;
+
+    const fileId = res.data.files[0].id;
+    const driveRes = await driveClient.files.get(
+        { fileId, alt: 'media' },
+        { responseType: 'arraybuffer' }
+    );
+    return Buffer.from(driveRes.data);
+}
+
 module.exports = {
     isDriveEnabled: () => DRIVE_CONFIGURED && !!driveClient,
     uploadFile,
     streamDriveFile,
     getFileMeta,
+    uploadProductsCsv,
+    downloadProductsCsv,
 };

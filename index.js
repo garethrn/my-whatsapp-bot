@@ -408,6 +408,21 @@ async function loadProducts() {
         if (fs.existsSync(LEGACY_CSV_FILE)) {
             fs.copyFileSync(LEGACY_CSV_FILE, CSV_FILE);
             console.log('ℹ️ Migrated products.csv to persistent storage folder.');
+        } else if (driveStorage.isDriveEnabled()) {
+            // Attempt to restore the last admin-uploaded catalogue from Google Drive
+            // so the product list survives redeployments on ephemeral filesystems.
+            try {
+                const csvBuffer = await driveStorage.downloadProductsCsv();
+                if (csvBuffer) {
+                    fs.writeFileSync(CSV_FILE, csvBuffer);
+                    console.log('ℹ️ Restored products.csv from Google Drive backup.');
+                } else {
+                    fs.writeFileSync(CSV_FILE, DEFAULT_CSV);
+                }
+            } catch (e) {
+                console.warn('⚠️ Could not restore products.csv from Google Drive:', e.message);
+                fs.writeFileSync(CSV_FILE, DEFAULT_CSV);
+            }
         } else {
             fs.writeFileSync(CSV_FILE, DEFAULT_CSV);
         }
@@ -3392,6 +3407,12 @@ app.post('/products/upload', productsRouteLimiter, productsAuthMiddleware, (req,
             fs.writeFileSync(CSV_FILE, req.file.buffer);
             try { fs.writeFileSync(LEGACY_CSV_FILE, req.file.buffer); } catch { /* non-fatal fallback */ }
             products = parsedProducts;
+            // Back up to Google Drive so the catalogue survives redeployments.
+            if (driveStorage.isDriveEnabled()) {
+                driveStorage.uploadProductsCsv(req.file.buffer).catch(e =>
+                    console.warn('⚠️ Could not back up products.csv to Google Drive:', e.message)
+                );
+            }
             res.send(`<!DOCTYPE html><html><head><title>Upload complete</title></head><body style="font-family:sans-serif;padding:40px;text-align:center"><h2>✅ Products updated!</h2><p>The products CSV has been replaced and reloaded with ${products.length} products.</p><p><a href="products">← Back to Products Admin</a></p></body></html>`);
         } catch (error) {
             res.status(400).send(`<!DOCTYPE html><html><head><title>Upload failed</title></head><body style="font-family:sans-serif;padding:40px;text-align:center"><h2>⚠️ Upload failed</h2><p>${error.message}</p><p><a href="products">← Back to Products Admin</a></p></body></html>`);
