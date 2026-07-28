@@ -3232,47 +3232,53 @@ app.post('/webhook/payfast', express.urlencoded({ extended: false }), (req, res)
 
     (async () => {
         try {
+            console.log('[PayFast] ITN received, fields:', Object.keys(req.body).join(', '));
+
             const { valid, status, orderId, amount } = payfast.verifyItn(req.body);
 
             if (!valid) {
-                console.warn('⚠️ PayFast ITN signature verification failed');
+                console.warn('[PayFast] ITN signature verification failed — check PAYFAST_PASSPHRASE matches PayFast account settings');
                 return;
             }
+            console.log(`[PayFast] ITN signature valid. orderId=${orderId} status=${status} amount=${amount}`);
 
             if (!orderId) {
-                console.warn('⚠️ PayFast ITN missing m_payment_id');
+                console.warn('[PayFast] ITN missing m_payment_id');
                 return;
             }
 
             const order = orders.find((o) => o.id === orderId);
             if (!order) {
-                console.warn(`⚠️ PayFast ITN for unknown order: ${orderId}`);
+                console.warn(`[PayFast] ITN for unknown order: ${orderId}`);
                 return;
             }
 
             // Verify the amount matches our order to prevent tampering
             const expectedAmount = parseFloat(order.grandTotal || 0);
             if (Math.abs(amount - expectedAmount) > 0.01) {
-                console.warn(`⚠️ PayFast ITN amount mismatch: expected ${expectedAmount.toFixed(2)}, got ${amount.toFixed(2)} for order ${orderId}`);
+                console.warn(`[PayFast] ITN amount mismatch: expected ${expectedAmount.toFixed(2)}, got ${amount.toFixed(2)} for order ${orderId}`);
                 return;
             }
 
             // Confirm with PayFast's server-to-server validation endpoint
             let pfValid = false;
             try {
+                console.log(`[PayFast] Sending server-to-server validation for order ${orderId}...`);
                 pfValid = await payfast.validateItnWithPayFast(req.body);
             } catch (err) {
-                console.error('❌ PayFast ITN server-to-server validation error:', err.message);
+                console.error('[PayFast] ITN server-to-server validation error:', err.message);
                 return;
             }
             if (!pfValid) {
-                console.warn(`⚠️ PayFast ITN server validation returned INVALID for order ${orderId}`);
+                console.warn(`[PayFast] ITN server validation returned INVALID for order ${orderId}`);
                 return;
             }
+            console.log(`[PayFast] Server validation VALID for order ${orderId}`);
 
             const jid = order.jid;
             const waSock = activeSock;
             const waConnected = whatsappRuntime.phase === 'connected';
+            console.log(`[PayFast] WhatsApp connected: ${waConnected}, phase: ${whatsappRuntime.phase}`);
 
             if (status === 'COMPLETE') {
                 const idx = orders.findIndex((o) => o.id === orderId);
@@ -3286,6 +3292,8 @@ app.post('/webhook/payfast', express.urlencoded({ extended: false }), (req, res)
                     await waSock.sendMessage(ADMIN_JID, {
                         text: `💳 *PayFast payment received*\nCustomer: ${jid}\nOrder: ${orderId}\nAmount: R${amount.toFixed(2)}`
                     });
+                } else {
+                    console.warn(`[PayFast] Order ${orderId} marked paid but WhatsApp not connected — confirmation messages not sent`);
                 }
             } else if (status === 'FAILED') {
                 const idx = orders.findIndex((o) => o.id === orderId);
@@ -3304,6 +3312,8 @@ app.post('/webhook/payfast', express.urlencoded({ extended: false }), (req, res)
                         text: `⚠️ *PayFast payment failed*\nCustomer: ${jid}\nOrder: ${orderId}`
                     });
                 }
+            } else {
+                console.log(`[PayFast] ITN for order ${orderId} has unhandled status: ${status}`);
             }
         } catch (err) {
             console.error('❌ PayFast ITN processing error:', err);

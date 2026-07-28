@@ -66,28 +66,16 @@ function computeSignature(data) {
         .map(([k, v]) => `${k}=${phpUrlencode(v)}`);
 
     let paramString = parts.join('&');
-    const hasPassphrase = !!(PASSPHRASE);
-    if (hasPassphrase) {
+    if (PASSPHRASE) {
         paramString += `&passphrase=${phpUrlencode(PASSPHRASE)}`;
     }
-
-    // Debug: log the param string (with passphrase value masked) so it
-    // appears in server logs (e.g. Railway) and can be compared against
-    // what PayFast expects. Remove or disable this once the issue is resolved.
-    const debugString = hasPassphrase
-        ? paramString.replace(/&passphrase=[^&]*$/, '&passphrase=[REDACTED]')
-        : paramString;
-    console.log('[PayFast] signature param string:', debugString);
-    console.log('[PayFast] passphrase configured:', hasPassphrase ? 'YES' : 'NO');
 
     // PayFast requires MD5 for their payment signature algorithm — this is
     // a request-signing operation mandated by the PayFast API specification,
     // NOT a password-storage or password-verification hash.
     // See: https://developers.payfast.co.za/docs#checkout_page_submission
     // lgtm[js/insufficient-password-hash]
-    const sig = crypto.createHash('md5').update(paramString).digest('hex');
-    console.log('[PayFast] computed signature:', sig);
-    return sig;
+    return crypto.createHash('md5').update(paramString).digest('hex');
 }
 
 /**
@@ -160,6 +148,12 @@ function verifyItn(itnParams) {
 /**
  * Confirm an ITN with PayFast's server-to-server validation endpoint.
  * PayFast responds with "VALID" or "INVALID".
+ *
+ * The PayFast API requires two additional headers on this request:
+ *   version: v1.0.0
+ *   merchant-id: <your merchant ID>
+ * Without them the endpoint always returns "INVALID".
+ *
  * @param {object} itnParams - Raw ITN POST body as a key-value object
  * @returns {Promise<boolean>} true if PayFast confirms the payment is valid
  */
@@ -175,14 +169,20 @@ function validateItnWithPayFast(itnParams) {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
-                'Content-Length': Buffer.byteLength(paramString)
+                'Content-Length': Buffer.byteLength(paramString),
+                'version': 'v1.0.0',
+                'merchant-id': MERCHANT_ID
             }
         };
 
         const req = https.request(options, (res) => {
             let data = '';
             res.on('data', (chunk) => { data += chunk; });
-            res.on('end', () => resolve(data.trim() === 'VALID'));
+            res.on('end', () => {
+                const result = data.trim();
+                console.log(`[PayFast] ITN server validation response: ${result}`);
+                resolve(result === 'VALID');
+            });
         });
 
         req.on('error', reject);
