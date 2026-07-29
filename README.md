@@ -374,7 +374,7 @@ PayFast is a South African payment gateway. When configured, the bot sends the c
 | `PAYFAST_PASSPHRASE` | ☑️ Recommended | Security passphrase set in PayFast → Settings → Integration |
 | `PAYFAST_SANDBOX` | ☑️ For testing | Set to `true`/`1`/`yes`/`on` to use the PayFast sandbox. Remove or set to `false` for live payments. |
 
-> **Important:** `BOT_PUBLIC_URL` or `RAILWAY_PUBLIC_DOMAIN` must also be set so the bot can generate the customer-facing payment link and the webhook `notify_url`. On Railway, `RAILWAY_PUBLIC_DOMAIN` is usually set automatically.
+> **Important:** `BOT_PUBLIC_URL` or `RAILWAY_PUBLIC_DOMAIN` must be a **public HTTPS URL** so the bot can generate all three PayFast callbacks correctly: `notify_url`, `return_url`, and `cancel_url`. On Railway, `RAILWAY_PUBLIC_DOMAIN` is usually set automatically.
 
 **Payment flow once configured:**
 
@@ -402,7 +402,7 @@ PayFast is a South African payment gateway. When configured, the bot sends the c
 | PayFast page loads but shows limited/no payment methods (e.g. Apple Pay missing) | Sandbox mode enabled | Set `PAYFAST_SANDBOX=false` (or remove it) for live payments |
 | PayFast page says "does not have any payment methods available for this payment" | Invalid/missing customer email on the order | Ask the customer for a valid email address and regenerate the order/link |
 | Payment page says "Sandbox test credentials detected in live mode" | Sandbox credentials are being used with live mode | Set `PAYFAST_SANDBOX=true` for testing, or switch to your live merchant credentials |
-| PayFast page opens but payment options do not load correctly | Callback URLs resolve to localhost/internal host | Set `BOT_PUBLIC_URL` to your public HTTPS domain (for example `https://your-app.up.railway.app`). If `BOT_PUBLIC_URL` is not set, the app falls back to `X-Forwarded-Host` / `Host` headers from the incoming request. |
+| PayFast page opens but payment options do not load correctly | Callback URLs resolve to localhost, a private IP, an internal hostname, or plain HTTP | Set `BOT_PUBLIC_URL` to your public HTTPS domain (for example `https://your-app.up.railway.app`). PayFast requires `notify_url`, `return_url`, and `cancel_url` to be public HTTPS URLs. |
 | `⚠️ PayFast ITN signature verification failed` in logs | Wrong passphrase or merchant credentials | Check `PAYFAST_MERCHANT_ID`, `PAYFAST_MERCHANT_KEY`, and `PAYFAST_PASSPHRASE` match your PayFast account |
 | `⚠️ PayFast ITN amount mismatch` in logs | Customer tampered with the amount | This is a security check — the order status will not be updated |
 | `⚠️ PayFast ITN server validation returned INVALID` | PayFast could not verify the request | Check that `notify_url` is publicly accessible (not `localhost`) |

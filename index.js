@@ -194,6 +194,69 @@ function resolvePublicOrigin(req) {
     }
 }
 
+function isPrivateIpv4Host(hostname) {
+    const parts = hostname.split('.');
+    if (parts.length !== 4 || parts.some((part) => !/^\d+$/.test(part))) {
+        return false;
+    }
+
+    const octets = parts.map((part) => Number(part));
+    if (octets.some((value) => value < 0 || value > 255)) {
+        return false;
+    }
+
+    return octets[0] === 10 ||
+        octets[0] === 127 ||
+        octets[0] === 0 ||
+        (octets[0] === 169 && octets[1] === 254) ||
+        (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
+        (octets[0] === 192 && octets[1] === 168);
+}
+
+function isPrivateHostName(hostname) {
+    const normalized = String(hostname || '').trim().toLowerCase().replace(/^\[|\]$/g, '');
+    if (!normalized) return true;
+    if (normalized === 'localhost' || normalized === '0.0.0.0') return true;
+    if (normalized.endsWith('.local') || normalized.endsWith('.internal')) return true;
+    if (normalized === '::1' || normalized.startsWith('fc') || normalized.startsWith('fd') || normalized.startsWith('fe80:')) return true;
+    return isPrivateIpv4Host(normalized);
+}
+
+function validatePayfastOrigin(origin) {
+    if (!origin) {
+        return 'Set BOT_PUBLIC_URL (or Railway public domain) to your public HTTPS domain before using PayFast.';
+    }
+
+    try {
+        const url = new URL(origin);
+        if (url.protocol !== 'https:') {
+            return 'PayFast callback URLs must use HTTPS. Update BOT_PUBLIC_URL (or your proxy/domain) to https://...';
+        }
+        if (isPrivateHostName(url.hostname)) {
+            return 'PayFast callback URLs must use a public domain, not localhost, a private IP, or an internal hostname.';
+        }
+        return '';
+    } catch {
+        return 'The configured PayFast public URL is invalid. Check BOT_PUBLIC_URL (or Railway public domain).';
+    }
+}
+
+function getConfiguredPayfastOrigin() {
+    const origin = getBotPublicOrigin();
+    return {
+        origin,
+        error: validatePayfastOrigin(origin)
+    };
+}
+
+function getRequestPayfastOrigin(req) {
+    const origin = resolvePublicOrigin(req);
+    return {
+        origin,
+        error: validatePayfastOrigin(origin)
+    };
+}
+
 function validateConfig() {
     const missingConfig = [
         ['ADMIN_JID', ADMIN_JID],
@@ -1475,14 +1538,14 @@ async function submitOrderForReview(sock, jid, cart) {
     }
     saveOrder(orderRecord);
 
-    // Build a PayFast payment link when configured and a public origin is known
+    // Build a PayFast payment link only when PayFast has a valid public HTTPS origin.
     let paymentLink = null;
     if (payfast.isConfigured()) {
-        const botOrigin = getBotPublicOrigin();
-        if (botOrigin) {
-            paymentLink = `${botOrigin}/pay/${orderId}`;
+        const { origin: payfastOrigin, error: payfastOriginError } = getConfiguredPayfastOrigin();
+        if (payfastOrigin && !payfastOriginError) {
+            paymentLink = `${payfastOrigin}/pay/${orderId}`;
         } else {
-            console.warn('⚠️ PayFast is configured but BOT_PUBLIC_URL / RAILWAY_PUBLIC_DOMAIN is not set — cannot generate payment link.');
+            console.warn(`⚠️ PayFast is configured but its public callback URL is invalid — cannot generate payment link. ${payfastOriginError}`);
         }
     }
 
@@ -3206,9 +3269,10 @@ app.get('/pay/:orderId', (req, res) => {
 </body></html>`);
     }
 
-    const botOrigin = resolvePublicOrigin(req);
-    if (!botOrigin) {
-        return res.status(503).send('Payment page is temporarily unavailable: public URL is not configured.');
+    const { origin: botOrigin, error: botOriginError } = getRequestPayfastOrigin(req);
+    if (botOriginError) {
+        console.error(`[PayFast] Checkout blocked: ${botOriginError}`);
+        return res.status(503).send(`Payment page is temporarily unavailable: ${escapeHtml(botOriginError)}`);
     }
     const notifyUrl = `${botOrigin}/webhook/payfast`;
     const returnUrl = `${botOrigin}/pay/${orderId}/thank-you`;
@@ -3287,8 +3351,8 @@ app.get('/pay/:orderId/thank-you', (req, res) => {
 app.get('/pay/:orderId/cancelled', (req, res) => {
     const { orderId } = req.params;
     const order = orders.find((o) => o && o.id === orderId);
-    const botOrigin = getBotPublicOrigin() || '';
-    const retryLink = botOrigin ? `<p style="margin-top:20px"><a href="${escapeHtml(`${botOrigin}/pay/${orderId}`)}" style="color:#0f9d58">Try again</a></p>` : '';
+    const { origin: botOrigin, error: botOriginError } = getConfiguredPayfastOrigin();
+    const retryLink = (botOrigin && !botOriginError) ? `<p style="margin-top:20px"><a href="${escapeHtml(`${botOrigin}/pay/${orderId}`)}" style="color:#0f9d58">Try again</a></p>` : '';
     res.send(`<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
