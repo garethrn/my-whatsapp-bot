@@ -841,7 +841,7 @@ function buildContactDetailsText() {
 }
 
 function buildTrackingText() {
-    return `🔍 *Track Your Order*\n\nYou can track your order using the link below:\n${TRACKING_URL}\n\nIf you need further assistance, type *human* to speak with a team member or *4* for our store contact details.\n\n${NAVIGATION_HINT}\n\n– ${BUSINESS_NAME} Team`;
+    return `🔍 *Track Your Order*\n\n🚧 *Coming Soon!*\n\nOrder tracking is currently being set up and will be available shortly.\n\nIn the meantime, type *human* to speak with a team member for an update on your order, or reply with *4* for our store contact details.\n\n${NAVIGATION_HINT}\n\n– ${BUSINESS_NAME} Team`;
 }
 
 function buildProductListText() {
