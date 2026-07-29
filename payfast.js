@@ -23,9 +23,8 @@ const SANDBOX_CREDENTIALS = {
     merchantKey: 'q1cd2rdny4a53'
 };
 const rawSandboxValue = (process.env.PAYFAST_SANDBOX || '').trim().toLowerCase();
-const SANDBOX_FLAG = rawSandboxValue === 'true' || rawSandboxValue === '1' || rawSandboxValue === 'yes' || rawSandboxValue === 'on';
+const SANDBOX = rawSandboxValue === 'true' || rawSandboxValue === '1' || rawSandboxValue === 'yes' || rawSandboxValue === 'on';
 const hasSandboxCredentials = MERCHANT_ID === SANDBOX_CREDENTIALS.merchantId && MERCHANT_KEY === SANDBOX_CREDENTIALS.merchantKey;
-const SANDBOX = SANDBOX_FLAG;
 
 const PAYFAST_HOST = SANDBOX ? 'sandbox.payfast.co.za' : 'www.payfast.co.za';
 const PAYMENT_URL = `https://${PAYFAST_HOST}/eng/process`;
