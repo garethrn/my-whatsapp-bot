@@ -29,6 +29,20 @@ const DRIVE_FOLDER_ID    = (process.env.GOOGLE_DRIVE_FOLDER_ID    || '').trim();
 
 const DRIVE_CONFIGURED = !!(DRIVE_CLIENT_EMAIL && DRIVE_PRIVATE_KEY && DRIVE_FOLDER_ID);
 
+// Sanity-check the folder ID format.  A real Drive ID is 25–45 alphanumeric
+// chars (plus underscores/hyphens).  A value like "." or a short string is
+// almost certainly a mis-paste and we warn immediately so the problem is
+// obvious in the startup logs.
+if (DRIVE_FOLDER_ID && !/^[A-Za-z0-9_\-]{10,}$/.test(DRIVE_FOLDER_ID)) {
+    console.warn(
+        `⚠️  GOOGLE_DRIVE_FOLDER_ID looks invalid ("${DRIVE_FOLDER_ID}"). ` +
+        'A Drive folder ID should be a long alphanumeric string like ' +
+        '"1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms". ' +
+        'Copy it from the URL when you open the folder in Google Drive: ' +
+        'https://drive.google.com/drive/folders/<FOLDER_ID>'
+    );
+}
+
 let driveClient = null;
 
 if (DRIVE_CONFIGURED) {
@@ -40,7 +54,27 @@ if (DRIVE_CONFIGURED) {
             scopes: ['https://www.googleapis.com/auth/drive'],
         });
         driveClient = google.drive({ version: 'v3', auth });
-        console.log('✅ Google Drive storage initialised');
+        console.log('✅ Google Drive storage initialised – verifying folder access…');
+
+        // Verify the folder is reachable after all modules finish loading.
+        setImmediate(async () => {
+            try {
+                const res = await driveClient.files.get({
+                    fileId: DRIVE_FOLDER_ID,
+                    fields: 'id,name',
+                });
+                console.log(`✅ Google Drive folder verified: "${res.data.name}" (${res.data.id})`);
+            } catch (e) {
+                console.error(
+                    `❌ Google Drive folder check FAILED (GOOGLE_DRIVE_FOLDER_ID="${DRIVE_FOLDER_ID}"): ${e.message}\n` +
+                    '   Common causes:\n' +
+                    '   1. GOOGLE_DRIVE_FOLDER_ID is wrong – copy it from the folder URL in Google Drive.\n' +
+                    '   2. The service account has not been shared on that folder – open the folder in\n' +
+                    `      Google Drive → Share → add ${DRIVE_CLIENT_EMAIL} with Editor access.\n` +
+                    '   3. The private key or client email belongs to a different project than the folder.'
+                );
+            }
+        });
     } catch (e) {
         console.warn('⚠️  Google Drive: googleapis not available or auth error:', e.message);
     }
