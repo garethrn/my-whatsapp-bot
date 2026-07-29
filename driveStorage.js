@@ -62,6 +62,7 @@ if (DRIVE_CONFIGURED) {
                 const res = await driveClient.files.get({
                     fileId: DRIVE_FOLDER_ID,
                     fields: 'id,name',
+                    supportsAllDrives: true,
                 });
                 console.log(`✅ Google Drive folder verified: "${res.data.name}" (${res.data.id})`);
             } catch (e) {
@@ -71,7 +72,11 @@ if (DRIVE_CONFIGURED) {
                     '   1. GOOGLE_DRIVE_FOLDER_ID is wrong – copy it from the folder URL in Google Drive.\n' +
                     '   2. The service account has not been shared on that folder – open the folder in\n' +
                     `      Google Drive → Share → add ${DRIVE_CLIENT_EMAIL} with Editor access.\n` +
-                    '   3. The private key or client email belongs to a different project than the folder.'
+                    '   3. The private key or client email belongs to a different project than the folder.\n' +
+                    '   4. "Service Accounts do not have storage quota" – your folder must be inside a\n' +
+                    '      Shared Drive (not My Drive).  Create a Shared Drive, add the service account\n' +
+                    `      (${DRIVE_CLIENT_EMAIL}) as a member with Content Manager or higher, then\n` +
+                    '      create a folder inside it and use that folder\'s ID here.'
                 );
             }
         });
@@ -100,6 +105,8 @@ async function getOrCreateFolder(name, parentId) {
         q: `name='${safeName}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
         fields: 'files(id)',
         spaces: 'drive',
+        supportsAllDrives: true,
+        includeItemsFromAllDrives: true,
     });
 
     let id;
@@ -113,6 +120,7 @@ async function getOrCreateFolder(name, parentId) {
                 parents: [parentId],
             },
             fields: 'id',
+            supportsAllDrives: true,
         });
         id = created.data.id;
     }
@@ -159,6 +167,7 @@ async function uploadFile(buffer, filename, mimeType, folder) {
                     body: Readable.from(buffer),
                 },
                 fields: 'id,webViewLink',
+                supportsAllDrives: true,
             });
 
             const fileId = res.data.id;
@@ -194,7 +203,7 @@ async function streamDriveFile(fileId, res) {
     if (!driveClient) throw new Error('Google Drive is not configured');
 
     const driveRes = await driveClient.files.get(
-        { fileId, alt: 'media' },
+        { fileId, alt: 'media', supportsAllDrives: true },
         { responseType: 'stream' }
     );
 
@@ -216,6 +225,7 @@ async function getFileMeta(fileId) {
     const res = await driveClient.files.get({
         fileId,
         fields: 'name,mimeType,size',
+        supportsAllDrives: true,
     });
     return res.data;
 }
@@ -238,15 +248,18 @@ async function uploadProductsCsv(buffer) {
         q: `name='${PRODUCTS_CSV_DRIVE_NAME}' and '${DRIVE_FOLDER_ID}' in parents and trashed=false`,
         fields: 'files(id)',
         spaces: 'drive',
+        supportsAllDrives: true,
+        includeItemsFromAllDrives: true,
     });
     for (const f of (existing.data.files || [])) {
-        try { await driveClient.files.delete({ fileId: f.id }); } catch { /* ignore */ }
+        try { await driveClient.files.delete({ fileId: f.id, supportsAllDrives: true }); } catch { /* ignore */ }
     }
 
     const res = await driveClient.files.create({
         requestBody: { name: PRODUCTS_CSV_DRIVE_NAME, parents: [DRIVE_FOLDER_ID] },
         media: { mimeType: 'text/csv', body: Readable.from(buffer) },
         fields: 'id',
+        supportsAllDrives: true,
     });
     return res.data.id;
 }
@@ -264,12 +277,14 @@ async function downloadProductsCsv() {
         q: `name='${PRODUCTS_CSV_DRIVE_NAME}' and '${DRIVE_FOLDER_ID}' in parents and trashed=false`,
         fields: 'files(id)',
         spaces: 'drive',
+        supportsAllDrives: true,
+        includeItemsFromAllDrives: true,
     });
     if (!res.data.files || res.data.files.length === 0) return null;
 
     const fileId = res.data.files[0].id;
     const driveRes = await driveClient.files.get(
-        { fileId, alt: 'media' },
+        { fileId, alt: 'media', supportsAllDrives: true },
         { responseType: 'arraybuffer' }
     );
     return Buffer.from(driveRes.data);
