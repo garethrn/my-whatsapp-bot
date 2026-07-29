@@ -74,11 +74,17 @@ function getCheckoutConfigError() {
  * PHP's urlencode() encodes all characters except A-Z a-z 0-9 _ - .
  * JavaScript's encodeURIComponent() additionally leaves ! ~ * ' ( ) unencoded,
  * so we must percent-encode those manually to match PHP's output exactly.
+ *
+ * The `trim` option (default true) mirrors the behaviour of trimming user-supplied
+ * form values before submission. Set trim=false for ITN verification so that values
+ * received from PayFast are encoded exactly as-is (PHP's urlencode does not trim).
  * @param {string} value
+ * @param {boolean} [trim=true]
  * @returns {string}
  */
-function phpUrlencode(value) {
-    return encodeURIComponent(String(value).trim())
+function phpUrlencode(value, trim = true) {
+    const str = trim ? String(value).trim() : String(value);
+    return encodeURIComponent(str)
         .replace(/%20/g, '+')
         .replace(/[!'()*~]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
 }
@@ -177,7 +183,9 @@ function getPaymentUrl() {
 function computeItnSignature(data) {
     const parts = Object.entries(data)
         .filter(([, v]) => v !== null && v !== undefined)
-        .map(([k, v]) => `${k}=${phpUrlencode(v)}`);
+        // trim=false: ITN values come from PayFast and must be encoded exactly as received.
+        // PHP's urlencode() does not trim whitespace, so neither should we.
+        .map(([k, v]) => `${k}=${phpUrlencode(v, false)}`);
 
     let paramString = parts.join('&');
     if (PASSPHRASE) {
@@ -234,11 +242,10 @@ function verifyItn(itnParams) {
  */
 function validateItnWithPayFast(itnParams) {
     return new Promise((resolve, reject) => {
-        // Use phpUrlencode (spaces → +) to match the application/x-www-form-urlencoded
-        // encoding that PayFast expects — encodeURIComponent encodes spaces as %20 which
-        // can cause PayFast's server to return INVALID even for legitimate payments.
+        // Use phpUrlencode with trim=false (spaces → +) to match the application/x-www-form-urlencoded
+        // encoding that PayFast expects — values must be encoded exactly as received, without trimming.
         const paramString = Object.entries(itnParams)
-            .map(([k, v]) => `${k}=${phpUrlencode(String(v))}`)
+            .map(([k, v]) => `${k}=${phpUrlencode(String(v), false)}`)
             .join('&');
 
         const options = {
