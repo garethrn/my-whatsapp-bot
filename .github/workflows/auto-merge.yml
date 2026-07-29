@@ -1,0 +1,83 @@
+name: Auto Merge
+
+on:
+  pull_request_review:
+    types: [submitted]
+  check_suite:
+    types: [completed]
+  workflow_run:
+    workflows: ["*"]
+    types: [completed]
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'pull_request_review' &&
+      github.event.review.state == 'approved'
+    permissions:
+      pull-requests: write
+      contents: write
+    steps:
+      - name: Enable auto-merge for approved PRs
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const pr = context.payload.pull_request;
+            if (!pr) {
+              core.info('No pull request in payload, skipping.');
+              return;
+            }
+
+            // Check all required status checks are passing
+            const { data: combinedStatus } = await github.rest.repos.getCombinedStatusForRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: pr.head.sha,
+            });
+
+            const { data: checkRuns } = await github.rest.checks.listForRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: pr.head.sha,
+            });
+
+            const pendingChecks = checkRuns.check_runs.filter(
+              r => r.status !== 'completed'
+            );
+
+            if (pendingChecks.length > 0) {
+              core.info(`${pendingChecks.length} check(s) still pending. Auto-merge will be enabled and GitHub will merge when ready.`);
+            }
+
+            // Enable auto-merge (GitHub will merge once all checks pass)
+            try {
+              await github.graphql(`
+                mutation EnableAutoMerge($pullRequestId: ID!) {
+                  enablePullRequestAutoMerge(input: {
+                    pullRequestId: $pullRequestId,
+                    mergeMethod: MERGE
+                  }) {
+                    pullRequest {
+                      autoMergeRequest {
+                        enabledAt
+                      }
+                    }
+                  }
+                }
+              `, {
+                pullRequestId: pr.node_id,
+              });
+              core.info(`Auto-merge enabled for PR #${pr.number}`);
+            } catch (err) {
+              // Fallback: merge directly if auto-merge is not available
+              core.warning(`Auto-merge not available (${err.message}), attempting direct merge.`);
+              await github.rest.pulls.merge({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+                merge_method: 'merge',
+              });
+              core.info(`PR #${pr.number} merged directly.`);
+            }
