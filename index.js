@@ -1165,7 +1165,7 @@ function buildOrderSummary(cart, options = {}) {
     summary += `*Grand Total: ${formatCurrency(grandTotal)}*`;
 
     if (includeDisclaimer) {
-        summary += `\n\n*Please review and accept before production:*\n${ARTWORK_DISCLAIMER}`;
+        summary += `\n\nReply *confirm* to accept the artwork disclaimer and submit your order, or send *human* if you want a person to assist.\n\n*Please review and accept before production:*\n${ARTWORK_DISCLAIMER}`;
     }
 
     return { summary, grandTotal };
@@ -2464,9 +2464,7 @@ async function startBot() {
                             }
                             const { summary } = buildOrderSummary(cart, { includeDisclaimer: true });
                             userStates[jid] = { step: 'awaiting_checkout_confirmation', pendingCart: cart };
-                            await sock.sendMessage(jid, {
-                                text: `${summary}\n\nReply *confirm* to accept the artwork disclaimer and submit your order, or send *human* if you want a person to assist.`
-                            });
+                            await sock.sendMessage(jid, { text: summary });
                             continue;
                         }
                         if (['no', 'n', 'done', 'nothing'].some((k) => text === k)) {
@@ -2574,9 +2572,7 @@ async function startBot() {
                         }
                         const { summary } = buildOrderSummary(cart, { includeDisclaimer: true });
                         userStates[jid] = { step: 'awaiting_checkout_confirmation', pendingCart: cart };
-                        await sock.sendMessage(jid, {
-                            text: `${summary}\n\nReply *confirm* to accept the artwork disclaimer and submit your order, or send *human* if you want a person to assist.`
-                        });
+                        await sock.sendMessage(jid, { text: summary });
                         continue;
                     }
 
@@ -2878,9 +2874,7 @@ async function startBot() {
 
                         const { summary } = buildOrderSummary(cart, { includeDisclaimer: true });
                         userStates[jid] = { step: 'awaiting_checkout_confirmation', pendingCart: cart };
-                        await sock.sendMessage(jid, {
-                        text: `${summary}\n\nReply *confirm* to accept the artwork disclaimer and submit your order, or send *human* if you want a person to assist.`
-                    });
+                        await sock.sendMessage(jid, { text: summary });
                         continue;
                     }
 

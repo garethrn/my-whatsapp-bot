@@ -300,15 +300,41 @@ In Railway, add these variables:
 
 When set, design files and artwork uploaded by customers are stored in your Google Drive so they are always accessible and downloadable from the admin dashboard.
 
-1. Create a [Google Cloud service account](https://cloud.google.com/iam/docs/service-accounts-create) with the **Google Drive API** enabled.
-2. Create a Drive folder and share it with the service account email (Editor role).
-3. Add these environment variables:
+**Step 1 – Create a Google Cloud project and enable the Drive API**
 
-| Variable | Description |
+1. Go to [https://console.cloud.google.com](https://console.cloud.google.com) and sign in.
+2. Click the project selector at the top and choose **New Project**. Give it any name (e.g. `whatsapp-bot`).
+3. With your new project selected, open the left menu → **APIs & Services → Library**.
+4. Search for **Google Drive API** and click **Enable**.
+
+**Step 2 – Create a service account and download the JSON key**
+
+1. In the left menu go to **APIs & Services → Credentials**.
+2. Click **Create Credentials → Service account**.
+3. Enter any name (e.g. `whatsapp-bot-drive`) and click **Done** — no extra roles are needed at the project level.
+4. Click the service account you just created, then go to the **Keys** tab.
+5. Click **Add Key → Create new key**, choose **JSON**, and click **Create**.
+6. A `.json` file will be downloaded to your computer. Open it — you will see fields like `client_email` and `private_key`.
+
+**Step 3 – Create a shared Drive folder**
+
+1. Open [Google Drive](https://drive.google.com) and create a new folder (e.g. `Whatsapp Bot Uploads`).
+2. Right-click the folder → **Share**.
+3. In the "Add people" field paste the `client_email` value from the JSON key file (it looks like `name@project-id.iam.gserviceaccount.com`).
+4. Set the role to **Editor** and click **Send**.
+5. To find the folder ID, open the folder in Drive and look at the URL: `https://drive.google.com/drive/folders/FOLDER_ID_IS_HERE` — copy the long string of letters/numbers at the end.
+
+**Step 4 – Add environment variables in Railway**
+
+Open your JSON key file and copy the three values below into Railway → Variables:
+
+| Variable | Where to find the value |
 |---|---|
-| `GOOGLE_DRIVE_CLIENT_EMAIL` | Service account e-mail from the JSON key file |
-| `GOOGLE_DRIVE_PRIVATE_KEY` | Private key from the JSON key file (newlines as `\n`) |
-| `GOOGLE_DRIVE_FOLDER_ID` | ID of the shared Drive folder (from the URL) |
+| `GOOGLE_DRIVE_CLIENT_EMAIL` | The `client_email` field in the JSON key file, e.g. `my-bot@my-project.iam.gserviceaccount.com` |
+| `GOOGLE_DRIVE_PRIVATE_KEY` | The `private_key` field in the JSON key file. It starts with `-----BEGIN RSA PRIVATE KEY-----`. Copy the entire value **including** the header and footer, and replace every literal newline with `\n` so it fits on one line. Most JSON editors show it already on one line with `\n` escape sequences — just paste that directly. |
+| `GOOGLE_DRIVE_FOLDER_ID` | The folder ID from the Drive URL in Step 3 above |
+
+> **Tip for `GOOGLE_DRIVE_PRIVATE_KEY`:** Open the JSON file in a text editor. The value of `private_key` will look like `"-----BEGIN RSA PRIVATE KEY-----\nMIIEo...\n-----END RSA PRIVATE KEY-----\n"`. Copy everything between the outer quotes (not including the quotes themselves) and paste it directly as the Railway variable value. Railway preserves the `\n` escape sequences correctly.
 
 Without these variables, files are stored on local disk only (still accessible via the dashboard's file download endpoint).
 
