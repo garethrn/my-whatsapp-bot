@@ -3147,6 +3147,12 @@ app.get('/pay/:orderId', (req, res) => {
         return res.status(503).send('Online payments are not enabled on this server.');
     }
 
+    const payfastConfigError = payfast.getCheckoutConfigError();
+    if (payfastConfigError) {
+        console.error(`[PayFast] Checkout blocked: ${payfastConfigError}`);
+        return res.status(503).send(`Payment page is temporarily unavailable: ${escapeHtml(payfastConfigError)}`);
+    }
+
     const { orderId } = req.params;
     if (!orderId || !/^[a-f0-9]{12}$/.test(orderId)) {
         return res.status(400).send('Invalid order reference.');
@@ -3181,6 +3187,21 @@ app.get('/pay/:orderId', (req, res) => {
 <h1>⚠️ Invalid order amount</h1>
 <p>This order has a zero or invalid amount and cannot be paid online.</p>
 <p>Please contact us for assistance.</p>
+<p style="margin-top:24px;font-size:.9rem;color:#aaa">Order reference: ${escapeHtml(orderId)}</p>
+</body></html>`);
+    }
+
+    const customerEmail = String(order.customerEmail || '').trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail)) {
+        return res.status(400).send(`<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Email required – ${escapeHtml(BUSINESS_NAME)}</title>
+<style>body{font-family:sans-serif;text-align:center;padding:60px 20px}h1{color:#e67e22}p{color:#555}</style>
+</head><body>
+<h1>📧 Email required before payment</h1>
+<p>We need a valid email address on this order before PayFast can load payment options.</p>
+<p>Please message us on WhatsApp with your email and we will resend the payment link.</p>
 <p style="margin-top:24px;font-size:.9rem;color:#aaa">Order reference: ${escapeHtml(orderId)}</p>
 </body></html>`);
     }

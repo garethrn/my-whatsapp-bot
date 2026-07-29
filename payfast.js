@@ -15,10 +15,16 @@
 const crypto = require('crypto');
 const https = require('https');
 
-const MERCHANT_ID = process.env.PAYFAST_MERCHANT_ID || '';
-const MERCHANT_KEY = process.env.PAYFAST_MERCHANT_KEY || '';
-const PASSPHRASE = process.env.PAYFAST_PASSPHRASE || '';
-const SANDBOX = process.env.PAYFAST_SANDBOX === 'true';
+const MERCHANT_ID = (process.env.PAYFAST_MERCHANT_ID || '').trim();
+const MERCHANT_KEY = (process.env.PAYFAST_MERCHANT_KEY || '').trim();
+const PASSPHRASE = (process.env.PAYFAST_PASSPHRASE || '').trim();
+const SANDBOX_CREDENTIALS = {
+    merchantId: '10004002',
+    merchantKey: 'q1cd2rdny4a53'
+};
+const rawSandboxValue = (process.env.PAYFAST_SANDBOX || '').trim().toLowerCase();
+const SANDBOX_FLAG = rawSandboxValue === 'true' || rawSandboxValue === '1' || rawSandboxValue === 'yes' || rawSandboxValue === 'on';
+const SANDBOX = SANDBOX_FLAG || (MERCHANT_ID === SANDBOX_CREDENTIALS.merchantId && MERCHANT_KEY === SANDBOX_CREDENTIALS.merchantKey);
 
 const PAYFAST_HOST = SANDBOX ? 'sandbox.payfast.co.za' : 'www.payfast.co.za';
 const PAYMENT_URL = `https://${PAYFAST_HOST}/eng/process`;
@@ -38,6 +44,23 @@ function isSandbox() {
 }
 
 /**
+ * Return a preflight configuration issue (if any) before redirecting to PayFast.
+ * This avoids generic PayFast errors when local setup is invalid.
+ * @returns {string}
+ */
+function getCheckoutConfigError() {
+    if (!isConfigured()) {
+        return 'PAYFAST_MERCHANT_ID and PAYFAST_MERCHANT_KEY must be configured.';
+    }
+
+    if (!SANDBOX && MERCHANT_ID === SANDBOX_CREDENTIALS.merchantId && MERCHANT_KEY === SANDBOX_CREDENTIALS.merchantKey) {
+        return 'Sandbox test credentials detected in live mode. Set PAYFAST_SANDBOX=true or switch to live merchant credentials.';
+    }
+
+    return '';
+}
+
+/**
  * Encode a value using PHP-compatible URL encoding (spaces become +).
  * PHP's urlencode() encodes all characters except A-Z a-z 0-9 _ - .
  * JavaScript's encodeURIComponent() additionally leaves ! ~ * ' ( ) unencoded,
@@ -49,6 +72,15 @@ function phpUrlencode(value) {
     return encodeURIComponent(String(value).trim())
         .replace(/%20/g, '+')
         .replace(/[!'()*~]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+}
+
+/**
+ * Basic email validation for PayFast payer details.
+ * @param {string} value
+ * @returns {boolean}
+ */
+function isValidEmail(value) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
 }
 
 /**
@@ -105,7 +137,7 @@ function buildPaymentData(order, notifyUrl, returnUrl, cancelUrl, itemName) {
     data.notify_url = notifyUrl;
     if (nameFirst) data.name_first = nameFirst;
     if (nameLast) data.name_last = nameLast;
-    if (order.customerEmail) data.email_address = order.customerEmail;
+    if (isValidEmail(order.customerEmail)) data.email_address = String(order.customerEmail).trim();
     // Only include cell_number when it is a valid South African mobile number.
     // PayFast rejects numbers that don't match +27[6-8]XXXXXXXX or 0[6-8]XXXXXXXX.
     if (order.customerPhone) {
@@ -195,6 +227,7 @@ function validateItnWithPayFast(itnParams) {
 module.exports = {
     isConfigured,
     isSandbox,
+    getCheckoutConfigError,
     buildPaymentData,
     getPaymentUrl,
     verifyItn,
