@@ -58,6 +58,14 @@ function getCheckoutConfigError() {
         return 'Sandbox test credentials detected in live mode. Set PAYFAST_SANDBOX=true or switch to live merchant credentials.';
     }
 
+    if (SANDBOX && !hasSandboxCredentials) {
+        // Live credentials used in sandbox mode — PayFast will likely reject the payment
+        // with "no payment methods available". Use the standard sandbox test credentials:
+        //   PAYFAST_MERCHANT_ID=10004002  PAYFAST_MERCHANT_KEY=q1cd2rdny4a53
+        // OR register at sandbox.payfast.co.za and use those sandbox-specific credentials.
+        console.warn('[PayFast] WARNING: PAYFAST_SANDBOX=true but credentials do not match the standard sandbox test credentials (10004002/q1cd2rdny4a53). If you are using your own sandbox account credentials from sandbox.payfast.co.za, this is fine. Otherwise set PAYFAST_MERCHANT_ID=10004002 and PAYFAST_MERCHANT_KEY=q1cd2rdny4a53 for sandbox testing.');
+    }
+
     return '';
 }
 
@@ -164,13 +172,36 @@ function getPaymentUrl() {
 }
 
 /**
+ * Compute a PayFast MD5 signature for ITN verification.
+ * Unlike buildPaymentData, PayFast includes ALL fields (even empty strings) in the
+ * ITN signature — empty values must NOT be filtered out or the hash won't match.
+ * @param {object} data - Key-value pairs in received order (signature already removed)
+ * @returns {string} MD5 hex digest
+ */
+function computeItnSignature(data) {
+    const parts = Object.entries(data)
+        .filter(([, v]) => v !== null && v !== undefined)
+        .map(([k, v]) => `${k}=${phpUrlencode(v)}`);
+
+    let paramString = parts.join('&');
+    if (PASSPHRASE) {
+        paramString += `&passphrase=${phpUrlencode(PASSPHRASE)}`;
+    }
+
+    // PayFast requires MD5 for their ITN signature verification algorithm — this is
+    // a request-signing operation mandated by the PayFast API specification.
+    // codeql[js/insufficient-password-hash] -- PayFast requires MD5 request signatures for ITN verification.
+    return crypto.createHash('md5').update(paramString).digest('hex');
+}
+
+/**
  * Verify the signature of a PayFast ITN (Instant Transaction Notification).
  * @param {object} itnParams - Parsed POST body received from PayFast
  * @returns {{ valid: boolean, status: string, orderId: string, amount: number }}
  */
 function verifyItn(itnParams) {
     const { signature, ...rest } = itnParams;
-    const expectedSig = computeSignature(rest);
+    const expectedSig = computeItnSignature(rest);
     return {
         valid: signature === expectedSig,
         status: itnParams.payment_status || '',
@@ -193,8 +224,11 @@ function verifyItn(itnParams) {
  */
 function validateItnWithPayFast(itnParams) {
     return new Promise((resolve, reject) => {
+        // Use phpUrlencode (spaces → +) to match the application/x-www-form-urlencoded
+        // encoding that PayFast expects — encodeURIComponent encodes spaces as %20 which
+        // can cause PayFast's server to return INVALID even for legitimate payments.
         const paramString = Object.entries(itnParams)
-            .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
+            .map(([k, v]) => `${k}=${phpUrlencode(String(v))}`)
             .join('&');
 
         const options = {

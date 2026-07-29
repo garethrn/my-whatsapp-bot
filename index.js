@@ -3310,24 +3310,29 @@ app.post('/webhook/payfast', express.urlencoded({ extended: false }), (req, res)
 
     (async () => {
         try {
-            console.log('[PayFast] ITN received, fields:', Object.keys(req.body).join(', '));
+            const itnFieldCount = Object.keys(req.body).length;
+            console.log(`[PayFast] ITN received (${itnFieldCount} fields): payment_status=${req.body.payment_status || '?'} m_payment_id=${req.body.m_payment_id || '?'} amount_gross=${req.body.amount_gross || '?'}`);
 
             const { valid, status, orderId, amount } = payfast.verifyItn(req.body);
 
             if (!valid) {
-                console.warn('[PayFast] ITN signature verification failed — check PAYFAST_PASSPHRASE matches PayFast account settings');
+                console.warn('[PayFast] ITN signature verification FAILED — common causes:');
+                console.warn('  1. PAYFAST_PASSPHRASE does not match the passphrase set in PayFast → Settings → Integration');
+                console.warn('  2. PAYFAST_PASSPHRASE is set here but blank/unset on PayFast dashboard (or vice versa)');
+                console.warn('  3. ITN was sent by a source other than PayFast (possible replay/forgery attempt)');
+                console.warn(`  ITN received signature: ${req.body.signature || '(none)'}`);
                 return;
             }
             console.log(`[PayFast] ITN signature valid. orderId=${orderId} status=${status} amount=${amount}`);
 
             if (!orderId) {
-                console.warn('[PayFast] ITN missing m_payment_id');
+                console.warn('[PayFast] ITN missing m_payment_id — cannot match to an order');
                 return;
             }
 
             const order = orders.find((o) => o && o.id === orderId);
             if (!order) {
-                console.warn(`[PayFast] ITN for unknown order: ${orderId}`);
+                console.warn(`[PayFast] ITN for unknown order: ${orderId} — order not found in storage`);
                 return;
             }
 
@@ -3344,11 +3349,11 @@ app.post('/webhook/payfast', express.urlencoded({ extended: false }), (req, res)
                 console.log(`[PayFast] Sending server-to-server validation for order ${orderId}...`);
                 pfValid = await payfast.validateItnWithPayFast(req.body);
             } catch (err) {
-                console.error('[PayFast] ITN server-to-server validation error:', err.message);
+                console.error('[PayFast] ITN server-to-server validation network error:', err.message);
                 return;
             }
             if (!pfValid) {
-                console.warn(`[PayFast] ITN server validation returned INVALID for order ${orderId}`);
+                console.warn(`[PayFast] ITN server validation returned INVALID for order ${orderId} — PayFast could not verify the transaction`);
                 return;
             }
             console.log(`[PayFast] Server validation VALID for order ${orderId}`);
