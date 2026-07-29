@@ -72,7 +72,8 @@ async function startBot(fingerprintIndex = 0) {
     const sock = makeWASocket({
         auth: state,
         logger: pino({ level: 'silent' }),
-        browser
+        browser,
+        qrTimeout: 120000
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -82,6 +83,7 @@ async function startBot(fingerprintIndex = 0) {
         
         if (qr) {
             console.log('⚠️ QR Code generated. Visit /qr to scan it.');
+            console.log('⏰ QR code generated at', new Date().toLocaleTimeString(), '— expires in 2 minutes');
             try {
                 latestQR = await qrcodeImg.toBuffer(qr, { type: 'png' });
                 console.log('✅ QR code stored in memory — fetch it at /qr');
@@ -114,6 +116,9 @@ async function startBot(fingerprintIndex = 0) {
             console.error(`🔌 Connection closed. Status: ${statusCode}. Reason: ${err?.message || 'unknown'}`);
             console.error('🔍 Full error details:', JSON.stringify(err, Object.getOwnPropertyNames(err || {}), 2));
             retryCount++;
+            if (statusCode === 408) {
+                console.log('⏰ QR code expired — generating new one');
+            }
             if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
                 console.log('🗑️  Auth invalidated — clearing auth state and restarting...');
                 if (fs.existsSync(AUTH_DIR)) fs.rmSync(AUTH_DIR, { recursive: true, force: true });
