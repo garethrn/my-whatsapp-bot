@@ -303,7 +303,11 @@ let userNames = {};
 let fallbackCounts = {};
 let userEmails = {};
 let orders = loadJsonFile(ORDERS_FILE, []);
-let settings = loadJsonFile(SETTINGS_FILE, { wholesalePassword: '' });
+let settings = loadJsonFile(SETTINGS_FILE, { wholesalePassword: '', wholesaleDiscount: 25 });
+// Migrate existing settings files that pre-date the wholesaleDiscount field.
+if (typeof settings.wholesaleDiscount !== 'number' || settings.wholesaleDiscount <= 0 || settings.wholesaleDiscount >= 100) {
+    settings.wholesaleDiscount = 25;
+}
 // Tracks which customer JIDs have authenticated as wholesale clients in this session.
 let wholesaleActiveSessions = {};
 // Full conversation log keyed by JID – stores both user and bot messages for the admin dashboard.
@@ -713,7 +717,8 @@ function getWholesaleMultiplier(jid, product) {
     const cat = (product?.Category || '').trim().toLowerCase();
     if (cat === 'supplies') return 1;
     if (cat.startsWith('large format printing')) return 1;
-    return 0.8; // 20% off
+    const pct = settings.wholesaleDiscount; // e.g. 25 → 0.75 multiplier
+    return 1 - pct / 100;
 }
 
 function pluralizeWord(word, count) {
@@ -1152,7 +1157,7 @@ function buildOrderSummary(cart, options = {}) {
         if (item.qty > 1) summary += ` ×${item.qty}`;
         summary += '\n';
         summary += `   Material: ${formatCurrency(item.total - (item.designFee || 0) - (item.polesCost || 0) - (item.installationFee || 0))}\n`;
-        if (item.wholesaleDiscount > 0) summary += `   🏷️ Wholesale Discount (20%): -${formatCurrency(item.wholesaleDiscount)}\n`;
+        if (item.wholesaleDiscount > 0) summary += `   🏷️ Wholesale Discount (${settings.wholesaleDiscount}%): -${formatCurrency(item.wholesaleDiscount)}\n`;
         if (item.designFee > 0) summary += `   Design/Layout Fee: ${formatCurrency(item.designFee)}\n`;
         if (item.polesCost > 0) summary += `   Poles (×${item.poles}): ${formatCurrency(item.polesCost)}\n`;
         if (item.installationFee > 0) summary += `   Installation: ${formatCurrency(item.installationFee)}\n`;
@@ -1900,7 +1905,7 @@ async function startBot() {
                         if (text === '5' || /wholesale/.test(text)) {
                             if (wholesaleActiveSessions[jid]) {
                                 await sock.sendMessage(jid, {
-                                    text: `✅ *Wholesale mode is already active* for your session.\n\nYou receive a 20% discount on all products (excluding Supplies and Large Format Printing).\n\n${NAVIGATION_HINT}`
+                                    text: `✅ *Wholesale mode is already active* for your session.\n\nYou receive a *${settings.wholesaleDiscount}% discount* on all products (excluding Supplies and Large Format Printing).\n\n${NAVIGATION_HINT}`
                                 });
                                 continue;
                             }
@@ -1933,7 +1938,7 @@ async function startBot() {
                             wholesaleActiveSessions[jid] = true;
                             userStates[jid] = { step: 'awaiting_main_menu' };
                             await sock.sendMessage(jid, {
-                                text: `✅ *Wholesale pricing activated!*\n\nYou now have a *20% discount* on all products (excluding Supplies and Large Format Printing) for this session.\n\n${buildWelcomeText(jid)}`
+                                text: `✅ *Wholesale pricing activated!*\n\nYou now have a *${settings.wholesaleDiscount}% discount* on all products (excluding Supplies and Large Format Printing) for this session.\n\n${buildWelcomeText(jid)}`
                             });
                             continue;
                         }
@@ -3780,6 +3785,38 @@ app.get('/admin/api/orders', adminRouteLimiter, adminAuthMiddleware, (req, res) 
     res.json({ ok: true, orders: sorted });
 });
 
+// POST /admin/api/whatsapp/logout — disconnect WhatsApp, clear auth, return to QR scan
+app.post('/admin/api/whatsapp/logout', adminRouteLimiter, adminAuthMiddleware, async (req, res) => {
+    auditLog('WHATSAPP_LOGOUT', 'Manual WhatsApp logout via admin dashboard', req.ip);
+
+    // Advance the generation counter so the close event from this socket
+    // is ignored by the existing connection.update handler (preventing a
+    // double-restart race condition).
+    ++activeSocketGeneration;
+
+    const currentSock = activeSock;
+    activeSock = null;
+    currentQrDataUri = null;
+
+    // Close the socket without waiting for a graceful response
+    if (currentSock) {
+        try { currentSock.ws.close(); } catch (_) { /* best-effort */ }
+    }
+
+    // Wipe auth so the next startBot() has to show a fresh QR code
+    try {
+        if (fs.existsSync(AUTH_DIR)) fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+    } catch (e) {
+        console.error('⚠️ Failed to clear WhatsApp auth directory on admin logout:', e);
+    }
+
+    setWhatsAppPhase('logged_out');
+    clearBotRestartTimer();
+    scheduleBotRestart('Manual logout from admin dashboard', 1500);
+
+    res.json({ ok: true });
+});
+
 // GET /admin/events — SSE stream for real-time admin notifications (payment received, etc.)
 app.get('/admin/events', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
@@ -3794,19 +3831,33 @@ app.get('/admin/events', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
 app.get('/admin/api/settings', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
     res.json({
         ok: true,
-        wholesalePasswordSet: !!(settings.wholesalePassword)
+        wholesalePasswordSet: !!(settings.wholesalePassword),
+        wholesaleDiscount: settings.wholesaleDiscount,
     });
 });
 
 // POST /admin/api/settings — update bot settings
 app.post('/admin/api/settings', adminRouteLimiter, adminAuthMiddleware, express.json(), (req, res) => {
-    const { wholesalePassword } = req.body || {};
-    if (typeof wholesalePassword !== 'string') {
-        return res.status(400).json({ error: 'wholesalePassword must be a string' });
+    const { wholesalePassword, wholesaleDiscount } = req.body || {};
+    if (wholesalePassword !== undefined) {
+        if (typeof wholesalePassword !== 'string') {
+            return res.status(400).json({ error: 'wholesalePassword must be a string' });
+        }
+        settings.wholesalePassword = wholesalePassword;
+        auditLog('SETTINGS_UPDATE', 'wholesalePassword updated', req.ip);
     }
-    settings.wholesalePassword = wholesalePassword;
+    if (wholesaleDiscount !== undefined) {
+        const pct = Number(wholesaleDiscount);
+        if (!Number.isFinite(pct) || pct <= 0 || pct >= 100) {
+            return res.status(400).json({ error: 'wholesaleDiscount must be a number between 1 and 99' });
+        }
+        settings.wholesaleDiscount = pct;
+        auditLog('SETTINGS_UPDATE', `wholesaleDiscount updated to ${pct}%`, req.ip);
+    }
+    if (wholesalePassword === undefined && wholesaleDiscount === undefined) {
+        return res.status(400).json({ error: 'No recognised fields to update' });
+    }
     saveJsonFile(SETTINGS_FILE, settings);
-    auditLog('SETTINGS_UPDATE', 'wholesalePassword updated', req.ip);
     res.json({ ok: true });
 });
 
@@ -4163,7 +4214,7 @@ app.get('/admin', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
       <h2 style="margin-bottom:16px">⚙️ Settings</h2>
       <div class="card">
         <h3>🏷️ Wholesale Client Password</h3>
-        <p class="hint">Set a password that wholesale clients can enter in the bot to unlock a 20% discount on all products (excluding Supplies and Large Format Printing). Leave blank to disable wholesale pricing.</p>
+        <p class="hint">Set a password that wholesale clients can enter in the bot to unlock discounted pricing (see below for the discount %). Leave blank to disable wholesale pricing.</p>
         <div id="wholesaleStatus" style="margin-bottom:10px;font-size:.85rem;color:#666">Loading…</div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <input type="password" id="wholesalePasswordInput" placeholder="New wholesale password" style="padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:.88rem;flex:1;min-width:200px">
@@ -4171,6 +4222,17 @@ app.get('/admin', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
           <button class="btn btn-sec" onclick="clearWholesalePassword()" style="flex-shrink:0">🗑️ Clear (Disable)</button>
         </div>
         <p id="wholesaleSaveMsg" style="margin-top:8px;font-size:.82rem;display:none"></p>
+      </div>
+      <div class="card" style="margin-top:20px">
+        <h3>💰 Wholesale Discount Percentage</h3>
+        <p class="hint">Percentage discount applied to wholesale clients on eligible products (Supplies and Large Format Printing are always excluded). Enter a value between 1 and 99.</p>
+        <div id="wholesaleDiscountStatus" style="margin-bottom:10px;font-size:.85rem;color:#666">Loading…</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input type="number" id="wholesaleDiscountInput" min="1" max="99" step="1" placeholder="e.g. 25" style="padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:.88rem;width:110px">
+          <span style="font-size:.9rem;color:#444">%</span>
+          <button class="btn" onclick="saveWholesaleDiscount()" style="flex-shrink:0">💾 Save Discount</button>
+        </div>
+        <p id="wholesaleDiscountMsg" style="margin-top:8px;font-size:.82rem;display:none"></p>
       </div>
     </div>
   </div>
@@ -4185,7 +4247,11 @@ app.get('/admin', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
           <img id="qrImg" src="" style="max-width:260px;border:1px solid #ccc;padding:8px;border-radius:4px">
           <p style="font-size:.75rem;color:#aaa;margin-top:6px">QR refreshes automatically every 55 s.</p>
         </div>
-        <button class="btn btn-sec" style="margin-top:16px;font-size:.82rem" onclick="refreshQrPanel()">⟳ Refresh</button>
+        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:16px">
+          <button class="btn btn-sec" style="font-size:.82rem" onclick="refreshQrPanel()">⟳ Refresh</button>
+          <button class="btn" style="font-size:.82rem;background:#c0392b;border-color:#c0392b" onclick="logoutWhatsApp()">🔌 Log Off WhatsApp</button>
+        </div>
+        <p id="qrLogoutMsg" style="margin-top:10px;font-size:.82rem;display:none;text-align:center"></p>
       </div>
     </div>
   </div>
@@ -4238,6 +4304,8 @@ function switchTab(name) {
 // ── Settings tab ──────────────────────────────────────────────────────────────
 async function loadSettings() {
   const statusEl = document.getElementById('wholesaleStatus');
+  const discountStatusEl = document.getElementById('wholesaleDiscountStatus');
+  const discountInput = document.getElementById('wholesaleDiscountInput');
   if (!statusEl) return;
   try {
     const r = await fetch('/admin/api/settings');
@@ -4247,6 +4315,8 @@ async function loadSettings() {
       statusEl.textContent = data.wholesalePasswordSet
         ? '✅ Wholesale password is currently set.'
         : '⚠️ No wholesale password set — wholesale pricing is disabled.';
+      if (discountStatusEl) discountStatusEl.textContent = 'Current discount: ' + data.wholesaleDiscount + '%';
+      if (discountInput) discountInput.value = data.wholesaleDiscount;
     }
   } catch(e) { statusEl.textContent = 'Error loading settings.'; }
 }
@@ -4297,6 +4367,53 @@ async function clearWholesalePassword() {
 }
 
 // ── WhatsApp status ───────────────────────────────────────────────────────────
+
+async function saveWholesaleDiscount() {
+  const input = document.getElementById('wholesaleDiscountInput');
+  const msg = document.getElementById('wholesaleDiscountMsg');
+  const raw = input && input.value.trim();
+  const pct = Number(raw);
+  if (!raw || !Number.isFinite(pct) || pct <= 0 || pct >= 100) {
+    alert('Please enter a valid percentage between 1 and 99.');
+    return;
+  }
+  try {
+    const r = await fetch('/admin/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ wholesaleDiscount: pct })
+    });
+    if (r.status === 401) { location.href='/admin/login'; return; }
+    const data = await r.json();
+    if (data.ok) {
+      if (msg) { msg.style.display='block'; msg.style.color='#27ae60'; msg.textContent='✅ Wholesale discount set to ' + pct + '%.'; }
+      loadSettings();
+    } else {
+      if (msg) { msg.style.display='block'; msg.style.color='#c0392b'; msg.textContent='Error: ' + (data.error||'Unknown error'); }
+    }
+  } catch(e) {
+    if (msg) { msg.style.display='block'; msg.style.color='#c0392b'; msg.textContent='Error: ' + e.message; }
+  }
+}
+
+async function logoutWhatsApp() {
+  if (!confirm('This will disconnect the WhatsApp session and show a new QR code to re-link. Are you sure?')) return;
+  const msg = document.getElementById('qrLogoutMsg');
+  try {
+    const r = await fetch('/admin/api/whatsapp/logout', { method: 'POST' });
+    if (r.status === 401) { location.href='/admin/login'; return; }
+    const data = await r.json();
+    if (data.ok) {
+      if (msg) { msg.style.display='block'; msg.style.color='#27ae60'; msg.textContent='✅ WhatsApp logged out. A new QR code will appear shortly — scan it to reconnect.'; }
+      setTimeout(refreshQrPanel, 3000);
+    } else {
+      if (msg) { msg.style.display='block'; msg.style.color='#c0392b'; msg.textContent='Error: ' + (data.error||'Unknown error'); }
+    }
+  } catch(e) {
+    if (msg) { msg.style.display='block'; msg.style.color='#c0392b'; msg.textContent='Error: ' + e.message; }
+  }
+}
+
 let waPhase = 'unknown';
 async function checkWaStatus() {
   try {
