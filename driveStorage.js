@@ -24,7 +24,7 @@ const { Readable } = require('stream');
 // ── Drive initialisation ──────────────────────────────────────────────────────
 
 const DRIVE_CLIENT_EMAIL = (process.env.GOOGLE_DRIVE_CLIENT_EMAIL || '').trim();
-const DRIVE_PRIVATE_KEY  = (process.env.GOOGLE_DRIVE_PRIVATE_KEY  || '').replace(/\\n/g, '\n');
+const DRIVE_PRIVATE_KEY  = (process.env.GOOGLE_DRIVE_PRIVATE_KEY  || '').replace(/\\n/g, '\n').replace(/\r/g, '');
 const DRIVE_FOLDER_ID    = (process.env.GOOGLE_DRIVE_FOLDER_ID    || '').trim();
 
 const DRIVE_CONFIGURED = !!(DRIVE_CLIENT_EMAIL && DRIVE_PRIVATE_KEY && DRIVE_FOLDER_ID);
