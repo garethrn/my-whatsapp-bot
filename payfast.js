@@ -25,7 +25,7 @@ const SANDBOX_CREDENTIALS = {
 const rawSandboxValue = (process.env.PAYFAST_SANDBOX || '').trim().toLowerCase();
 const SANDBOX_FLAG = rawSandboxValue === 'true' || rawSandboxValue === '1' || rawSandboxValue === 'yes' || rawSandboxValue === 'on';
 const hasSandboxCredentials = MERCHANT_ID === SANDBOX_CREDENTIALS.merchantId && MERCHANT_KEY === SANDBOX_CREDENTIALS.merchantKey;
-const SANDBOX = SANDBOX_FLAG || hasSandboxCredentials;
+const SANDBOX = SANDBOX_FLAG;
 
 const PAYFAST_HOST = SANDBOX ? 'sandbox.payfast.co.za' : 'www.payfast.co.za';
 const PAYMENT_URL = `https://${PAYFAST_HOST}/eng/process`;
@@ -54,7 +54,7 @@ function getCheckoutConfigError() {
         return 'PAYFAST_MERCHANT_ID and PAYFAST_MERCHANT_KEY must be configured.';
     }
 
-    if (rawSandboxValue === 'false' && hasSandboxCredentials) {
+    if (!SANDBOX && hasSandboxCredentials) {
         return 'Sandbox test credentials detected in live mode. Set PAYFAST_SANDBOX=true or switch to live merchant credentials.';
     }
 
