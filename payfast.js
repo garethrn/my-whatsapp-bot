@@ -111,13 +111,9 @@ function computeSignature(data) {
         paramString += `&passphrase=${phpUrlencode(PASSPHRASE)}`;
     }
 
-    // PayFast requires MD5 for their payment signature algorithm — this is
-    // a request-signing operation mandated by the PayFast API specification,
-    // NOT a password-storage or password-verification hash.
+    // PayFast mandates MD5 for request signing — this is NOT a password hash.
     // See: https://developers.payfast.co.za/docs#checkout_page_submission
-    // lgtm[js/insufficient-password-hash]
-    // codeql[js/insufficient-password-hash] -- PayFast requires MD5 request signatures for checkout/ITN verification.
-    return crypto.createHash('md5').update(paramString).digest('hex');
+    return crypto.createHash('md5').update(paramString).digest('hex'); // lgtm[js/insufficient-password-hash]
 }
 
 /**
@@ -188,22 +184,36 @@ function computeItnSignature(data) {
         paramString += `&passphrase=${phpUrlencode(PASSPHRASE)}`;
     }
 
-    // PayFast requires MD5 for their ITN signature verification algorithm — this is
-    // a request-signing operation mandated by the PayFast API specification.
-    // codeql[js/insufficient-password-hash] -- PayFast requires MD5 request signatures for ITN verification.
-    return crypto.createHash('md5').update(paramString).digest('hex');
+    // PayFast mandates MD5 for request signing — this is NOT a password hash.
+    // See: https://developers.payfast.co.za/docs#checkout_page_submission
+    return crypto.createHash('md5').update(paramString).digest('hex'); // lgtm[js/insufficient-password-hash]
 }
 
 /**
  * Verify the signature of a PayFast ITN (Instant Transaction Notification).
+ * Uses a constant-time comparison to prevent timing attacks.
  * @param {object} itnParams - Parsed POST body received from PayFast
  * @returns {{ valid: boolean, status: string, orderId: string, amount: number }}
  */
 function verifyItn(itnParams) {
     const { signature, ...rest } = itnParams;
     const expectedSig = computeItnSignature(rest);
+
+    // Use timing-safe comparison to prevent attackers from inferring the correct
+    // signature byte-by-byte through response timing differences.
+    let valid = false;
+    try {
+        const receivedBuf = Buffer.from(String(signature || ''), 'utf8');
+        const expectedBuf = Buffer.from(expectedSig, 'utf8');
+        // timingSafeEqual requires equal-length buffers; MD5 hex is always 32 chars.
+        valid = receivedBuf.length === expectedBuf.length &&
+                crypto.timingSafeEqual(receivedBuf, expectedBuf);
+    } catch {
+        valid = false;
+    }
+
     return {
-        valid: signature === expectedSig,
+        valid,
         status: itnParams.payment_status || '',
         orderId: itnParams.m_payment_id || '',
         amount: parseFloat(itnParams.amount_gross || '0')
