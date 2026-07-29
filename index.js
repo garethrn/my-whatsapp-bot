@@ -170,6 +170,30 @@ function getBotPublicOrigin() {
     }
 }
 
+/**
+ * Resolve a public origin for web callbacks.
+ * Prefers explicit env config, then falls back to proxy headers / host.
+ */
+function resolvePublicOrigin(req) {
+    const configured = getBotPublicOrigin();
+    if (configured) return configured;
+
+    const forwardedHost = (req.headers['x-forwarded-host'] || '').toString().trim();
+    const host = forwardedHost || (req.headers.host || '').toString().trim();
+    if (!host) return null;
+
+    const forwardedProto = (req.headers['x-forwarded-proto'] || '').toString().split(',')[0].trim().toLowerCase();
+    const protocol = forwardedProto === 'http' || forwardedProto === 'https'
+        ? forwardedProto
+        : (req.secure ? 'https' : 'http');
+
+    try {
+        return new URL(`${protocol}://${host}`).origin;
+    } catch {
+        return null;
+    }
+}
+
 function validateConfig() {
     const missingConfig = [
         ['ADMIN_JID', ADMIN_JID],
@@ -3160,7 +3184,10 @@ app.get('/pay/:orderId', (req, res) => {
 </body></html>`);
     }
 
-    const botOrigin = getBotPublicOrigin() || `http://localhost:${PORT}`;
+    const botOrigin = resolvePublicOrigin(req);
+    if (!botOrigin) {
+        return res.status(503).send('Payment page is temporarily unavailable: public URL is not configured.');
+    }
     const notifyUrl = `${botOrigin}/webhook/payfast`;
     const returnUrl = `${botOrigin}/pay/${orderId}/thank-you`;
     const cancelUrl = `${botOrigin}/pay/${orderId}/cancelled`;

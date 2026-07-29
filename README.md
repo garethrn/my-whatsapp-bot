@@ -399,6 +399,8 @@ PayFast is a South African payment gateway. When configured, the bot sends the c
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | No payment link sent to customer | `BOT_PUBLIC_URL` not set | Set `BOT_PUBLIC_URL` or ensure `RAILWAY_PUBLIC_DOMAIN` is set by Railway |
+| PayFast page loads but shows limited/no payment methods (e.g. Apple Pay missing) | Sandbox mode enabled | Set `PAYFAST_SANDBOX=false` (or remove it) for live payments |
+| PayFast page opens but payment options do not load correctly | Callback URLs resolve to localhost/internal host | Set `BOT_PUBLIC_URL` to your public HTTPS domain (for example `https://your-app.up.railway.app`) |
 | `⚠️ PayFast ITN signature verification failed` in logs | Wrong passphrase or merchant credentials | Check `PAYFAST_MERCHANT_ID`, `PAYFAST_MERCHANT_KEY`, and `PAYFAST_PASSPHRASE` match your PayFast account |
 | `⚠️ PayFast ITN amount mismatch` in logs | Customer tampered with the amount | This is a security check — the order status will not be updated |
 | `⚠️ PayFast ITN server validation returned INVALID` | PayFast could not verify the request | Check that `notify_url` is publicly accessible (not `localhost`) |
