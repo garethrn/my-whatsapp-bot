@@ -1378,7 +1378,7 @@ function saveOrder(record) {
  * Find a persisted order record by its Invoice Ninja quote ID.
  */
 function findOrderByQuoteId(quoteId) {
-    return orders.find((o) => o.invoiceNinjaQuoteId === quoteId) || null;
+    return orders.find((o) => o && o.invoiceNinjaQuoteId === quoteId) || null;
 }
 
 async function activateHumanHandover(sock, jid, reason) {
@@ -3103,7 +3103,7 @@ app.post('/webhook/invoice-ninja', (req, res, next) => {
 
             if (isApproved) {
                 // Update our order record
-                const idx = orders.findIndex((o) => o.id === order.id);
+                const idx = orders.findIndex((o) => o && o.id === order.id);
                 if (idx >= 0) { orders[idx].status = 'approved'; saveJsonFile(ORDERS_FILE, orders); }
 
                 await activeSock.sendMessage(jid, {
@@ -3113,7 +3113,7 @@ app.post('/webhook/invoice-ninja', (req, res, next) => {
                     text: `✅ *Quote approved*\nCustomer: ${jid}\nQuote: ${order.invoiceNinjaQuoteNumber}`
                 });
             } else if (isPaid) {
-                const idx = orders.findIndex((o) => o.id === order.id);
+                const idx = orders.findIndex((o) => o && o.id === order.id);
                 if (idx >= 0) { orders[idx].status = 'paid'; saveJsonFile(ORDERS_FILE, orders); }
 
                 await activeSock.sendMessage(jid, {
@@ -3123,7 +3123,7 @@ app.post('/webhook/invoice-ninja', (req, res, next) => {
                     text: `💳 *Payment received*\nCustomer: ${jid}\nQuote: ${order.invoiceNinjaQuoteNumber}`
                 });
             } else if (isExpired) {
-                const idx = orders.findIndex((o) => o.id === order.id);
+                const idx = orders.findIndex((o) => o && o.id === order.id);
                 if (idx >= 0) { orders[idx].status = 'expired'; saveJsonFile(ORDERS_FILE, orders); }
 
                 await activeSock.sendMessage(jid, {
@@ -3142,6 +3142,7 @@ app.post('/webhook/invoice-ninja', (req, res, next) => {
 // The order ID (12-char random hex) acts as a capability token; only someone
 // who received the WhatsApp message with the link can access this URL.
 app.get('/pay/:orderId', (req, res) => {
+    try {
     if (!payfast.isConfigured()) {
         return res.status(503).send('Online payments are not enabled on this server.');
     }
@@ -3151,7 +3152,7 @@ app.get('/pay/:orderId', (req, res) => {
         return res.status(400).send('Invalid order reference.');
     }
 
-    const order = orders.find((o) => o.id === orderId);
+    const order = orders.find((o) => o && o.id === orderId);
     if (!order) {
         return res.status(404).send('Order not found.');
     }
@@ -3239,6 +3240,10 @@ app.get('/pay/:orderId', (req, res) => {
   // document.getElementById('pf').submit();
 </script>
 </body></html>`);
+    } catch (err) {
+        console.error('[PayFast] /pay/:orderId error:', err);
+        res.status(500).send('Sorry, something went wrong loading the payment page. Please try again or contact us for assistance.');
+    }
 });
 
 // GET /pay/:orderId/thank-you — PayFast return URL after successful payment
@@ -3260,7 +3265,7 @@ app.get('/pay/:orderId/thank-you', (req, res) => {
 // GET /pay/:orderId/cancelled — PayFast cancel URL
 app.get('/pay/:orderId/cancelled', (req, res) => {
     const { orderId } = req.params;
-    const order = orders.find((o) => o.id === orderId);
+    const order = orders.find((o) => o && o.id === orderId);
     const botOrigin = getBotPublicOrigin() || '';
     const retryLink = botOrigin ? `<p style="margin-top:20px"><a href="${escapeHtml(`${botOrigin}/pay/${orderId}`)}" style="color:#0f9d58">Try again</a></p>` : '';
     res.send(`<!DOCTYPE html>
@@ -3299,7 +3304,7 @@ app.post('/webhook/payfast', express.urlencoded({ extended: false }), (req, res)
                 return;
             }
 
-            const order = orders.find((o) => o.id === orderId);
+            const order = orders.find((o) => o && o.id === orderId);
             if (!order) {
                 console.warn(`[PayFast] ITN for unknown order: ${orderId}`);
                 return;
@@ -3333,7 +3338,7 @@ app.post('/webhook/payfast', express.urlencoded({ extended: false }), (req, res)
             console.log(`[PayFast] WhatsApp connected: ${waConnected}, phase: ${whatsappRuntime.phase}`);
 
             if (status === 'COMPLETE') {
-                const idx = orders.findIndex((o) => o.id === orderId);
+                const idx = orders.findIndex((o) => o && o.id === orderId);
                 if (idx >= 0) { orders[idx].status = 'paid'; saveJsonFile(ORDERS_FILE, orders); }
                 console.log(`✅ PayFast payment COMPLETE for order ${orderId}`);
 
@@ -3356,7 +3361,7 @@ app.post('/webhook/payfast', express.urlencoded({ extended: false }), (req, res)
                     console.warn(`[PayFast] Order ${orderId} marked paid but WhatsApp not connected — confirmation messages not sent`);
                 }
             } else if (status === 'FAILED') {
-                const idx = orders.findIndex((o) => o.id === orderId);
+                const idx = orders.findIndex((o) => o && o.id === orderId);
                 if (idx >= 0) { orders[idx].status = 'payment_failed'; saveJsonFile(ORDERS_FILE, orders); }
                 console.log(`❌ PayFast payment FAILED for order ${orderId}`);
 
@@ -3398,7 +3403,7 @@ app.get('/quote-pdf/:invitationKey', async (req, res) => {
     }
 
     // Find the order that has this invitation key so we can retrieve the quote ID.
-    const order = orders.find((o) => o.invoiceNinjaInvitationKey === invitationKey);
+    const order = orders.find((o) => o && o.invoiceNinjaInvitationKey === invitationKey);
     if (!order || !order.invoiceNinjaQuoteId) {
         return res.status(404).send('Quote not found.');
     }
@@ -3569,7 +3574,7 @@ function adminAuthMiddleware(req, res, next) {
 // Helper: derive a human-readable status for a conversation JID
 function getConversationStatus(jid) {
     if (handoverSessions[jid]?.active) return 'handover';
-    const jidOrders = orders.filter((o) => o.jid === jid);
+    const jidOrders = orders.filter((o) => o && o.jid === jid);
     const hasPaid = jidOrders.some((o) => o.status === 'paid');
     const hasQuoted = jidOrders.some((o) => ['quoted', 'approved'].includes(o.status));
     if (hasPaid) return 'paid';
@@ -3589,13 +3594,13 @@ app.get('/admin/api/conversations', adminRouteLimiter, adminAuthMiddleware, (req
         ...Object.keys(userStates),
         ...Object.keys(userCarts),
         ...Object.keys(handoverSessions),
-        ...orders.map((o) => o.jid)
+        ...orders.filter((o) => o).map((o) => o.jid)
     ]);
     jidSet.delete(ADMIN_JID);
 
     const conversations = [...jidSet].map((jid) => {
         const lastMsg = (chatLog[jid] || []).slice(-1)[0] || null;
-        const jidOrders = orders.filter((o) => o.jid === jid);
+        const jidOrders = orders.filter((o) => o && o.jid === jid);
         return {
             jid,
             phone: getPhoneFromJid(jid),
@@ -3623,7 +3628,7 @@ app.get('/admin/api/conversations', adminRouteLimiter, adminAuthMiddleware, (req
 app.get('/admin/api/conversations/:jid', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
     const jid = decodeURIComponent(req.params.jid);
     const messages = chatLog[jid] || [];
-    const jidOrders = orders.filter((o) => o.jid === jid);
+    const jidOrders = orders.filter((o) => o && o.jid === jid);
     res.json({
         ok: true,
         jid,
