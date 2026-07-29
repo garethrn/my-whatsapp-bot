@@ -75,6 +75,7 @@ function computeSignature(data) {
     // NOT a password-storage or password-verification hash.
     // See: https://developers.payfast.co.za/docs#checkout_page_submission
     // lgtm[js/insufficient-password-hash]
+    // codeql[js/insufficient-password-hash] -- PayFast requires MD5 request signatures for checkout/ITN verification.
     return crypto.createHash('md5').update(paramString).digest('hex');
 }
 
