@@ -2367,7 +2367,7 @@ async function startBot() {
                                 await sock.sendMessage(jid, { text: '🛒 Your cart is empty.' });
                                 continue;
                             }
-                            if (invoiceNinja.isConfigured() && !userEmails[jid]) {
+                            if ((invoiceNinja.isConfigured() || payfast.isConfigured()) && !userEmails[jid]) {
                                 userStates[jid] = { step: 'awaiting_customer_email', pendingCart: cart };
                                 await sock.sendMessage(jid, {
                                     text: `📧 Please send your *email address* so we can send your quote to you.`
@@ -2778,9 +2778,9 @@ async function startBot() {
                             continue;
                         }
 
-                        // When Invoice Ninja is configured, collect an email address first
+                        // When Invoice Ninja or PayFast is configured, collect an email address first
                         // (skip if we already have one for this session)
-                        if (invoiceNinja.isConfigured() && !userEmails[jid]) {
+                        if ((invoiceNinja.isConfigured() || payfast.isConfigured()) && !userEmails[jid]) {
                             userStates[jid] = { step: 'awaiting_customer_email', pendingCart: cart };
                             await sock.sendMessage(jid, {
                                 text: `📧 Please send your *email address* so we can send your quote to you.`
@@ -3141,6 +3141,21 @@ app.get('/pay/:orderId', (req, res) => {
 </head><body>
 <h1>✅ Payment already received</h1>
 <p>This order has already been paid. Thank you!</p>
+<p style="margin-top:24px;font-size:.9rem;color:#aaa">Order reference: ${escapeHtml(orderId)}</p>
+</body></html>`);
+    }
+
+    const orderAmount = parseFloat(order.grandTotal || 0);
+    if (orderAmount <= 0) {
+        return res.status(400).send(`<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Invalid order amount – ${escapeHtml(BUSINESS_NAME)}</title>
+<style>body{font-family:sans-serif;text-align:center;padding:60px 20px}h1{color:#e74c3c}p{color:#555}</style>
+</head><body>
+<h1>⚠️ Invalid order amount</h1>
+<p>This order has a zero or invalid amount and cannot be paid online.</p>
+<p>Please contact us for assistance.</p>
 <p style="margin-top:24px;font-size:.9rem;color:#aaa">Order reference: ${escapeHtml(orderId)}</p>
 </body></html>`);
     }
