@@ -94,6 +94,16 @@ let currentQrDataUri = null;
 // The most recent connected WhatsApp socket; used by the webhook handler
 let activeSock = null;
 
+// Admin SSE (Server-Sent Events) — keeps a set of connected admin browser streams
+// so we can push real-time notifications (e.g. payment received) to the dashboard.
+const adminSseClients = new Set();
+function broadcastAdminEvent(type, data) {
+    const payload = `data: ${JSON.stringify({ type, ...data })}\n\n`;
+    for (const client of adminSseClients) {
+        try { client.write(payload); } catch (_) { adminSseClients.delete(client); }
+    }
+}
+
 if (!fs.existsSync(STORAGE_DIR)) fs.mkdirSync(STORAGE_DIR, { recursive: true });
 
 function setWhatsAppPhase(phase, lastError = null) {
@@ -3285,6 +3295,14 @@ app.post('/webhook/payfast', express.urlencoded({ extended: false }), (req, res)
                 if (idx >= 0) { orders[idx].status = 'paid'; saveJsonFile(ORDERS_FILE, orders); }
                 console.log(`✅ PayFast payment COMPLETE for order ${orderId}`);
 
+                // Notify any open admin dashboard browser sessions in real time
+                broadcastAdminEvent('payment_complete', {
+                    orderId,
+                    amount,
+                    customerName: order.customerName || '',
+                    jid: order.jid || ''
+                });
+
                 if (waSock && waConnected) {
                     await waSock.sendMessage(jid, {
                         text: `💳 Payment received for your order *${orderId}*. Thank you! 🎉\n\nWe will begin production shortly.\n\n– ${BUSINESS_NAME} Team`
@@ -3630,6 +3648,16 @@ app.get('/admin/api/orders', adminRouteLimiter, adminAuthMiddleware, (req, res) 
     res.json({ ok: true, orders: sorted });
 });
 
+// GET /admin/events — SSE stream for real-time admin notifications (payment received, etc.)
+app.get('/admin/events', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+    adminSseClients.add(res);
+    req.on('close', () => adminSseClients.delete(res));
+});
+
 // GET /admin/api/settings — retrieve bot settings (sensitive values are masked)
 app.get('/admin/api/settings', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
     res.json({
@@ -3898,9 +3926,16 @@ app.get('/admin', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
     .qr-panel iframe { border: 1px solid #ddd; border-radius: 8px; background: #fff; }
     .qr-status-box { background: #fff; padding: 20px; border-radius: 8px; text-align: center; min-width: 280px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
     .qr-status-box h3 { margin-bottom: 8px; }
+
+    /* ── Payment toast notification ── */
+    #adminToast { position: fixed; bottom: 24px; right: 24px; background: #075e54; color: #fff; padding: 14px 20px; border-radius: 10px; font-size: 0.9rem; box-shadow: 0 4px 20px rgba(0,0,0,.25); opacity: 0; pointer-events: none; transition: opacity .35s; z-index: 9999; max-width: 320px; line-height: 1.4; }
+    #adminToast.show { opacity: 1; }
   </style>
 </head>
 <body>
+
+<!-- ── Payment toast ── -->
+<div id="adminToast"></div>
 
 <!-- ── Top bar ── -->
 <div class="topbar">
@@ -4510,6 +4545,33 @@ loadConversations();
 checkWaStatus();
 setInterval(loadConversations, 10000);
 setInterval(checkWaStatus, 15000);
+
+// ── Real-time payment notifications via SSE ───────────────────────────────────
+function showAdminToast(msg) {
+  const t = document.getElementById('adminToast');
+  if (!t) return;
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove('show'), 6000);
+}
+
+(function connectAdminEvents() {
+  const es = new EventSource('/admin/events');
+  es.onmessage = (e) => {
+    try {
+      const d = JSON.parse(e.data);
+      if (d.type === 'payment_complete') {
+        const name = d.customerName ? ' from ' + d.customerName : '';
+        showAdminToast('💳 Payment received' + name + '! Order ' + d.orderId + ' — R' + Number(d.amount).toFixed(2));
+        loadConversations();
+        if (currentTab === 'orders') loadOrders();
+      }
+    } catch (_) {}
+  };
+  // Reconnect automatically on error after a short delay
+  es.onerror = () => { es.close(); setTimeout(connectAdminEvents, 5000); };
+})();
 </script>
 </body>
 </html>`);
