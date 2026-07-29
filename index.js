@@ -215,10 +215,11 @@ function isPrivateIpv4Host(hostname) {
 
 function isPrivateHostName(hostname) {
     const normalized = String(hostname || '').trim().toLowerCase().replace(/^\[|\]$/g, '');
+    const isIpv6Literal = normalized.includes(':');
     if (!normalized) return true;
     if (normalized === 'localhost' || normalized === '0.0.0.0') return true;
     if (normalized.endsWith('.local') || normalized.endsWith('.internal')) return true;
-    if (normalized === '::1' || normalized.startsWith('fc') || normalized.startsWith('fd') || normalized.startsWith('fe80:')) return true;
+    if (isIpv6Literal && (normalized === '::1' || normalized.startsWith('fc') || normalized.startsWith('fd') || normalized.startsWith('fe80:'))) return true;
     return isPrivateIpv4Host(normalized);
 }
 
