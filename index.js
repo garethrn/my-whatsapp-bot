@@ -5048,8 +5048,8 @@ async function loadContacts() {
         <td>\${c.isCustomName ? '<span class="badge badge-paid">Custom</span>' : '<span class="badge badge-idle">WhatsApp</span>'}</td>
         <td>
           <button class="btn-sm" onclick="renameContact('\${encodeURIComponent(c.jid)}', '\${esc(c.name||'')}')">✏️ Rename</button>
-          \${c.isCustomName ? '<button class="btn-sm" style="color:#c0392b" onclick="deleteContact(\''+encodeURIComponent(c.jid)+'\')">🗑️ Remove</button>' : ''}
-          <button class="btn-sm btn-sm-primary" onclick="switchTab(\'chats\');selectConv(\''+encodeURIComponent(c.jid)+'\')">💬 Chat</button>
+          \${c.isCustomName ? '<button class="btn-sm" style="color:#c0392b" onclick="deleteContact(\\''+encodeURIComponent(c.jid)+'\\')">🗑️ Remove</button>' : ''}
+          <button class="btn-sm btn-sm-primary" onclick="switchTab('chats');selectConv('\${encodeURIComponent(c.jid)}')">💬 Chat</button>
         </td>
       </tr>\`).join('') +
       '</tbody></table>';
@@ -5285,7 +5285,7 @@ function showAdminToast(msg) {
 const server = app.listen(PORT, () => {
     const railwayUrl = getRailwayQrUrl();
     console.log(`📡 Health check server listening on port ${PORT}`);
-    console.log(`🔗 QR code will be available at: ${qrUrl}`);
+    console.log(`🔗 QR code will be available at: ${railwayUrl || `http://localhost:${PORT}/qr`}`);
     startBot(); // Start the bot after the server is up
 });
 
