@@ -41,6 +41,7 @@ const ORDERS_FILE = path.join(STORAGE_DIR, 'orders.json');
 const AUDIT_LOG_FILE = path.join(STORAGE_DIR, 'admin_audit.log');
 const SETTINGS_FILE = path.join(STORAGE_DIR, 'settings.json');
 const CONTACTS_FILE = path.join(STORAGE_DIR, 'contacts.json');
+const TAB_OVERRIDES_FILE = path.join(STORAGE_DIR, 'tab_overrides.json');
 const MAX_HISTORY = 10;
 const MAX_NAVIGATION_HISTORY = 25;
 const MAX_LEARNING_LEADS = 200;
@@ -309,7 +310,7 @@ let settings = loadJsonFile(SETTINGS_FILE, { wholesalePassword: '', wholesaleDis
 // { [jid]: string }
 let contactNames = loadJsonFile(CONTACTS_FILE, {});
 // Admin-set conversation tab overrides { [jid]: 'paid'|'idle'|'main' }
-let conversationTabOverrides = {};
+let conversationTabOverrides = loadJsonFile(TAB_OVERRIDES_FILE, {});
 // Migrate existing settings files that pre-date the wholesaleDiscount field.
 if (typeof settings.wholesaleDiscount !== 'number' || settings.wholesaleDiscount <= 0 || settings.wholesaleDiscount >= 100) {
     settings.wholesaleDiscount = 25;
@@ -1292,11 +1293,13 @@ function rememberConversation(jid, text) {
     logChatEntry(jid, 'user', text);
 }
 
-function logChatEntry(jid, role, text) {
-    if (!jid || !text) return;
+function logChatEntry(jid, role, text, fileRef) {
+    if (!jid || (!text && !fileRef)) return;
     if (!chatLog[jid]) chatLog[jid] = [];
     const ts = new Date().toISOString();
-    chatLog[jid].push({ role, text: String(text).trim(), timestamp: ts });
+    const entry = { role, text: String(text || '').trim(), timestamp: ts };
+    if (fileRef) entry.fileRef = fileRef;
+    chatLog[jid].push(entry);
     chatLog[jid] = chatLog[jid].slice(-MAX_CHAT_LOG);
     chatLogLastActivity[jid] = ts;
 }
@@ -1462,10 +1465,13 @@ function getQrAccessToken(req) {
 
 /**
  * Extract the international phone number from a WhatsApp JID.
- * e.g. "27123456789@s.whatsapp.net" → "+27123456789"
+ * e.g. "27123456789@s.whatsapp.net"      → "+27123456789"
+ *      "27123456789:6@s.whatsapp.net"     → "+27123456789"  (multi-device device suffix stripped)
  */
 function getPhoneFromJid(jid) {
-    return '+' + (jid || '').replace(/@s\.whatsapp\.net$/, '').replace(/\D/g, '');
+    const local = (jid || '').split('@')[0]; // strip @domain
+    const phone = local.split(':')[0];       // strip :N multi-device device suffix
+    return '+' + phone.replace(/\D/g, '');
 }
 
 /**
@@ -1788,6 +1794,11 @@ async function startBot() {
                     const isMediaMessage = !!(messageContent.imageMessage || messageContent.documentMessage);
                     if (!rawText && !isMediaMessage) continue;
                     if (rawText) rememberConversation(jid, rawText);
+                    // Ensure last-activity is tracked for media-only messages (used for idle detection).
+                    // The chatLog entry with fileRef is added inside state handlers after the file is saved.
+                    if (isMediaMessage && !rawText) {
+                        if (!chatLogLastActivity[jid]) chatLogLastActivity[jid] = new Date().toISOString();
+                    }
 
                     // Capture WhatsApp display name for personalised greetings
                     if (msg.pushName && !userNames[jid]) {
@@ -2395,6 +2406,9 @@ async function startBot() {
                                 const fileRef = await driveStorage.uploadFile(buffer, artworkFilename, mimeType, getPhoneFromJid(jid));
                                 item.artworkFile = artworkFilename;
                                 item.fileRef = fileRef;
+                                // Log the artwork to the admin chat view so it can be previewed/downloaded
+                                const artLabel = messageContent.imageMessage ? '📷 Artwork image' : `📎 Artwork file: ${messageContent.documentMessage?.fileName || artworkFilename}`;
+                                logChatEntry(jid, 'user', artLabel, fileRef);
                             } catch (artErr) {
                                 console.error('⚠️ Failed to save customer artwork:', artErr.message);
                             }
@@ -2452,6 +2466,9 @@ async function startBot() {
                                 const fileRef = await driveStorage.uploadFile(buffer, refFilename, mimeType, getPhoneFromJid(jid));
                                 item.artworkFile = refFilename;
                                 item.fileRef = fileRef;
+                                // Log the reference image so admin can preview/download it
+                                const refLabel = messageContent.imageMessage ? '📷 Design reference image' : `📎 Design reference file: ${messageContent.documentMessage?.fileName || refFilename}`;
+                                logChatEntry(jid, 'user', refLabel, fileRef);
                             } catch (refErr) {
                                 console.error('⚠️ Failed to save design reference image:', refErr.message);
                             }
@@ -2484,6 +2501,9 @@ async function startBot() {
                                 const fileRef = await driveStorage.uploadFile(buffer, refFilename, mimeType, getPhoneFromJid(jid));
                                 item.artworkFile = refFilename;
                                 item.fileRef = fileRef;
+                                // Log the reference image so admin can preview/download it
+                                const refLabel = messageContent.imageMessage ? '📷 Design reference image' : `📎 Design reference file: ${messageContent.documentMessage?.fileName || refFilename}`;
+                                logChatEntry(jid, 'user', refLabel, fileRef);
                             } catch (refErr) {
                                 console.error('⚠️ Failed to save design reference image:', refErr.message);
                             }
@@ -4053,6 +4073,7 @@ app.post('/admin/api/conversations/:jid/move', adminRouteLimiter, adminAuthMiddl
     } else {
         conversationTabOverrides[jid] = tab;
     }
+    saveJsonFile(TAB_OVERRIDES_FILE, conversationTabOverrides);
     auditLog('MOVE_CONV_TAB', `jid=${jid} tab=${tab}`, req.ip);
     res.json({ ok: true });
 });
@@ -4714,6 +4735,7 @@ let pollInterval = null;
 let convDataHash = '';
 let chatFrameBuilt = false; // true once the static chat area frame has been rendered
 let lastMsgCount = 0;
+let chatHeaderHash = ''; // tracks last-rendered header state to avoid disrupting open menus
 
 function renderConversations(list) {
   allConversations = list;
@@ -4761,6 +4783,7 @@ async function selectConv(encodedJid) {
   activeJid = decodeURIComponent(encodedJid);
   chatFrameBuilt = false;
   lastMsgCount = 0;
+  chatHeaderHash = ''; // reset so header always builds fresh for new conversation
 
   document.querySelectorAll('.conv-item').forEach(el => {
     el.classList.toggle('active', decodeURIComponent(el.onclick.toString().match(/'([^']+)'/)?.[1]||'') === activeJid);
@@ -4812,12 +4835,14 @@ function updateChatContent(data) {
   const label = data.name || data.phone || data.jid;
   const isHandover = data.isHandover;
 
-  // ── Header ────────────────────────────────────────────────────────────────
+  // ── Header — only rebuild when something meaningful has changed ─────────────
   const cartInfo = data.cart && data.cart.length ? \`🛒 \${data.cart.length} item(s) in cart\` : '';
   const stepInfo = data.step && data.step !== 'idle' ? \`Step: \${data.step}\` : '';
   const sub = [cartInfo, stepInfo].filter(Boolean).join(' · ') || data.jid;
+  const newHeaderHash = [label, data.status, sub, isHandover ? '1' : '0'].join('|');
   const headerEl = document.getElementById('chatHeader');
-  if (headerEl) {
+  if (headerEl && newHeaderHash !== chatHeaderHash) {
+    chatHeaderHash = newHeaderHash;
     headerEl.innerHTML = \`
       <div class="conv-avatar" style="background:\${avatarColor(data.jid)};width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:1rem;flex-shrink:0">\${avatarLetter(data.name,data.phone)}</div>
       <div class="chat-info">
