@@ -40,6 +40,7 @@ const LEARNING_LEADS_FILE = path.join(STORAGE_DIR, 'learning_leads.json');
 const ORDERS_FILE = path.join(STORAGE_DIR, 'orders.json');
 const AUDIT_LOG_FILE = path.join(STORAGE_DIR, 'admin_audit.log');
 const SETTINGS_FILE = path.join(STORAGE_DIR, 'settings.json');
+const CONTACTS_FILE = path.join(STORAGE_DIR, 'contacts.json');
 const MAX_HISTORY = 10;
 const MAX_NAVIGATION_HISTORY = 25;
 const MAX_LEARNING_LEADS = 200;
@@ -304,6 +305,11 @@ let fallbackCounts = {};
 let userEmails = {};
 let orders = loadJsonFile(ORDERS_FILE, []);
 let settings = loadJsonFile(SETTINGS_FILE, { wholesalePassword: '', wholesaleDiscount: 25 });
+// Persisted admin-assigned contact names (override WhatsApp pushName).
+// { [jid]: string }
+let contactNames = loadJsonFile(CONTACTS_FILE, {});
+// Admin-set conversation tab overrides { [jid]: 'paid'|'idle'|'main' }
+let conversationTabOverrides = {};
 // Migrate existing settings files that pre-date the wholesaleDiscount field.
 if (typeof settings.wholesaleDiscount !== 'number' || settings.wholesaleDiscount <= 0 || settings.wholesaleDiscount >= 100) {
     settings.wholesaleDiscount = 25;
@@ -787,6 +793,19 @@ async function promptForDesignChoiceIfNeeded(sock, jid, product, item) {
         ? item.designFee
         : calcScaledDesignFee(product, item.qty || 1);
 
+    // Wholesale clients must provide their own artwork — no design service offered
+    if (wholesaleActiveSessions[jid]) {
+        // Remove design fee (wholesale clients provide their own artwork)
+        item.total = item.total - (item.designFee || 0);
+        item.designFee = 0;
+        // Always ask for artwork from wholesale clients
+        userStates[jid] = { step: 'awaiting_artwork_upload', pendingItem: item, pendingProduct: product };
+        await sock.sendMessage(jid, {
+            text: `📎 As a wholesale client, please upload your artwork now.\n\nSend the image or file directly in this chat.\n\n0. Back`
+        });
+        return true;
+    }
+
     if (designFee <= 0) return false;
 
     if (item.designFee === 0) {
@@ -797,6 +816,20 @@ async function promptForDesignChoiceIfNeeded(sock, jid, product, item) {
     userStates[jid] = { step: 'awaiting_design_choice', pendingProduct: product, pendingItem: item };
     await sock.sendMessage(jid, {
         text: `Do you have your own design/artwork ready?\n\n1. Yes – I have my own design\n2. No – I need design work done (Design/Layout fee: ${formatCurrency(designFee)})\n0. Back\n\nReply *1* or *2*.`
+    });
+    return true;
+}
+
+/**
+ * For wholesale clients, always prompt for artwork upload even when there's no design fee.
+ * Returns true if the artwork prompt was sent, false otherwise.
+ */
+async function promptForWholesaleArtworkIfNeeded(sock, jid, product, item) {
+    if (!wholesaleActiveSessions[jid]) return false;
+    if (item.artworkReceived) return false;
+    userStates[jid] = { step: 'awaiting_artwork_upload', pendingItem: item, pendingProduct: product };
+    await sock.sendMessage(jid, {
+        text: `📎 As a wholesale client, please upload your artwork now.\n\nSend the image or file directly in this chat.\n\n0. Back`
     });
     return true;
 }
@@ -1432,7 +1465,15 @@ function getQrAccessToken(req) {
  * e.g. "27123456789@s.whatsapp.net" → "+27123456789"
  */
 function getPhoneFromJid(jid) {
-    return '+' + (jid || '').replace('@s.whatsapp.net', '').replace(/\D/g, '');
+    return '+' + (jid || '').replace(/@s\.whatsapp\.net$/, '').replace(/\D/g, '');
+}
+
+/**
+ * Returns the best available display name for a JID:
+ * admin-set contactName > WhatsApp pushName > phone number.
+ */
+function getDisplayName(jid) {
+    return contactNames[jid] || userNames[jid] || getPhoneFromJid(jid);
 }
 
 /**
@@ -1714,10 +1755,32 @@ async function startBot() {
                 try {
                     const key = msg?.key;
                     const messageContent = extractMessageContent(msg);
-                    if (!key || !messageContent || key.fromMe) continue;
+                    if (!key || !messageContent) continue;
 
                     jid = key.remoteJid;
                     if (!jid || jid === 'status@broadcast' || jid.endsWith('@g.us')) continue;
+
+                    // ── Mobile bot control: admin typed directly on the bot's phone ──
+                    if (key.fromMe) {
+                        const fromMeText = extractMessageText(messageContent)?.toLowerCase().trim() || '';
+                        // Typing "resume" in a customer chat resumes the bot for that chat
+                        if (fromMeText === 'resume') {
+                            if (handoverSessions[jid]?.active) {
+                                delete handoverSessions[jid];
+                                await sock.sendMessage(jid, {
+                                    text: '✅ A team member has finished helping. I can assist you again now — send *menu* or *cart* when you are ready.'
+                                }).catch(() => {});
+                            }
+                        } else if (!handoverSessions[jid]?.active) {
+                            // Any other outbound message from admin's phone auto-pauses the bot
+                            handoverSessions[jid] = {
+                                active: true,
+                                reason: 'Admin replied from mobile',
+                                requestedAt: new Date().toISOString()
+                            };
+                        }
+                        continue; // do not process fromMe messages through normal bot logic
+                    }
 
                     const rawText = extractMessageText(messageContent);
                     const text = rawText.toLowerCase();
@@ -2495,12 +2558,16 @@ async function startBot() {
                         item.qty = qty;
                         const labelProfile = getProductQuantityProfile(product);
                         const wholesaleMultiplier = getWholesaleMultiplier(jid, product);
+                        const minPrice = toNumber(product.MinPrice);
                         if (labelProfile.mode === 'labels' && item.dimLength && item.dimHeight) {
                             // For labels: total area = L × B × Qty; apply min price to the full order
                             const totalSqm = (item.dimLength / MM_PER_METER) * (item.dimHeight / MM_PER_METER) * qty;
-                            const rawSqmPrice = Math.max(totalSqm * toNumber(product.PricePerSqm), toNumber(product.MinPrice));
-                            const discountedSqmPrice = rawSqmPrice * wholesaleMultiplier;
-                            if (wholesaleMultiplier < 1) item.wholesaleDiscount = rawSqmPrice - discountedSqmPrice;
+                            const rawCalcPrice = totalSqm * toNumber(product.PricePerSqm);
+                            const rawSqmPrice = Math.max(rawCalcPrice, minPrice);
+                            // Do NOT apply wholesale discount when the minimum price floor is in effect
+                            const atMinimum = rawCalcPrice < minPrice;
+                            const discountedSqmPrice = atMinimum ? rawSqmPrice : rawSqmPrice * wholesaleMultiplier;
+                            if (wholesaleMultiplier < 1 && !atMinimum) item.wholesaleDiscount = rawSqmPrice - discountedSqmPrice;
                             item.sqmPrice = discountedSqmPrice;
                             item.total = item.sqmPrice + item.designFee + item.polesCost + item.installationFee;
                         } else {
@@ -2511,6 +2578,10 @@ async function startBot() {
                             item.total = discountedMaterial + item.designFee + item.polesCost + item.installationFee;
                         }
                         if (await promptForDesignChoiceIfNeeded(sock, jid, product, item)) {
+                            continue;
+                        }
+                        // Wholesale: always collect artwork even if product has no design fee
+                        if (await promptForWholesaleArtworkIfNeeded(sock, jid, product, item)) {
                             continue;
                         }
                         if (!userCarts[jid]) userCarts[jid] = [];
@@ -2548,6 +2619,10 @@ async function startBot() {
                             ...(wholesaleDiscount > 0 && { wholesaleDiscount })
                         };
                         if (await promptForDesignChoiceIfNeeded(sock, jid, product, item)) {
+                            continue;
+                        }
+                        // Wholesale: always collect artwork even if product has no design fee
+                        if (await promptForWholesaleArtworkIfNeeded(sock, jid, product, item)) {
                             continue;
                         }
                         if (!userCarts[jid]) userCarts[jid] = [];
@@ -2678,6 +2753,7 @@ async function startBot() {
                                 ...(wholesaleDiscount > 0 && { wholesaleDiscount })
                             };
                             if (await promptForDesignChoiceIfNeeded(sock, jid, product, item)) continue;
+                            if (await promptForWholesaleArtworkIfNeeded(sock, jid, product, item)) continue;
                             if (!userCarts[jid]) userCarts[jid] = [];
                             userCarts[jid].push(item);
                             userStates[jid] = { step: 'awaiting_post_cart_add' };
@@ -2823,6 +2899,9 @@ async function startBot() {
                             ...(wholesaleDiscount > 0 && { wholesaleDiscount })
                         };
                         if (await promptForDesignChoiceIfNeeded(sock, jid, product, item)) {
+                            continue;
+                        }
+                        if (await promptForWholesaleArtworkIfNeeded(sock, jid, product, item)) {
                             continue;
                         }
                         if (!userCarts[jid]) userCarts[jid] = [];
@@ -3694,7 +3773,7 @@ app.get('/admin/api/conversations', adminRouteLimiter, adminAuthMiddleware, (req
         return {
             jid,
             phone: getPhoneFromJid(jid),
-            name: userNames[jid] || null,
+            name: contactNames[jid] || userNames[jid] || null,
             status: getConversationStatus(jid),
             step: userStates[jid]?.step || 'idle',
             cartItemCount: (userCarts[jid] || []).length,
@@ -3702,7 +3781,8 @@ app.get('/admin/api/conversations', adminRouteLimiter, adminAuthMiddleware, (req
             lastOrderStatus: jidOrders.length > 0 ? jidOrders[jidOrders.length - 1].status : null,
             lastActivity: chatLogLastActivity[jid] || null,
             lastMessage: lastMsg ? { role: lastMsg.role, text: lastMsg.text.slice(0, 100) } : null,
-            isHandover: Boolean(handoverSessions[jid]?.active)
+            isHandover: Boolean(handoverSessions[jid]?.active),
+            tabOverride: conversationTabOverrides[jid] || null
         };
     }).sort((a, b) => {
         // Sort by last activity descending
@@ -3723,7 +3803,7 @@ app.get('/admin/api/conversations/:jid', adminRouteLimiter, adminAuthMiddleware,
         ok: true,
         jid,
         phone: getPhoneFromJid(jid),
-        name: userNames[jid] || null,
+        name: contactNames[jid] || userNames[jid] || null,
         status: getConversationStatus(jid),
         step: userStates[jid]?.step || 'idle',
         cart: userCarts[jid] || [],
@@ -3744,9 +3824,19 @@ app.post('/admin/api/send', adminRouteLimiter, adminAuthMiddleware, express.json
         return res.status(503).json({ error: 'WhatsApp is not connected' });
     }
     try {
-        // Trigger human handover if not already active
+        // Silently activate handover without sending a customer notification — prevents double-message
         if (!handoverSessions[jid]?.active) {
-            await activateHumanHandover(activeSock, jid, 'Admin sent a message via the dashboard');
+            handoverSessions[jid] = {
+                active: true,
+                reason: 'Admin sent a message via the dashboard',
+                requestedAt: new Date().toISOString()
+            };
+            // Notify ADMIN_JID only (not the customer) so the admin is aware
+            if (ADMIN_JID) {
+                await activeSock.sendMessage(ADMIN_JID, {
+                    text: `🤝 Human handover activated for ${jid} (you replied via the dashboard).`
+                }).catch(() => {});
+            }
         }
         await activeSock.sendMessage(jid, { text: message.trim() });
         // Log the admin message as a 'bot' entry (sent on behalf of the business)
@@ -3874,8 +3964,8 @@ app.get('/admin/api/handovers', adminRouteLimiter, adminAuthMiddleware, (req, re
         .map(([jid, s]) => ({
             jid,
             phone: getPhoneFromJid(jid),
-            name: userNames[jid] || null,
-            reason: s.reason,
+            name: contactNames[jid] || userNames[jid] || null,
+            reason: s.reason || null,
             requestedAt: s.requestedAt
         }));
     res.json({ ok: true, handovers: active });
@@ -3888,6 +3978,127 @@ app.get('/admin/api/files/:filename', adminRouteLimiter, adminAuthMiddleware, (r
     if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
     auditLog('DOWNLOAD_FILE', `file=${filename}`, req.ip);
     res.download(filePath);
+});
+
+// ── Contacts management ───────────────────────────────────────────────────────
+
+// GET /admin/api/contacts — list all known contacts with names and phones
+app.get('/admin/api/contacts', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
+    const jidSet = new Set([
+        ...Object.keys(chatLog),
+        ...Object.keys(userStates),
+        ...Object.keys(userCarts),
+        ...Object.keys(handoverSessions),
+        ...Object.keys(contactNames),
+        ...orders.filter((o) => o).map((o) => o.jid)
+    ]);
+    jidSet.delete(ADMIN_JID);
+    const contacts = [...jidSet].map((jid) => ({
+        jid,
+        phone: getPhoneFromJid(jid),
+        name: contactNames[jid] || userNames[jid] || null,
+        isCustomName: Boolean(contactNames[jid])
+    })).sort((a, b) => (a.name || a.phone).localeCompare(b.name || b.phone));
+    res.json({ ok: true, contacts });
+});
+
+// POST /admin/api/contacts/:jid/rename — set an admin-assigned name for a contact
+app.post('/admin/api/contacts/:jid/rename', adminRouteLimiter, adminAuthMiddleware, express.json(), (req, res) => {
+    const jid = decodeURIComponent(req.params.jid);
+    const { name } = req.body || {};
+    if (typeof name !== 'string') return res.status(400).json({ error: 'name is required' });
+    const trimmedName = name.trim();
+    if (trimmedName) {
+        contactNames[jid] = trimmedName;
+    } else {
+        delete contactNames[jid];
+    }
+    saveJsonFile(CONTACTS_FILE, contactNames);
+    auditLog('RENAME_CONTACT', `jid=${jid} name=${trimmedName}`, req.ip);
+    res.json({ ok: true });
+});
+
+// POST /admin/api/contacts — add a new contact by phone number
+app.post('/admin/api/contacts', adminRouteLimiter, adminAuthMiddleware, express.json(), (req, res) => {
+    const { phone, name } = req.body || {};
+    if (!phone || !name) return res.status(400).json({ error: 'phone and name are required' });
+    const digits = String(phone).replace(/\D/g, '');
+    if (!digits) return res.status(400).json({ error: 'Invalid phone number' });
+    const jid = `${digits}@s.whatsapp.net`;
+    contactNames[jid] = name.trim();
+    saveJsonFile(CONTACTS_FILE, contactNames);
+    auditLog('ADD_CONTACT', `jid=${jid} name=${name}`, req.ip);
+    res.json({ ok: true, jid });
+});
+
+// DELETE /admin/api/contacts/:jid — remove admin-assigned name
+app.delete('/admin/api/contacts/:jid', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
+    const jid = decodeURIComponent(req.params.jid);
+    delete contactNames[jid];
+    saveJsonFile(CONTACTS_FILE, contactNames);
+    auditLog('DELETE_CONTACT', `jid=${jid}`, req.ip);
+    res.json({ ok: true });
+});
+
+// ── Conversation tab management ───────────────────────────────────────────────
+
+// POST /admin/api/conversations/:jid/move — manually move a conversation to a tab
+app.post('/admin/api/conversations/:jid/move', adminRouteLimiter, adminAuthMiddleware, express.json(), (req, res) => {
+    const jid = decodeURIComponent(req.params.jid);
+    const { tab } = req.body || {};
+    const validTabs = ['main', 'paid', 'idle'];
+    if (!validTabs.includes(tab)) return res.status(400).json({ error: `tab must be one of: ${validTabs.join(', ')}` });
+    if (tab === 'main') {
+        delete conversationTabOverrides[jid];
+    } else {
+        conversationTabOverrides[jid] = tab;
+    }
+    auditLog('MOVE_CONV_TAB', `jid=${jid} tab=${tab}`, req.ip);
+    res.json({ ok: true });
+});
+
+// ── Admin file send ───────────────────────────────────────────────────────────
+
+// POST /admin/api/send-file — send a file to a customer from the admin dashboard
+const adminFileUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 16 * 1024 * 1024 } // 16 MB
+});
+app.post('/admin/api/send-file', adminRouteLimiter, adminAuthMiddleware, adminFileUpload.single('file'), async (req, res) => {
+    const jid = req.body?.jid;
+    if (!jid) return res.status(400).json({ error: 'jid is required' });
+    if (!req.file) return res.status(400).json({ error: 'file is required' });
+    if (!activeSock || whatsappRuntime.phase !== 'connected') {
+        return res.status(503).json({ error: 'WhatsApp is not connected' });
+    }
+    try {
+        // Silently activate handover if not already active
+        if (!handoverSessions[jid]?.active) {
+            handoverSessions[jid] = {
+                active: true,
+                reason: 'Admin sent a file via the dashboard',
+                requestedAt: new Date().toISOString()
+            };
+        }
+        const mime = req.file.mimetype || 'application/octet-stream';
+        const isImage = mime.startsWith('image/');
+        if (isImage) {
+            await activeSock.sendMessage(jid, { image: req.file.buffer, mimetype: mime, caption: req.body.caption || '' });
+        } else {
+            await activeSock.sendMessage(jid, {
+                document: req.file.buffer,
+                mimetype: mime,
+                fileName: req.file.originalname || 'file',
+                caption: req.body.caption || ''
+            });
+        }
+        logChatEntry(jid, 'bot', `[Admin] 📎 Sent file: ${req.file.originalname || 'file'}`);
+        auditLog('SEND_FILE', `to=${jid} file=${req.file.originalname}`, req.ip);
+        res.json({ ok: true });
+    } catch (err) {
+        console.error('❌ Admin send-file failed:', err.message);
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // GET /admin/api/drive/:fileId/download — proxy a Drive file to the admin browser
@@ -4046,6 +4257,10 @@ app.get('/admin', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
     .conv-preview { font-size: 0.76rem; color: #777; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
     .conv-meta { text-align: right; flex-shrink: 0; }
     .conv-time { font-size: 0.7rem; color: #aaa; white-space: nowrap; }
+    /* Sub-tabs inside sidebar */
+    .sub-tabs { display: flex; border-bottom: 1px solid #ddd; background: #f9f9f9; }
+    .sub-tab-btn { flex: 1; padding: 7px 4px; font-size: 0.74rem; border: none; background: none; cursor: pointer; color: #666; border-bottom: 2px solid transparent; }
+    .sub-tab-btn.active { color: #075e54; font-weight: 600; border-bottom-color: #075e54; background: #fff; }
     .badge { display: inline-block; padding: 2px 6px; border-radius: 10px; font-size: 0.68rem; font-weight: 600; margin-top: 3px; }
     .badge-paid { background: #d5f5e3; color: #1a7a47; }
     .badge-quoted { background: #d6eaf8; color: #1b5e8f; }
@@ -4062,6 +4277,14 @@ app.get('/admin', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
     .btn-resume { padding: 6px 12px; background: #075e54; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 0.8rem; flex-shrink: 0; }
     .btn-resume:hover { background: #054c44; }
     .btn-resume:disabled { background: #aaa; cursor: default; }
+    .btn-move { position: relative; padding: 6px 12px; background: #f0f2f5; color: #333; border: 1px solid #ddd; border-radius: 6px; cursor: pointer; font-size: 0.8rem; flex-shrink: 0; }
+    .btn-move:hover { background: #e0e3e7; }
+    .move-menu { position: absolute; top: calc(100% + 4px); right: 0; background: #fff; border: 1px solid #ddd; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,.12); z-index: 100; min-width: 140px; overflow: hidden; display: none; }
+    .move-menu.open { display: block; }
+    .move-menu button { display: block; width: 100%; padding: 8px 14px; text-align: left; border: none; background: none; font-size: 0.82rem; cursor: pointer; }
+    .move-menu button:hover { background: #f5f5f5; }
+    .btn-rename { padding: 4px 8px; background: none; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; font-size: 0.75rem; color: #666; margin-left: 4px; }
+    .btn-rename:hover { background: #f5f5f5; }
     .chat-messages { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 7px; background: #e5ddd5; }
     .msg { max-width: 72%; padding: 7px 11px; border-radius: 8px; font-size: 0.86rem; line-height: 1.45; word-break: break-word; white-space: pre-wrap; }
     .msg-user { align-self: flex-start; background: #fff; border-bottom-left-radius: 2px; }
@@ -4070,6 +4293,7 @@ app.get('/admin', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
     .msg-time { font-size: 0.66rem; color: #999; margin-top: 2px; text-align: right; }
     .msg-file { font-size: 0.78rem; margin-top: 4px; }
     .msg-file a { color: #075e54; }
+    .msg-img { max-width: 200px; max-height: 200px; border-radius: 6px; margin-top: 6px; display: block; cursor: pointer; }
     .chat-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: #aaa; font-size: 0.9rem; background: #e5ddd5; }
     .chat-input-area { background: #f0f2f5; border-top: 1px solid #ddd; padding: 10px 14px; display: flex; gap: 8px; align-items: flex-end; flex-shrink: 0; }
     .chat-input { flex: 1; border: 1px solid #ddd; border-radius: 20px; padding: 9px 15px; font-size: 0.88rem; resize: none; max-height: 120px; outline: none; font-family: inherit; }
@@ -4077,6 +4301,8 @@ app.get('/admin', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
     .send-btn { background: #075e54; color: #fff; border: none; border-radius: 50%; width: 42px; height: 42px; cursor: pointer; font-size: 1rem; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
     .send-btn:hover { background: #054c44; }
     .send-btn:disabled { background: #aaa; cursor: default; }
+    .attach-btn { background: #f0f2f5; color: #555; border: 1px solid #ddd; border-radius: 50%; width: 42px; height: 42px; cursor: pointer; font-size: 1.1rem; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+    .attach-btn:hover { background: #e0e3e7; }
     .takeover-notice { background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; padding: 7px 12px; font-size: 0.8rem; color: #856404; margin: 0 14px 7px; flex-shrink: 0; }
     .no-conv { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #aaa; gap: 6px; background: #e5ddd5; }
     .no-conv-icon { font-size: 2.8rem; }
@@ -4127,6 +4353,7 @@ app.get('/admin', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
   <span class="wa-status" id="waStatus">…</span>
   <div class="tabs">
     <button class="tab-btn active" data-tab="chats" onclick="switchTab('chats')">💬 Chats</button>
+    <button class="tab-btn" data-tab="contacts" onclick="switchTab('contacts')">📒 Contacts</button>
     <button class="tab-btn" data-tab="orders" onclick="switchTab('orders')">📋 Orders</button>
     <button class="tab-btn" data-tab="products" onclick="switchTab('products')">📦 Products</button>
     <button class="tab-btn" data-tab="leads" onclick="switchTab('leads')">💡 Leads</button>
@@ -4149,6 +4376,12 @@ app.get('/admin', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
         <div class="sidebar-header">
           <h2>Conversations</h2>
           <button class="refresh-btn" onclick="loadConversations()">⟳ Refresh</button>
+        </div>
+        <div class="sub-tabs">
+          <button class="sub-tab-btn active" data-subtab="all" onclick="switchSubTab('all')">All</button>
+          <button class="sub-tab-btn" data-subtab="active" onclick="switchSubTab('active')">Active</button>
+          <button class="sub-tab-btn" data-subtab="paid" onclick="switchSubTab('paid')">Paid</button>
+          <button class="sub-tab-btn" data-subtab="idle" onclick="switchSubTab('idle')">Idle</button>
         </div>
         <div class="legend">
           <span><span class="dot dot-paid"></span>Paid</span>
@@ -4206,6 +4439,27 @@ app.get('/admin', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
   <!-- HANDOVERS TAB -->
   <div id="panel-handovers" class="panel" style="flex-direction:column">
     <div class="full-panel" id="handoversPanel"><p style="color:#aaa">Loading handovers…</p></div>
+  </div>
+
+  <!-- CONTACTS TAB -->
+  <div id="panel-contacts" class="panel" style="flex-direction:column">
+    <div class="products-panel">
+      <h2 style="margin-bottom:16px">📒 Address Book</h2>
+      <div class="card">
+        <h3>➕ Add New Contact</h3>
+        <p class="hint">Add a contact by phone number (include country code, e.g. 27821234567).</p>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
+          <input type="text" id="newContactPhone" placeholder="Phone (e.g. 27821234567)" style="padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:.88rem;flex:1;min-width:160px">
+          <input type="text" id="newContactName" placeholder="Display name" style="padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:.88rem;flex:1;min-width:160px">
+          <button class="btn" onclick="addContact()" style="flex-shrink:0">➕ Add</button>
+        </div>
+        <p id="addContactMsg" style="margin-top:8px;font-size:.82rem;display:none"></p>
+      </div>
+      <div class="card" style="margin-top:16px">
+        <h3>📋 Contacts</h3>
+        <div id="contactsPanel"><p style="color:#aaa;font-size:.85rem">Loading…</p></div>
+      </div>
+    </div>
   </div>
 
   <!-- SETTINGS TAB -->
@@ -4297,8 +4551,35 @@ function switchTab(name) {
   if (name === 'orders') loadOrders();
   else if (name === 'leads') loadLeads();
   else if (name === 'handovers') loadHandovers();
+  else if (name === 'contacts') loadContacts();
   else if (name === 'settings') loadSettings();
   else if (name === 'qr') refreshQrPanel();
+}
+
+// ── Sub-tabs (All / Active / Paid / Idle) ─────────────────────────────────────
+let currentSubTab = 'all';
+let allConversations = [];
+function switchSubTab(name) {
+  currentSubTab = name;
+  document.querySelectorAll('.sub-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.subtab === name));
+  renderConversations(allConversations);
+}
+
+function getConvTab(c) {
+  if (c.tabOverride) return c.tabOverride;
+  if (c.status === 'paid') return 'paid';
+  const IDLE_MS = 12 * 60 * 60 * 1000;
+  const idle = c.lastActivity ? (Date.now() - new Date(c.lastActivity).getTime()) > IDLE_MS : true;
+  if (idle && c.status !== 'handover' && c.status !== 'in_progress') return 'idle';
+  return 'main';
+}
+
+function filterBySubTab(list) {
+  if (currentSubTab === 'all') return list;
+  if (currentSubTab === 'active') return list.filter(c => c.status === 'handover' || c.status === 'in_progress' || c.status === 'quoted');
+  if (currentSubTab === 'paid') return list.filter(c => getConvTab(c) === 'paid');
+  if (currentSubTab === 'idle') return list.filter(c => getConvTab(c) === 'idle');
+  return list;
 }
 
 // ── Settings tab ──────────────────────────────────────────────────────────────
@@ -4435,16 +4716,18 @@ let chatFrameBuilt = false; // true once the static chat area frame has been ren
 let lastMsgCount = 0;
 
 function renderConversations(list) {
-  const hash = JSON.stringify(list.map(c => c.jid + c.status + (c.lastActivity||'')));
+  allConversations = list;
+  const filtered = filterBySubTab(list);
+  const hash = JSON.stringify(filtered.map(c => c.jid + c.status + (c.lastActivity||'') + (c.tabOverride||'')));
   if (hash === convDataHash) return; // nothing changed — skip re-render
   convDataHash = hash;
 
   const el = document.getElementById('convList');
-  if (!list.length) {
-    el.innerHTML = '<p style="padding:16px;color:#aaa;font-size:.82rem">No conversations yet.</p>';
+  if (!filtered.length) {
+    el.innerHTML = '<p style="padding:16px;color:#aaa;font-size:.82rem">No conversations in this tab.</p>';
     return;
   }
-  el.innerHTML = list.map(c => {
+  el.innerHTML = filtered.map(c => {
     const isActive = c.jid === activeJid;
     const label = c.name || c.phone || c.jid;
     const preview = c.lastMessage ? (c.lastMessage.role === 'user' ? '' : '🤖 ') + c.lastMessage.text : 'No messages yet';
@@ -4513,6 +4796,8 @@ function buildChatFrame(data) {
     <div class="takeover-notice" id="takeoverNotice" style="display:none;margin:0 14px 7px;"></div>
     <div class="chat-messages" id="msgContainer"></div>
     <div class="chat-input-area">
+      <button class="attach-btn" onclick="document.getElementById('fileInput').click()" title="Send file">📎</button>
+      <input type="file" id="fileInput" style="display:none" onchange="sendFile(this)">
       <textarea class="chat-input" id="msgInput" rows="1"
         placeholder="Type a message… (sending will activate human takeover)"
         oninput="autoResize(this)" onkeydown="handleKey(event)"></textarea>
@@ -4536,10 +4821,18 @@ function updateChatContent(data) {
     headerEl.innerHTML = \`
       <div class="conv-avatar" style="background:\${avatarColor(data.jid)};width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:1rem;flex-shrink:0">\${avatarLetter(data.name,data.phone)}</div>
       <div class="chat-info">
-        <div class="chat-name">\${esc(label)} <span class="badge badge-\${data.status}">\${statusLabel(data.status)}</span></div>
+        <div class="chat-name">\${esc(label)}<button class="btn-rename" onclick="renameChatContact()" title="Rename contact">✏️</button> <span class="badge badge-\${data.status}">\${statusLabel(data.status)}</span></div>
         <div class="chat-sub">\${esc(sub)}</div>
       </div>
       \${isHandover ? '<button class="btn-resume" onclick="resumeBot()">✅ Resume Bot</button>' : ''}
+      <div style="position:relative">
+        <button class="btn-move" onclick="toggleMoveMenu(this)">📂 Move To ▾</button>
+        <div class="move-menu" id="moveMenu">
+          <button onclick="moveConv('paid')">✅ Paid Tab</button>
+          <button onclick="moveConv('idle')">😴 Idle Tab</button>
+          <button onclick="moveConv('main')">💬 Main Chats Tab</button>
+        </div>
+      </div>
     \`;
   }
 
@@ -4568,36 +4861,12 @@ function updateChatContent(data) {
   const startIdx = Math.max(0, lastMsgCount);
   const fragment = document.createDocumentFragment();
   for (let i = startIdx; i < msgs.length; i++) {
-    const m = msgs[i];
-    const cls = m.role === 'user' ? 'msg-user' : (m.text && m.text.startsWith('[Admin]') ? 'msg-admin' : 'msg-bot');
-    const prefix = m.role !== 'user' ? (m.text && m.text.startsWith('[Admin]') ? '👤 Admin  ' : '🤖 Bot  ') : '';
-    const div = document.createElement('div');
-    div.className = 'msg ' + cls;
-    div.innerHTML = esc(prefix + m.text) + '<div class="msg-time">' + fmtTime(m.timestamp) + '</div>';
-    // Attach file links if present
-    if (m.fileRef) {
-      const link = document.createElement('div');
-      link.className = 'msg-file';
-      if (m.fileRef.provider === 'googledrive') {
-        link.innerHTML = '📎 <a href="/admin/api/drive/' + esc(m.fileRef.driveFileId) + '/download" target="_blank">Download file (Drive)</a>';
-      } else if (m.fileRef.localFilename) {
-        link.innerHTML = '📎 <a href="/admin/api/files/' + esc(m.fileRef.localFilename) + '" target="_blank">Download file</a>';
-      }
-      div.appendChild(link);
-    }
-    fragment.appendChild(div);
+    fragment.appendChild(buildMsgEl(msgs[i]));
   }
   if (msgs.length < lastMsgCount) {
     // After full clear, add all messages
     const fragment2 = document.createDocumentFragment();
-    for (const m of msgs) {
-      const cls = m.role === 'user' ? 'msg-user' : (m.text && m.text.startsWith('[Admin]') ? 'msg-admin' : 'msg-bot');
-      const prefix = m.role !== 'user' ? (m.text && m.text.startsWith('[Admin]') ? '👤 Admin  ' : '🤖 Bot  ') : '';
-      const div = document.createElement('div');
-      div.className = 'msg ' + cls;
-      div.innerHTML = esc(prefix + m.text) + '<div class="msg-time">' + fmtTime(m.timestamp) + '</div>';
-      fragment2.appendChild(div);
-    }
+    for (const m of msgs) fragment2.appendChild(buildMsgEl(m));
     msgContainer.appendChild(fragment2);
   } else {
     msgContainer.appendChild(fragment);
@@ -4605,6 +4874,46 @@ function updateChatContent(data) {
   lastMsgCount = msgs.length;
 
   if (wasAtBottom) msgContainer.scrollTop = msgContainer.scrollHeight;
+}
+
+function buildMsgEl(m) {
+  const cls = m.role === 'user' ? 'msg-user' : (m.text && m.text.startsWith('[Admin]') ? 'msg-admin' : 'msg-bot');
+  const prefix = m.role !== 'user' ? (m.text && m.text.startsWith('[Admin]') ? '👤 Admin  ' : '🤖 Bot  ') : '';
+  const div = document.createElement('div');
+  div.className = 'msg ' + cls;
+  div.innerHTML = esc(prefix + (m.text || '')) + '<div class="msg-time">' + fmtTime(m.timestamp) + '</div>';
+  // Attach file links / image previews if present
+  if (m.fileRef) {
+    const isImg = /\.(jpe?g|png|gif|webp)$/i.test(m.fileRef.localFilename || m.fileRef.driveFileId || '');
+    if (m.fileRef.provider === 'googledrive' && m.fileRef.driveFileId) {
+      const url = '/admin/api/drive/' + esc(m.fileRef.driveFileId) + '/download';
+      if (isImg) {
+        const img = document.createElement('img');
+        img.src = url; img.className = 'msg-img';
+        img.onclick = () => window.open(url, '_blank');
+        div.appendChild(img);
+      } else {
+        const link = document.createElement('div');
+        link.className = 'msg-file';
+        link.innerHTML = '📎 <a href="' + url + '" target="_blank">Download file (Drive)</a>';
+        div.appendChild(link);
+      }
+    } else if (m.fileRef.localFilename) {
+      const url = '/admin/api/files/' + esc(m.fileRef.localFilename);
+      if (isImg) {
+        const img = document.createElement('img');
+        img.src = url; img.className = 'msg-img';
+        img.onclick = () => window.open(url, '_blank');
+        div.appendChild(img);
+      } else {
+        const link = document.createElement('div');
+        link.className = 'msg-file';
+        link.innerHTML = '📎 <a href="' + url + '" target="_blank">Download file</a>';
+        div.appendChild(link);
+      }
+    }
+  }
+  return div;
 }
 
 function autoResize(el) {
@@ -4652,6 +4961,152 @@ async function resumeBot() {
     if (!data.ok) alert('Failed: ' + (data.error || 'unknown'));
     else { chatFrameBuilt = false; await refreshChat(); }
   } catch(e) { alert('Error: ' + e.message); }
+}
+
+function toggleMoveMenu(btn) {
+  const menu = document.getElementById('moveMenu');
+  if (!menu) return;
+  menu.classList.toggle('open');
+  // Close on outside click
+  if (menu.classList.contains('open')) {
+    setTimeout(() => {
+      document.addEventListener('click', function close(e) {
+        if (!btn.contains(e.target) && !menu.contains(e.target)) {
+          menu.classList.remove('open');
+          document.removeEventListener('click', close);
+        }
+      });
+    }, 0);
+  }
+}
+
+async function moveConv(tab) {
+  if (!activeJid) return;
+  const menu = document.getElementById('moveMenu');
+  if (menu) menu.classList.remove('open');
+  try {
+    const r = await fetch('/admin/api/conversations/' + encodeURIComponent(activeJid) + '/move', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tab })
+    });
+    if (r.status === 401) { location.href='/admin/login'; return; }
+    const data = await r.json();
+    if (!data.ok) alert('Move failed: ' + (data.error||'unknown'));
+    else { convDataHash = ''; await loadConversations(); }
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function renameChatContact() {
+  if (!activeJid) return;
+  const newName = prompt('Enter a new name for this contact:');
+  if (newName === null) return; // cancelled
+  try {
+    const r = await fetch('/admin/api/contacts/' + encodeURIComponent(activeJid) + '/rename', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newName.trim() })
+    });
+    if (r.status === 401) { location.href='/admin/login'; return; }
+    const data = await r.json();
+    if (!data.ok) alert('Rename failed: ' + (data.error||'unknown'));
+    else { chatFrameBuilt = false; convDataHash = ''; await refreshChat(); await loadConversations(); }
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function sendFile(input) {
+  if (!input.files || !input.files[0] || !activeJid) return;
+  const file = input.files[0];
+  input.value = '';
+  const fd = new FormData();
+  fd.append('jid', activeJid);
+  fd.append('file', file);
+  try {
+    const r = await fetch('/admin/api/send-file', { method: 'POST', body: fd });
+    if (r.status === 401) { location.href='/admin/login'; return; }
+    const data = await r.json();
+    if (!data.ok) alert('Send file failed: ' + (data.error||'unknown'));
+    else await refreshChat();
+  } catch(e) { alert('Send file error: ' + e.message); }
+}
+
+// ── Contacts tab ──────────────────────────────────────────────────────────────
+async function loadContacts() {
+  const el = document.getElementById('contactsPanel');
+  if (!el) return;
+  try {
+    const r = await fetch('/admin/api/contacts');
+    if (r.status === 401) { location.href='/admin/login'; return; }
+    const data = await r.json();
+    if (!data.ok) { el.innerHTML = '<p style="color:#c0392b">Failed to load contacts.</p>'; return; }
+    const contacts = data.contacts;
+    if (!contacts.length) { el.innerHTML = '<p style="color:#aaa;font-size:.85rem">No contacts yet.</p>'; return; }
+    el.innerHTML = '<table class="data-table"><thead><tr><th>Name</th><th>Phone</th><th>Source</th><th>Actions</th></tr></thead><tbody>' +
+      contacts.map(c => \`<tr>
+        <td>\${esc(c.name || '—')}</td>
+        <td>\${esc(c.phone)}</td>
+        <td>\${c.isCustomName ? '<span class="badge badge-paid">Custom</span>' : '<span class="badge badge-idle">WhatsApp</span>'}</td>
+        <td>
+          <button class="btn-sm" onclick="renameContact('\${encodeURIComponent(c.jid)}', '\${esc(c.name||'')}')">✏️ Rename</button>
+          \${c.isCustomName ? '<button class="btn-sm" style="color:#c0392b" onclick="deleteContact(\''+encodeURIComponent(c.jid)+'\')">🗑️ Remove</button>' : ''}
+          <button class="btn-sm btn-sm-primary" onclick="switchTab(\'chats\');selectConv(\''+encodeURIComponent(c.jid)+'\')">💬 Chat</button>
+        </td>
+      </tr>\`).join('') +
+      '</tbody></table>';
+  } catch(e) { el.innerHTML = '<p style="color:#c0392b">Error loading contacts.</p>'; }
+}
+
+async function renameContact(encodedJid, currentName) {
+  const newName = prompt('New name for this contact:', currentName);
+  if (newName === null) return;
+  try {
+    const r = await fetch('/admin/api/contacts/' + encodedJid + '/rename', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newName.trim() })
+    });
+    if (r.status === 401) { location.href='/admin/login'; return; }
+    const data = await r.json();
+    if (data.ok) loadContacts();
+    else alert('Error: ' + (data.error||'unknown'));
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function deleteContact(encodedJid) {
+  if (!confirm('Remove custom name for this contact?')) return;
+  try {
+    const r = await fetch('/admin/api/contacts/' + encodedJid, { method: 'DELETE' });
+    if (r.status === 401) { location.href='/admin/login'; return; }
+    const data = await r.json();
+    if (data.ok) loadContacts();
+    else alert('Error: ' + (data.error||'unknown'));
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function addContact() {
+  const phone = (document.getElementById('newContactPhone')?.value || '').trim();
+  const name = (document.getElementById('newContactName')?.value || '').trim();
+  const msg = document.getElementById('addContactMsg');
+  if (!phone || !name) { if (msg) { msg.style.display='block'; msg.style.color='#c0392b'; msg.textContent='Phone and name are required.'; } return; }
+  try {
+    const r = await fetch('/admin/api/contacts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, name })
+    });
+    if (r.status === 401) { location.href='/admin/login'; return; }
+    const data = await r.json();
+    if (data.ok) {
+      if (msg) { msg.style.display='block'; msg.style.color='#27ae60'; msg.textContent='✅ Contact added.'; }
+      document.getElementById('newContactPhone').value = '';
+      document.getElementById('newContactName').value = '';
+      loadContacts();
+    } else {
+      if (msg) { msg.style.display='block'; msg.style.color='#c0392b'; msg.textContent='Error: ' + (data.error||'unknown'); }
+    }
+  } catch(e) {
+    if (msg) { msg.style.display='block'; msg.style.color='#c0392b'; msg.textContent='Error: ' + e.message; }
+  }
 }
 
 // ── Orders tab ────────────────────────────────────────────────────────────────
@@ -4833,6 +5288,31 @@ const server = app.listen(PORT, () => {
     console.log(`🔗 QR code will be available at: ${qrUrl}`);
     startBot(); // Start the bot after the server is up
 });
+
+// ── Handover auto-resume timer (2 hours of idle) ─────────────────────────────
+const HANDOVER_AUTO_RESUME_MS = 2 * 60 * 60 * 1000; // 2 hours
+setInterval(async () => {
+    const now = Date.now();
+    for (const [jid, session] of Object.entries(handoverSessions)) {
+        if (!session.active) continue;
+        const lastActivity = chatLogLastActivity[jid]
+            ? new Date(chatLogLastActivity[jid]).getTime()
+            : (session.requestedAt ? new Date(session.requestedAt).getTime() : 0);
+        if (now - lastActivity >= HANDOVER_AUTO_RESUME_MS) {
+            delete handoverSessions[jid];
+            console.log(`🤖 Auto-resuming bot for ${jid} after 2h of handover idle.`);
+            try {
+                if (activeSock && whatsappRuntime.phase === 'connected') {
+                    await activeSock.sendMessage(jid, {
+                        text: `✅ It looks like our team member is no longer available. The bot is back to assist you — type *menu* or send *cart* when you are ready.`
+                    });
+                }
+            } catch (err) {
+                console.error('⚠️ Auto-resume send failed:', err.message);
+            }
+        }
+    }
+}, 5 * 60 * 1000); // check every 5 minutes
 
 process.on('unhandledRejection', (reason) => {
     console.error('❌ Unhandled promise rejection:', reason);
