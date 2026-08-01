@@ -4159,8 +4159,8 @@ function parseVCard(text) {
                 name = [parts[1], parts[0]].filter(Boolean).join(' ').trim();
             }
             if (!phone && /^TEL/i.test(trimmed)) {
-                const match = trimmed.match(/TEL[^:]*:(.*)/i);
-                if (match) phone = match[1].trim();
+                const colonIdx = trimmed.indexOf(':');
+                if (colonIdx >= 0) phone = trimmed.slice(colonIdx + 1).trim();
             }
         }
         const normalized = normalizeContactPhone(phone);
