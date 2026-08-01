@@ -42,6 +42,7 @@ const AUDIT_LOG_FILE = path.join(STORAGE_DIR, 'admin_audit.log');
 const SETTINGS_FILE = path.join(STORAGE_DIR, 'settings.json');
 const CONTACTS_FILE = path.join(STORAGE_DIR, 'contacts.json');
 const TAB_OVERRIDES_FILE = path.join(STORAGE_DIR, 'tab_overrides.json');
+const SERVICE_SELECTED_FILE = path.join(STORAGE_DIR, 'service_selected.json');
 const MAX_HISTORY = 10;
 const MAX_NAVIGATION_HISTORY = 25;
 const MAX_LEARNING_LEADS = 200;
@@ -311,6 +312,9 @@ let settings = loadJsonFile(SETTINGS_FILE, { wholesalePassword: '', wholesaleDis
 let contactNames = loadJsonFile(CONTACTS_FILE, {});
 // Admin-set conversation tab overrides { [jid]: 'paid'|'idle'|'main' }
 let conversationTabOverrides = loadJsonFile(TAB_OVERRIDES_FILE, {});
+// Tracks which customer JIDs have already completed the initial service-type selection.
+// Persisted so returning customers skip straight to the main menu.
+const serviceSelectedUsers = new Set(loadJsonFile(SERVICE_SELECTED_FILE, []));
 // Migrate existing settings files that pre-date the wholesaleDiscount field.
 if (typeof settings.wholesaleDiscount !== 'number' || settings.wholesaleDiscount <= 0 || settings.wholesaleDiscount >= 100) {
     settings.wholesaleDiscount = 25;
@@ -838,6 +842,16 @@ async function promptForWholesaleArtworkIfNeeded(sock, jid, product, item) {
 function greetUser(jid) {
     const name = userNames[jid];
     return name ? `Hi there ${name}! 👋` : 'Hi there! 👋';
+}
+
+function buildServiceSelectionText() {
+    return [
+        'Welcome! 👋 Please choose how you would like to be assisted today:',
+        '',
+        'Type:',
+        '1. *Sales Consultant* — A team member will contact you (response within 3 to 4 hours)',
+        '2. *Express Service* — Use our Bot to browse products, get pricing, place and pay for your order right here in WhatsApp',
+    ].join('\n');
 }
 
 function buildWelcomeText(jid) {
@@ -1467,10 +1481,19 @@ function getQrAccessToken(req) {
  * Extract the international phone number from a WhatsApp JID.
  * e.g. "27123456789@s.whatsapp.net"      → "+27123456789"
  *      "27123456789:6@s.whatsapp.net"     → "+27123456789"  (multi-device device suffix stripped)
+ *      "176132464881776@lid"              → "(LID)" (privacy-linked ID, not a real phone)
  */
 function getPhoneFromJid(jid) {
-    const local = (jid || '').split('@')[0]; // strip @domain
-    const phone = local.split(':')[0];       // strip :N multi-device device suffix
+    if (!jid) return '';
+    const atIdx = jid.indexOf('@');
+    const local = atIdx >= 0 ? jid.slice(0, atIdx) : jid;
+    const domain = atIdx >= 0 ? jid.slice(atIdx + 1) : '';
+    // Only treat as phone number for standard WhatsApp user JIDs
+    if (domain !== 's.whatsapp.net' && domain !== 'c.us') {
+        // Non-standard JID (e.g. @lid, @newsletter) — flag clearly so it isn't mistaken for a phone
+        return `(${domain || 'unknown'})`;
+    }
+    const phone = local.split(':')[0]; // strip :N multi-device device suffix
     return '+' + phone.replace(/\D/g, '');
 }
 
@@ -1764,7 +1787,7 @@ async function startBot() {
                     if (!key || !messageContent) continue;
 
                     jid = key.remoteJid;
-                    if (!jid || jid === 'status@broadcast' || jid.endsWith('@g.us')) continue;
+                    if (!jid || jid === 'status@broadcast' || jid.endsWith('@g.us') || jid.endsWith('@lid') || jid.endsWith('@newsletter')) continue;
 
                     // ── Mobile bot control: admin typed directly on the bot's phone ──
                     if (key.fromMe) {
@@ -1902,6 +1925,48 @@ async function startBot() {
 
                     if (jid !== ADMIN_JID && rawText && (isHumanRequest(text) || isFrustratedMessage(text))) {
                         await requestHumanHandoverConfirmation(sock, jid, rawText);
+                        continue;
+                    }
+
+                    // ── First-time service selection ───────────────────────────────────────
+                    // Show a service-type prompt to new customers before the main welcome menu.
+                    if (jid !== ADMIN_JID && !serviceSelectedUsers.has(jid)) {
+                        const userState2 = userStates[jid] || { step: 'idle' };
+                        if (userState2.step !== 'awaiting_service_selection') {
+                            // First message ever — present the two service options
+                            userStates[jid] = { step: 'awaiting_service_selection' };
+                            await sock.sendMessage(jid, { text: buildServiceSelectionText(), __skipNavigation: true });
+                            continue;
+                        }
+                        // User is responding to the service-selection menu
+                        if (text === '1' || /\bsales\b|\bconsultant\b|\bagent\b|\bperson\b|\bhuman\b/.test(text)) {
+                            serviceSelectedUsers.add(jid);
+                            saveJsonFile(SERVICE_SELECTED_FILE, [...serviceSelectedUsers]);
+                            handoverSessions[jid] = {
+                                active: true,
+                                reason: 'Customer selected Sales Consultant',
+                                requestedAt: new Date().toISOString()
+                            };
+                            const handoverMsg = `Thank you! 🙏 A *Sales Consultant* will be in touch within *3 to 4 hours*.\n\nIf you prefer to use our Express Bot Service instead, type *2* at any time.`;
+                            await sock.sendMessage(jid, { text: handoverMsg });
+                            if (ADMIN_JID) {
+                                await sock.sendMessage(ADMIN_JID, {
+                                    text: `📞 *New Sales Consultant request*\n\nCustomer: ${getDisplayName(jid)} (${getPhoneFromJid(jid)})\nJID: ${jid}\n\nReply directly to this customer or type *resume ${jid}* when done.`
+                                });
+                            }
+                            continue;
+                        }
+                        if (text === '2' || /\bexpress\b|\bbot\b|\bservice\b/.test(text)) {
+                            serviceSelectedUsers.add(jid);
+                            saveJsonFile(SERVICE_SELECTED_FILE, [...serviceSelectedUsers]);
+                            userStates[jid] = { step: 'awaiting_main_menu' };
+                            const welcomeText = buildWelcomeText(jid);
+                            resetNavigationHistory(jid, welcomeText);
+                            await sock.sendMessage(jid, { text: welcomeText, __skipNavigation: true });
+                            continue;
+                        }
+                        // Unrecognised input — re-show the selection menu
+                        await sock.sendMessage(jid, { text: buildServiceSelectionText(), __skipNavigation: true });
                         continue;
                     }
 
@@ -4060,6 +4125,141 @@ app.delete('/admin/api/contacts/:jid', adminRouteLimiter, adminAuthMiddleware, (
     res.json({ ok: true });
 });
 
+/**
+ * Normalise a raw phone string into WhatsApp digits (no + or spaces).
+ * Returns null if the result looks invalid.
+ */
+function normalizeContactPhone(raw) {
+    if (!raw) return null;
+    const digits = String(raw).replace(/\D/g, '');
+    if (!digits) return null;
+    // South African local format: 0xxxxxxxxx (10 digits) → 27xxxxxxxxx
+    if (digits.startsWith('0') && digits.length === 10) return '27' + digits.slice(1);
+    // Valid international length: 7–15 digits (E.164 range)
+    if (digits.length >= 7 && digits.length <= 15) return digits;
+    return null;
+}
+
+/**
+ * Parse a vCard (.vcf) file buffer and return an array of { name, phone } pairs.
+ */
+function parseVCard(text) {
+    const contacts = [];
+    const blocks = text.split(/BEGIN:VCARD/i).slice(1);
+    for (const block of blocks) {
+        let name = '';
+        let phone = '';
+        for (const line of block.split(/\r?\n/)) {
+            const trimmed = line.trim();
+            if (/^FN:/i.test(trimmed)) {
+                name = trimmed.replace(/^FN:/i, '').trim();
+            } else if (!name && /^N:/i.test(trimmed)) {
+                // N:LastName;FirstName;Additional;Prefix;Suffix
+                const parts = trimmed.replace(/^N:/i, '').split(';');
+                name = [parts[1], parts[0]].filter(Boolean).join(' ').trim();
+            }
+            if (!phone && /^TEL/i.test(trimmed)) {
+                const match = trimmed.match(/TEL[^:]*:(.*)/i);
+                if (match) phone = match[1].trim();
+            }
+        }
+        const normalized = normalizeContactPhone(phone);
+        if (normalized && name) contacts.push({ name, phone: normalized });
+    }
+    return contacts;
+}
+
+/**
+ * Parse a contacts CSV buffer and return an array of { name, phone } pairs.
+ * Supports common export formats from Google Contacts, iPhone, Android, Outlook.
+ */
+function parseContactsCsv(text) {
+    const lines = text.split(/\r?\n/).filter(Boolean);
+    if (lines.length < 2) return [];
+    const headers = lines[0].split(',').map((h) => h.replace(/^"|"$/g, '').trim().toLowerCase());
+
+    // Column index finders — check common aliases in order of preference
+    function col(...names) {
+        for (const n of names) {
+            const idx = headers.indexOf(n.toLowerCase());
+            if (idx >= 0) return idx;
+        }
+        return -1;
+    }
+
+    const nameIdx = col('name', 'full name', 'display name', 'contact name', 'formatted name');
+    const firstIdx = col('first name', 'given name', 'given name yomi', 'firstname');
+    const lastIdx = col('last name', 'family name', 'surname', 'lastname');
+    const phoneIdx = col(
+        'phone 1 - value', 'phone', 'phone number', 'mobile', 'cell', 'mobile number',
+        'cell phone', 'telephone', 'tel', 'phone1', 'phone 1', 'primary phone'
+    );
+
+    const contacts = [];
+    for (let i = 1; i < lines.length; i++) {
+        // Simple CSV split (handles quoted commas within fields)
+        const row = [];
+        let inQuote = false;
+        let field = '';
+        for (let ci = 0; ci < lines[i].length; ci++) {
+            const ch = lines[i][ci];
+            if (ch === '"') { inQuote = !inQuote; continue; }
+            if (ch === ',' && !inQuote) { row.push(field.trim()); field = ''; continue; }
+            field += ch;
+        }
+        row.push(field.trim());
+
+        let name = '';
+        if (nameIdx >= 0 && row[nameIdx]) {
+            name = row[nameIdx].replace(/^"|"$/g, '').trim();
+        } else if (firstIdx >= 0 || lastIdx >= 0) {
+            const first = firstIdx >= 0 ? (row[firstIdx] || '').replace(/^"|"$/g, '').trim() : '';
+            const last = lastIdx >= 0 ? (row[lastIdx] || '').replace(/^"|"$/g, '').trim() : '';
+            name = [first, last].filter(Boolean).join(' ').trim();
+        }
+
+        const rawPhone = phoneIdx >= 0 ? (row[phoneIdx] || '').replace(/^"|"$/g, '').trim() : '';
+        const normalized = normalizeContactPhone(rawPhone);
+        if (normalized && name) contacts.push({ name, phone: normalized });
+    }
+    return contacts;
+}
+
+// POST /admin/api/contacts/import — bulk-import contacts from a CSV or vCard (.vcf) file
+const contactsImportUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 5 * 1024 * 1024 } // 5 MB
+});
+app.post('/admin/api/contacts/import', adminRouteLimiter, adminAuthMiddleware, contactsImportUpload.single('file'), (req, res) => {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    const name = req.file.originalname.toLowerCase();
+    const text = req.file.buffer.toString('utf8');
+    let parsed = [];
+    try {
+        if (name.endsWith('.vcf')) {
+            parsed = parseVCard(text);
+        } else if (name.endsWith('.csv')) {
+            parsed = parseContactsCsv(text);
+        } else {
+            return res.status(400).json({ error: 'Only .csv and .vcf files are supported' });
+        }
+    } catch (err) {
+        return res.status(400).json({ error: `Could not parse file: ${err.message}` });
+    }
+    if (!parsed.length) {
+        return res.status(400).json({ error: 'No valid contacts found in the file. Ensure it has Name and Phone columns.' });
+    }
+    let imported = 0;
+    for (const { name: cname, phone } of parsed) {
+        const jid = `${phone}@s.whatsapp.net`;
+        contactNames[jid] = cname;
+        imported++;
+    }
+    saveJsonFile(CONTACTS_FILE, contactNames);
+    auditLog('IMPORT_CONTACTS', `count=${imported} file=${req.file.originalname}`, req.ip);
+    res.json({ ok: true, imported });
+});
+
 // ── Conversation tab management ───────────────────────────────────────────────
 
 // POST /admin/api/conversations/:jid/move — manually move a conversation to a tab
@@ -4475,6 +4675,15 @@ app.get('/admin', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
           <button class="btn" onclick="addContact()" style="flex-shrink:0">➕ Add</button>
         </div>
         <p id="addContactMsg" style="margin-top:8px;font-size:.82rem;display:none"></p>
+      </div>
+      <div class="card" style="margin-top:16px">
+        <h3>📤 Import Address Book</h3>
+        <p class="hint">Import contacts from any phone or app. Supported formats: <strong>CSV</strong> (Google Contacts, iPhone, Android, Outlook) and <strong>vCard / .vcf</strong> (all phones). Phone numbers are automatically normalised. Existing contacts with matching numbers will be updated.</p>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
+          <input type="file" id="importContactsFile" accept=".csv,.vcf" style="padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:.88rem;flex:1;min-width:200px">
+          <button class="btn" onclick="importContacts()" style="flex-shrink:0">📤 Import</button>
+        </div>
+        <p id="importContactsMsg" style="margin-top:8px;font-size:.82rem;display:none"></p>
       </div>
       <div class="card" style="margin-top:16px">
         <h3>📋 Contacts</h3>
@@ -5125,6 +5334,32 @@ async function addContact() {
       if (msg) { msg.style.display='block'; msg.style.color='#27ae60'; msg.textContent='✅ Contact added.'; }
       document.getElementById('newContactPhone').value = '';
       document.getElementById('newContactName').value = '';
+      loadContacts();
+    } else {
+      if (msg) { msg.style.display='block'; msg.style.color='#c0392b'; msg.textContent='Error: ' + (data.error||'unknown'); }
+    }
+  } catch(e) {
+    if (msg) { msg.style.display='block'; msg.style.color='#c0392b'; msg.textContent='Error: ' + e.message; }
+  }
+}
+
+async function importContacts() {
+  const fileInput = document.getElementById('importContactsFile');
+  const msg = document.getElementById('importContactsMsg');
+  if (!fileInput?.files?.length) {
+    if (msg) { msg.style.display='block'; msg.style.color='#c0392b'; msg.textContent='Please choose a .csv or .vcf file first.'; }
+    return;
+  }
+  const formData = new FormData();
+  formData.append('file', fileInput.files[0]);
+  if (msg) { msg.style.display='block'; msg.style.color='#888'; msg.textContent='Importing…'; }
+  try {
+    const r = await fetch('/admin/api/contacts/import', { method: 'POST', body: formData });
+    if (r.status === 401) { location.href='/admin/login'; return; }
+    const data = await r.json();
+    if (data.ok) {
+      if (msg) { msg.style.display='block'; msg.style.color='#27ae60'; msg.textContent=\`✅ Imported \${data.imported} contact(s) successfully.\`; }
+      fileInput.value = '';
       loadContacts();
     } else {
       if (msg) { msg.style.display='block'; msg.style.color='#c0392b'; msg.textContent='Error: ' + (data.error||'unknown'); }
