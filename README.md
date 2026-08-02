@@ -176,6 +176,7 @@ Expected result:
 
 - the bot responds with clear next steps
 - `back` returns the customer to the previous prompt without losing the earlier flow state
+- customers who entered **Express Service** can use `back` from the welcome menu to return to the initial **Sales Consultant / Express Service** choice
 - `home` or `main menu` restarts from the welcome menu
 - square-metre products ask for **length × height in mm** and return a price
 - design, poles, and installation are added correctly when applicable
@@ -620,7 +621,7 @@ Sessions are stored server-side in memory with an 8-hour expiry.
 
 | Tab | What it shows |
 |---|---|
-| 💬 **Chats** | All customer conversations with live updates. Click any chat to read the history and take over from the bot. |
+| 💬 **Chats** | All customer conversations with live updates. Use the **Active**, **Paid**, **Idle**, and **Closed** sub-tabs to keep your working list clean. |
 | 📋 **Orders** | Every order submitted by customers. Shows status, quote link, and downloadable design/artwork files. |
 | 📦 **Products** | Download or upload the products CSV without leaving the dashboard. |
 | 💡 **Leads** | Unanswered customer messages, sorted by frequency. Use these to teach the bot new replies. |
@@ -636,6 +637,10 @@ Type a message in the chat text box and press **Enter** or click **Send**. The f
 3. Send your message to the customer.
 
 All subsequent messages you type also go to the customer while the handover is active.
+
+### Organising chats
+
+Use the **Move To** menu in the chat header to move a conversation into **Paid**, **Idle**, or **Closed**. Only chats still in the main working queue appear in the **Active** sub-tab.
 
 ### Handing back to the bot
 
