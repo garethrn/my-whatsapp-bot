@@ -3217,7 +3217,6 @@ async function startBot() {
 
 // --- WEB SERVER FOR RAILWAY HEALTH CHECK AND QR ACCESS ---
 const app = express();
-app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3000;
 const QR_ACCESS_TOKEN = process.env.QR_ACCESS_TOKEN || '';
 const qrRouteLimiter = rateLimit({
