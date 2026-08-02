@@ -1465,6 +1465,29 @@ function extractMessageText(messageContent) {
     return typeof text === 'string' ? text.trim() : '';
 }
 
+function isDirectUserJid(jid) {
+    return typeof jid === 'string' && (jid.endsWith('@s.whatsapp.net') || jid.endsWith('@c.us'));
+}
+
+function isIgnoredChatJid(jid) {
+    return typeof jid === 'string' && (
+        jid === 'status@broadcast'
+        || jid.endsWith('@g.us')
+        || jid.endsWith('@newsletter')
+    );
+}
+
+function resolveChatJid(key) {
+    const primaryJid = key?.remoteJid || '';
+    const alternateJid = key?.remoteJidAlt || '';
+
+    if (isDirectUserJid(primaryJid)) return primaryJid;
+    if (isDirectUserJid(alternateJid)) return alternateJid;
+    if (primaryJid) return primaryJid;
+    if (alternateJid) return alternateJid;
+    return null;
+}
+
 function isAuthorizedQrRequest(token) {
     // When no QR_ACCESS_TOKEN is configured, keep `/qr` publicly reachable and rely on rate limiting instead.
     if (!QR_ACCESS_TOKEN) return true;
@@ -1816,8 +1839,8 @@ async function startBot() {
                     const messageContent = extractMessageContent(msg);
                     if (!key || !messageContent) continue;
 
-                    jid = key.remoteJid;
-                    if (!jid || jid === 'status@broadcast' || jid.endsWith('@g.us') || jid.endsWith('@lid') || jid.endsWith('@newsletter')) continue;
+                    jid = resolveChatJid(key);
+                    if (!jid || isIgnoredChatJid(jid) || jid.endsWith('@lid')) continue;
 
                     // ── Mobile bot control: admin typed directly on the bot's phone ──
                     if (key.fromMe) {
