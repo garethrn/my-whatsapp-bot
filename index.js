@@ -141,48 +141,71 @@ async function startBot(fingerprintIndex = 0) {
     });
 
     sock.ev.on('messages.upsert', async ({ messages }) => {
-        const msg = messages[0];
-        if (!msg.message || msg.key.fromMe) return;
-        const jid = msg.key.remoteJid;
-        const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").toLowerCase().trim();
+        // Wrap the entire handler so a single malformed/undecryptable message
+        // (e.g. "failed to decrypt message") can never bubble up as an
+        // uncaught error and tear down the WhatsApp connection.
+        try {
+            if (!Array.isArray(messages) || messages.length === 0) return;
+            const msg = messages[0];
+            if (!msg || !msg.message || !msg.key || msg.key.fromMe) return;
 
-        if (jid === ADMIN_JID && msg.message.documentMessage) {
-            const doc = msg.message.documentMessage;
-            if (doc.fileName.endsWith('.csv')) {
-                const buffer = await downloadMediaMessage(msg, 'buffer', {});
-                fs.writeFileSync(CSV_FILE, buffer);
-                loadProducts();
-                return sock.sendMessage(jid, { text: "📦 Products updated!" });
-            }
-        }
+            const jid = msg.key.remoteJid;
+            if (!jid) return;
 
-        if (text === 'hello' || text === 'menu') {
-            let menu = "*Our Catalog:*\n\n";
-            products.forEach(p => menu += `*ID ${p.ID}*: ${p.Name} - $${p.Price}\n`);
-            await sock.sendMessage(jid, { text: menu });
-        } else if (text.startsWith('buy ')) {
-            const parts = text.split(' ');
-            const id = parts[1];
-            const qty = parseInt(parts[2]) || 1;
-            const product = products.find(p => p.ID === id);
-            if (product) {
-                if (!userCarts[jid]) userCarts[jid] = [];
-                userCarts[jid].push({ ...product, qty });
-                await sock.sendMessage(jid, { text: `✅ Added ${qty} x ${product.Name}.` });
+            const text = (
+                msg.message.conversation ||
+                msg.message.extendedTextMessage?.text ||
+                ""
+            ).toLowerCase().trim();
+
+            if (jid === ADMIN_JID && msg.message.documentMessage) {
+                try {
+                    const doc = msg.message.documentMessage;
+                    if (doc?.fileName && doc.fileName.endsWith('.csv')) {
+                        const buffer = await downloadMediaMessage(msg, 'buffer', {});
+                        fs.writeFileSync(CSV_FILE, buffer);
+                        loadProducts();
+                        await sock.sendMessage(jid, { text: "📦 Products updated!" });
+                        return;
+                    }
+                } catch (docErr) {
+                    console.error('❌ Failed to process incoming document message:', docErr);
+                }
             }
-        } else if (text === 'checkout') {
-            const cart = userCarts[jid];
-            if (!cart || cart.length === 0) return sock.sendMessage(jid, { text: "Cart empty." });
-            let total = 0;
-            let summary = "*Order Review:*\n";
-            cart.forEach(i => {
-                const sub = parseFloat(i.Price) * i.qty;
-                total += sub;
-                summary += `- ${i.Name} (x${i.qty}): $${sub.toFixed(2)}\n`;
-            });
-            summary += `\n*Total: $${total.toFixed(2)}*`;
-            await sock.sendMessage(jid, { text: summary });
-            delete userCarts[jid];
+
+            if (text === 'hello' || text === 'menu') {
+                let menu = "*Our Catalog:*\n\n";
+                products.forEach(p => menu += `*ID ${p.ID}*: ${p.Name} - ${p.Price}\n`);
+                await sock.sendMessage(jid, { text: menu });
+            } else if (text.startsWith('buy ')) {
+                const parts = text.split(' ');
+                const id = parts[1];
+                const qty = parseInt(parts[2]) || 1;
+                const product = products.find(p => p.ID === id);
+                if (product) {
+                    if (!userCarts[jid]) userCarts[jid] = [];
+                    userCarts[jid].push({ ...product, qty });
+                    await sock.sendMessage(jid, { text: `✅ Added ${qty} x ${product.Name}.` });
+                }
+            } else if (text === 'checkout') {
+                const cart = userCarts[jid];
+                if (!cart || cart.length === 0) {
+                    await sock.sendMessage(jid, { text: "Cart empty." });
+                    return;
+                }
+                let total = 0;
+                let summary = "*Order Review:*\n";
+                cart.forEach(i => {
+                    const sub = parseFloat(i.Price) * i.qty;
+                    total += sub;
+                    summary += `- ${i.Name} (x${i.qty}): ${sub.toFixed(2)}\n`;
+                });
+                summary += `\n*Total: ${total.toFixed(2)}*`;
+                await sock.sendMessage(jid, { text: summary });
+                delete userCarts[jid];
+            }
+        } catch (err) {
+            console.error('❌ Error handling incoming message (connection kept alive):', err);
         }
     });
     } catch (err) {
@@ -204,6 +227,12 @@ async function startBot(fingerprintIndex = 0) {
 // --- WEB SERVER FOR RAILWAY HEALTH CHECK + QR CODE ---
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Railway sits behind a load balancer/proxy that sets X-Forwarded-For headers.
+// This must be set before any middleware (e.g. express-rate-limit) that reads
+// those headers, otherwise express-rate-limit throws a ValidationError and
+// crashes request handling.
+app.set('trust proxy', 1);
 
 app.get('/', (req, res) => res.send('Bot is running!'));
 
