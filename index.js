@@ -854,8 +854,7 @@ function greetUser(jid) {
 
 function buildServiceSelectionText() {
     return [
-        'Type:',
-        '1. *Sales Consultant* (Can take up to 3 to 4 hours response)',
+        'Type 1. *Sales Consultant* (Can take up to 3 to 4 hours response)',
         '2. *Express Service* (Using our Bot you can walk through all our Product Pricing, Order and Pay all in your WhatsApp)'
     ].join('\n');
 }
@@ -1843,6 +1842,9 @@ async function startBot() {
                 let jid = null;
                 try {
                     const key = msg?.key;
+                    // Ignore WhatsApp Status (story) updates — these are broadcast messages
+                    // from contacts and are not intended for bot interaction.
+                    if (msg?.broadcast || key?.remoteJid === 'status@broadcast') continue;
                     const messageContent = extractMessageContent(msg);
                     if (!key || !messageContent) continue;
 
