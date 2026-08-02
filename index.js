@@ -300,10 +300,6 @@ let userProductContext = {};
 let learnedResponses = loadJsonFile(LEARNED_RESPONSES_FILE, []);
 let learningLeads = loadJsonFile(LEARNING_LEADS_FILE, []);
 let handoverSessions = {};
-// Tracks IDs of messages the bot sent itself, so that Baileys' fromMe echoes
-// (type: 'notify', fromMe: true) are not mistaken for admin-phone replies and
-// do not falsely activate the human-handover mode for customers.
-const botSentMessageIds = new Set();
 let conversationHistory = {};
 let userNavigationHistory = {};
 let userNames = {};
@@ -1700,18 +1696,7 @@ async function startBot() {
                 logChatEntry(targetJid, 'bot', payload.text);
             }
 
-            const result = await rawSendMessage(targetJid, payload, options);
-            // Record the message ID so the messages.upsert handler can
-            // distinguish bot-sent echoes (fromMe: true) from real admin-phone replies.
-            if (result?.key?.id) {
-                botSentMessageIds.add(result.key.id);
-                // Prune the set when it grows large to avoid a memory leak.
-                if (botSentMessageIds.size > 1000) {
-                    const oldest = botSentMessageIds.values().next().value;
-                    botSentMessageIds.delete(oldest);
-                }
-            }
-            return result;
+            return rawSendMessage(targetJid, payload, options);
         };
         const socketGeneration = ++activeSocketGeneration;
 
@@ -1806,12 +1791,6 @@ async function startBot() {
 
                     // ── Mobile bot control: admin typed directly on the bot's phone ──
                     if (key.fromMe) {
-                        // Ignore echo events for messages the bot sent itself — these are
-                        // Baileys re-delivering our own outgoing messages as type 'notify'.
-                        if (key.id && botSentMessageIds.has(key.id)) {
-                            botSentMessageIds.delete(key.id);
-                            continue;
-                        }
                         const fromMeText = extractMessageText(messageContent)?.toLowerCase().trim() || '';
                         // Typing "resume" in a customer chat resumes the bot for that chat
                         if (fromMeText === 'resume') {
