@@ -1685,9 +1685,6 @@ async function startBot() {
             browser: Browsers.appropriate('Desktop'),
             ...(version ? { version } : {})
         });
-        // Track the Unix-second timestamp of when this socket's connection opened.
-        // Used to distinguish live admin-phone replies from replayed fromMe echoes on restart.
-        let socketConnectedAt = 0;
         const rawSendMessage = sock.sendMessage.bind(sock);
         sock.sendMessage = async (targetJid, content, options) => {
             const payload = content && typeof content === 'object' ? { ...content } : content;
@@ -1782,7 +1779,6 @@ async function startBot() {
                     }
                 } else if (connection === 'open') {
                     currentQrDataUri = null; // No longer needed once connected
-                    socketConnectedAt = Math.floor(Date.now() / 1000);
                     activeSock = sock;
                     clearBotRestartTimer();
                     setWhatsAppPhase('connected');
@@ -1814,16 +1810,6 @@ async function startBot() {
                         // Baileys re-delivering our own outgoing messages as type 'notify'.
                         if (key.id && botSentMessageIds.has(key.id)) {
                             botSentMessageIds.delete(key.id);
-                            continue;
-                        }
-                        // Ignore fromMe messages that predate this connection's open time.
-                        // On restart, WhatsApp sometimes re-delivers recent bot-sent messages
-                        // as type 'notify'; without this guard they would falsely trigger
-                        // handover mode for every recently-active customer.
-                        const msgTs = typeof msg.messageTimestamp === 'number'
-                            ? msg.messageTimestamp
-                            : Number(msg.messageTimestamp) || 0;
-                        if (socketConnectedAt > 0 && msgTs < socketConnectedAt) {
                             continue;
                         }
                         const fromMeText = extractMessageText(messageContent)?.toLowerCase().trim() || '';
