@@ -1849,6 +1849,19 @@ async function startBot() {
                     jid = resolveChatJid(key);
                     if (!jid || isIgnoredChatJid(jid) || jid.endsWith('@lid')) continue;
 
+                    // Ignore any message (from customers or admin) that pre-dates this
+                    // connection's open time.  WhatsApp can replay unread/undelivered
+                    // messages on reconnect even as type 'notify'; we must not respond to
+                    // those old messages after a restart or redeploy.
+                    // When socketConnectedAt is still 0 the socket hasn't confirmed open yet,
+                    // so all messages at that point are definitionally replays — skip them too.
+                    {
+                        const msgTs = typeof msg.messageTimestamp === 'number'
+                            ? msg.messageTimestamp
+                            : Number(msg.messageTimestamp) || 0;
+                        if (socketConnectedAt === 0 || msgTs < socketConnectedAt) continue;
+                    }
+
                     // ── Mobile bot control: admin typed directly on the bot's phone ──
                     if (key.fromMe) {
                         // Ignore echo events for messages the bot sent itself — these are
@@ -1857,22 +1870,8 @@ async function startBot() {
                             botSentMessageIds.delete(key.id);
                             continue;
                         }
-                        // Ignore fromMe messages that predate this connection's open time.
-                        // On restart, WhatsApp sometimes re-delivers recent bot-sent messages
-                        // as type 'notify'; without this guard they would falsely trigger
-                        // handover mode for every recently-active customer.
-                        //
-                        // Also ignore ALL fromMe messages when socketConnectedAt is still 0,
-                        // meaning the 'connection open' event has not fired yet.  Messages
-                        // that arrive during the connection handshake are always replays —
-                        // there is no way for the admin to type on their phone before the
-                        // socket has even confirmed it is live.
-                        const msgTs = typeof msg.messageTimestamp === 'number'
-                            ? msg.messageTimestamp
-                            : Number(msg.messageTimestamp) || 0;
-                        if (socketConnectedAt === 0 || msgTs < socketConnectedAt) {
-                            continue;
-                        }
+                        // Note: the pre-connection timestamp guard above already filtered out
+                        // any replayed fromMe messages that predate socketConnectedAt.
                         const fromMeText = extractMessageText(messageContent)?.toLowerCase().trim() || '';
                         // Typing "resume" in a customer chat resumes the bot for that chat
                         if (fromMeText === 'resume') {
