@@ -1820,10 +1820,16 @@ async function startBot() {
                         // On restart, WhatsApp sometimes re-delivers recent bot-sent messages
                         // as type 'notify'; without this guard they would falsely trigger
                         // handover mode for every recently-active customer.
+                        //
+                        // Also ignore ALL fromMe messages when socketConnectedAt is still 0,
+                        // meaning the 'connection open' event has not fired yet.  Messages
+                        // that arrive during the connection handshake are always replays —
+                        // there is no way for the admin to type on their phone before the
+                        // socket has even confirmed it is live.
                         const msgTs = typeof msg.messageTimestamp === 'number'
                             ? msg.messageTimestamp
                             : Number(msg.messageTimestamp) || 0;
-                        if (socketConnectedAt > 0 && msgTs < socketConnectedAt) {
+                        if (socketConnectedAt === 0 || msgTs < socketConnectedAt) {
                             continue;
                         }
                         const fromMeText = extractMessageText(messageContent)?.toLowerCase().trim() || '';
