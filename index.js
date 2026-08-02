@@ -318,7 +318,7 @@ let contactNames = loadJsonFile(CONTACTS_FILE, {});
 // Persisted admin/imported contact phones by JID (digits only, no plus).
 // { [jid]: string }
 let contactPhones = loadJsonFile(CONTACT_PHONES_FILE, {});
-// Admin-set conversation tab overrides { [jid]: 'paid'|'idle'|'main' }
+// Admin-set conversation tab overrides { [jid]: 'paid'|'idle'|'closed'|'main' }
 let conversationTabOverrides = loadJsonFile(TAB_OVERRIDES_FILE, {});
 // Tracks which customer JIDs have already completed the initial service-type selection.
 // Persisted so returning customers skip straight to the main menu.
@@ -1396,6 +1396,13 @@ function restorePreviousNavigationSnapshot(jid) {
     return previousSnapshot.responseText;
 }
 
+function primeMainMenuNavigationFromServiceSelection(jid, welcomeText) {
+    userStates[jid] = { step: 'awaiting_service_selection' };
+    resetNavigationHistory(jid, buildServiceSelectionText());
+    userStates[jid] = { step: 'awaiting_main_menu' };
+    pushNavigationSnapshot(jid, welcomeText);
+}
+
 function isBackCommand(text) {
     return /^(0|back|go back|previous)$/i.test(text || '');
 }
@@ -2004,9 +2011,8 @@ async function startBot() {
                             delete handoverSessions[jid];
                             serviceSelectedUsers.add(jid);
                             saveJsonFile(SERVICE_SELECTED_FILE, [...serviceSelectedUsers]);
-                            userStates[jid] = { step: 'awaiting_main_menu' };
                             const welcomeText = buildWelcomeText(jid);
-                            resetNavigationHistory(jid, welcomeText);
+                            primeMainMenuNavigationFromServiceSelection(jid, welcomeText);
                             await sock.sendMessage(jid, { text: welcomeText, __skipNavigation: true });
                         }
                         continue;
@@ -2019,8 +2025,8 @@ async function startBot() {
 
                     // ── First-time service selection ───────────────────────────────────────
                     // Show a service-type prompt to new customers before the main welcome menu.
-                    if (jid !== ADMIN_JID && !serviceSelectedUsers.has(jid)) {
-                        const userState2 = userStates[jid] || { step: 'idle' };
+                    const userState2 = userStates[jid] || { step: 'idle' };
+                    if (jid !== ADMIN_JID && (userState2.step === 'awaiting_service_selection' || !serviceSelectedUsers.has(jid))) {
                         if (userState2.step !== 'awaiting_service_selection') {
                             // First message ever — present the two service options
                             userStates[jid] = { step: 'awaiting_service_selection' };
@@ -2048,9 +2054,8 @@ async function startBot() {
                         if (text === '2' || /\bexpress\b|\bbot\b|\bservice\b/.test(text)) {
                             serviceSelectedUsers.add(jid);
                             saveJsonFile(SERVICE_SELECTED_FILE, [...serviceSelectedUsers]);
-                            userStates[jid] = { step: 'awaiting_main_menu' };
                             const welcomeText = buildWelcomeText(jid);
-                            resetNavigationHistory(jid, welcomeText);
+                            primeMainMenuNavigationFromServiceSelection(jid, welcomeText);
                             await sock.sendMessage(jid, { text: welcomeText, __skipNavigation: true });
                             continue;
                         }
@@ -4460,7 +4465,7 @@ app.post('/admin/api/contacts/import', adminRouteLimiter, adminAuthMiddleware, c
 app.post('/admin/api/conversations/:jid/move', adminRouteLimiter, adminAuthMiddleware, express.json(), (req, res) => {
     const jid = decodeURIComponent(req.params.jid);
     const { tab } = req.body || {};
-    const validTabs = ['main', 'paid', 'idle'];
+    const validTabs = ['main', 'paid', 'idle', 'closed'];
     if (!validTabs.includes(tab)) return res.status(400).json({ error: `tab must be one of: ${validTabs.join(', ')}` });
     if (tab === 'main') {
         delete conversationTabOverrides[jid];
@@ -4797,6 +4802,7 @@ app.get('/admin', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
           <button class="sub-tab-btn" data-subtab="active" onclick="switchSubTab('active')">Active</button>
           <button class="sub-tab-btn" data-subtab="paid" onclick="switchSubTab('paid')">Paid</button>
           <button class="sub-tab-btn" data-subtab="idle" onclick="switchSubTab('idle')">Idle</button>
+          <button class="sub-tab-btn" data-subtab="closed" onclick="switchSubTab('closed')">Closed</button>
         </div>
         <div class="legend">
           <span><span class="dot dot-paid"></span>Paid</span>
@@ -5000,9 +5006,10 @@ function getConvTab(c) {
 
 function filterBySubTab(list) {
   if (currentSubTab === 'all') return list;
-  if (currentSubTab === 'active') return list.filter(c => c.status === 'handover' || c.status === 'in_progress' || c.status === 'quoted');
+  if (currentSubTab === 'active') return list.filter(c => getConvTab(c) === 'main');
   if (currentSubTab === 'paid') return list.filter(c => getConvTab(c) === 'paid');
   if (currentSubTab === 'idle') return list.filter(c => getConvTab(c) === 'idle');
+  if (currentSubTab === 'closed') return list.filter(c => getConvTab(c) === 'closed');
   return list;
 }
 
@@ -5258,6 +5265,7 @@ function updateChatContent(data) {
         <div class="move-menu" id="moveMenu">
           <button onclick="moveConv('paid')">✅ Paid Tab</button>
           <button onclick="moveConv('idle')">😴 Idle Tab</button>
+          <button onclick="moveConv('closed')">📦 Closed Tab</button>
           <button onclick="moveConv('main')">💬 Main Chats Tab</button>
         </div>
       </div>
