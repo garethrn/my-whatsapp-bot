@@ -2091,16 +2091,17 @@ async function startBot() {
                     }
 
                 // Cancel / escape from any mid-flow state
-                    if (text === 'cancel' || text === 'menu' || /^(hello|hi|hey)\b/.test(text)) {
+                    if (text === 'cancel' || text === 'menu' || /^(hello|hi|hey|hiya|howdy|greetings|good\s+(morning|afternoon|evening|day))\b/i.test(text)) {
                         if (text === 'cancel') {
                             userStates[jid] = { step: 'idle' };
                             await sock.sendMessage(jid, { text: '❌ Cancelled. Type *menu* to start over.' });
                             continue;
                         }
-                        if (/^(hello|hi|hey)\b/.test(text)) {
+                        if (/^(hello|hi|hey|hiya|howdy|greetings|good\s+(morning|afternoon|evening|day))\b/i.test(text)) {
                             fallbackCounts[jid] = 0;
-                            userStates[jid] = { step: 'awaiting_main_menu' };
-                            await sock.sendMessage(jid, { text: buildWelcomeText(jid) });
+                            userStates[jid] = { step: 'awaiting_service_selection' };
+                            serviceSelectedUsers.delete(jid);
+                            await sock.sendMessage(jid, { text: buildServiceSelectionText(), __skipNavigation: true });
                             continue;
                         }
                         // menu
