@@ -2002,19 +2002,7 @@ async function startBot() {
                     }
 
                     if (handoverSessions[jid]?.active && jid !== ADMIN_JID) {
-                        const handoverReason = handoverSessions[jid]?.reason || '';
-                        // Allow customers who selected Sales Consultant to switch to Express Service.
-                        if (
-                            /Customer selected Sales Consultant/i.test(handoverReason)
-                            && (text === '2' || /\bexpress\b|\bbot\b|\bservice\b/.test(text))
-                        ) {
-                            delete handoverSessions[jid];
-                            serviceSelectedUsers.add(jid);
-                            saveJsonFile(SERVICE_SELECTED_FILE, [...serviceSelectedUsers]);
-                            const welcomeText = buildWelcomeText(jid);
-                            primeMainMenuNavigationFromServiceSelection(jid, welcomeText);
-                            await sock.sendMessage(jid, { text: welcomeText, __skipNavigation: true });
-                        }
+                        // Bot is fully deactivated — only admin resume (mobile "resume", "resume <jid>", or dashboard button) can reactivate.
                         continue;
                     }
 
@@ -2042,7 +2030,7 @@ async function startBot() {
                                 reason: 'Customer selected Sales Consultant',
                                 requestedAt: new Date().toISOString()
                             };
-                            const handoverMsg = `Thank you! 🙏 A *Sales Consultant* will be in touch within *3 to 4 hours*.\n\nIf you prefer to use our Express Bot Service instead, type *2* at any time.`;
+                            const handoverMsg = `Thank you! 🙏 A *Sales Consultant* will be in touch within *3 to 4 hours*.\n\nThe automated bot has been paused. A team member will assist you shortly.`;
                             await sock.sendMessage(jid, { text: handoverMsg });
                             if (ADMIN_JID) {
                                 await sock.sendMessage(ADMIN_JID, {
