@@ -1110,11 +1110,10 @@ function escapeHtml(str) {
         .replace(/'/g, '&#039;');
 }
 
-// Calculate sqm price from mm dimensions, applying the minimum price floor
+// Calculate sqm material price from mm dimensions (before any quantity/minimum logic)
 function calcSqmPrice(product, lengthMm, heightMm) {
     const sqm = (lengthMm / MM_PER_METER) * (heightMm / MM_PER_METER);
-    const price = sqm * toNumber(product.PricePerSqm);
-    return Math.max(price, toNumber(product.MinPrice));
+    return sqm * toNumber(product.PricePerSqm);
 }
 
 // Parse dimensions such as 1200x600, 1200mm x 600mm, length 1200 height 600
@@ -2381,7 +2380,7 @@ async function startBot() {
                     }
 
                     const product = userState.pendingProduct;
-                    const sqmPrice = calcSqmPrice(product, dims.length, dims.height);
+                    const unitSqmPrice = calcSqmPrice(product, dims.length, dims.height);
                     const designFee = toNumber(product.DesignFee);
                     const sqm = (dims.length / MM_PER_METER) * (dims.height / MM_PER_METER);
 
@@ -2389,7 +2388,7 @@ async function startBot() {
                     reply += `Length: ${dims.length}mm\n`;
                     reply += `Height: ${dims.height}mm\n`;
                     reply += `Area: ${sqm.toFixed(2)} m²\n`;
-                    reply += `Material: ${formatCurrency(sqmPrice)}\n`;
+                    reply += `Material (per unit): ${formatCurrency(unitSqmPrice)}\n`;
                     if (designFee > 0) reply += `Design/Layout Fee: ${formatCurrency(designFee)}\n`;
 
                     const pendingItem = {
@@ -2398,7 +2397,7 @@ async function startBot() {
                         dimensions: `${dims.length}×${dims.height}mm`,
                         dimLength: dims.length,
                         dimHeight: dims.height,
-                        sqmPrice,
+                        sqmPrice: unitSqmPrice,
                         designFee,
                         polesCost: 0,
                         poles: 0,
@@ -2752,9 +2751,12 @@ async function startBot() {
                             item.sqmPrice = discountedSqmPrice;
                             item.total = item.sqmPrice + item.designFee + item.polesCost + item.installationFee;
                         } else {
+                            // Multiply actual material first, then apply minimum floor to the full order.
                             const rawMaterial = item.sqmPrice * qty;
-                            const discountedMaterial = rawMaterial * wholesaleMultiplier;
-                            if (wholesaleMultiplier < 1) item.wholesaleDiscount = rawMaterial - discountedMaterial;
+                            const flooredMaterial = Math.max(rawMaterial, minPrice);
+                            const atMinimum = rawMaterial < minPrice;
+                            const discountedMaterial = atMinimum ? flooredMaterial : flooredMaterial * wholesaleMultiplier;
+                            if (wholesaleMultiplier < 1 && !atMinimum) item.wholesaleDiscount = flooredMaterial - discountedMaterial;
                             item.sqmPrice = discountedMaterial;
                             item.total = discountedMaterial + item.designFee + item.polesCost + item.installationFee;
                         }
