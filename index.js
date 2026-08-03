@@ -5217,8 +5217,7 @@ async function refreshChat() {
     } else {
       updateChatContent(data);
     }
-    // Refresh sidebar count/status without full re-render
-    loadConversations();
+    // Sidebar already refreshes on its own interval; avoid doubling API calls.
   } catch(e) { console.error('chat refresh error', e); }
 }
 
