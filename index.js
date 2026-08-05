@@ -2011,44 +2011,16 @@ async function startBot() {
                         continue;
                     }
 
-                    // ── First-time service selection ───────────────────────────────────────
-                    // Show a service-type prompt to new customers before the main welcome menu.
+                    // ── First-time welcome ─────────────────────────────────────────────────
+                    // Go straight to the bot welcome menu for new customers.
                     const userState2 = userStates[jid] || { step: 'idle' };
-                    if (jid !== ADMIN_JID && (userState2.step === 'awaiting_service_selection' || !serviceSelectedUsers.has(jid))) {
-                        if (userState2.step !== 'awaiting_service_selection') {
-                            // First message ever — present the two service options
-                            userStates[jid] = { step: 'awaiting_service_selection' };
-                            await sock.sendMessage(jid, { text: buildServiceSelectionText(), __skipNavigation: true });
-                            continue;
-                        }
-                        // User is responding to the service-selection menu
-                        if (text === '1' || /\bsales\b|\bconsultant\b|\bagent\b|\bperson\b|\bhuman\b/.test(text)) {
-                            serviceSelectedUsers.add(jid);
-                            saveJsonFile(SERVICE_SELECTED_FILE, [...serviceSelectedUsers]);
-                            handoverSessions[jid] = {
-                                active: true,
-                                reason: 'Customer selected Sales Consultant',
-                                requestedAt: new Date().toISOString()
-                            };
-                            const handoverMsg = `Thank you! 🙏 A *Sales Consultant* will be in touch within *3 to 4 hours*.\n\nThe automated bot has been paused. A team member will assist you shortly.`;
-                            await sock.sendMessage(jid, { text: handoverMsg });
-                            if (ADMIN_JID) {
-                                await sock.sendMessage(ADMIN_JID, {
-                                    text: `📞 *New Sales Consultant request*\n\nCustomer: ${getDisplayName(jid)} (${getPhoneFromJid(jid)})\nJID: ${jid}\n\nReply directly to this customer or type *resume ${jid}* when done.`
-                                });
-                            }
-                            continue;
-                        }
-                        if (text === '2' || /\bexpress\b|\bbot\b|\bservice\b/.test(text)) {
-                            serviceSelectedUsers.add(jid);
-                            saveJsonFile(SERVICE_SELECTED_FILE, [...serviceSelectedUsers]);
-                            const welcomeText = buildWelcomeText(jid);
-                            primeMainMenuNavigationFromServiceSelection(jid, welcomeText);
-                            await sock.sendMessage(jid, { text: welcomeText, __skipNavigation: true });
-                            continue;
-                        }
-                        // Unrecognised input — re-show the selection menu
-                        await sock.sendMessage(jid, { text: buildServiceSelectionText(), __skipNavigation: true });
+                    if (jid !== ADMIN_JID && !serviceSelectedUsers.has(jid)) {
+                        serviceSelectedUsers.add(jid);
+                        saveJsonFile(SERVICE_SELECTED_FILE, [...serviceSelectedUsers]);
+                        const welcomeText = buildWelcomeText(jid);
+                        userStates[jid] = { step: 'awaiting_main_menu' };
+                        resetNavigationHistory(jid, welcomeText);
+                        await sock.sendMessage(jid, { text: welcomeText, __skipNavigation: true });
                         continue;
                     }
 
@@ -2086,9 +2058,10 @@ async function startBot() {
                         }
                         if (/^(hello|hi|hey|hiya|howdy|greetings|good\s+(morning|afternoon|evening|day))\b/i.test(text)) {
                             fallbackCounts[jid] = 0;
-                            userStates[jid] = { step: 'awaiting_service_selection' };
-                            serviceSelectedUsers.delete(jid);
-                            await sock.sendMessage(jid, { text: buildServiceSelectionText(), __skipNavigation: true });
+                            const welcomeText = buildWelcomeText(jid);
+                            userStates[jid] = { step: 'awaiting_main_menu' };
+                            resetNavigationHistory(jid, welcomeText);
+                            await sock.sendMessage(jid, { text: welcomeText, __skipNavigation: true });
                             continue;
                         }
                         // menu
