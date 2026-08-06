@@ -146,6 +146,7 @@ function cartToLineItems(cart) {
 
         const noteParts = [label];
 
+        if (item.unitsPerProduct && String(item.unitsPerProduct).trim()) noteParts.push(`Units per product: ${String(item.unitsPerProduct).trim()}`);
         if (item.artworkReceived) noteParts.push('Artwork uploaded by customer');
         if (item.designNotes) noteParts.push(`Design requirements: ${item.designNotes}`);
 
