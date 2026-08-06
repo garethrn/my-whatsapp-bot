@@ -145,7 +145,7 @@ function cartToLineItems(cart) {
         const productKey = (item.sku && String(item.sku).trim()) ? String(item.sku).trim() : item.name;
 
         const noteParts = [label];
-        if (item.unitPriceDescription) noteParts.push(`Unit price: ${item.unitPriceDescription}`);
+
         if (item.artworkReceived) noteParts.push('Artwork uploaded by customer');
         if (item.designNotes) noteParts.push(`Design requirements: ${item.designNotes}`);
 
