@@ -67,7 +67,6 @@ const ARTWORK_DISCLAIMER = [
     '• AI-generated artwork cannot always be edited, recreated, or printed in high quality, especially for large-format printing.',
     '• Customer-supplied artwork can only be edited if an editable file is provided.'
 ].join('\n');
-const HUMAN_KEYWORDS = ['human', 'person', 'agent', 'consultant', 'staff', 'help me', 'call me', 'speak to someone', 'speak to a human', 'handover'];
 const FRUSTRATION_KEYWORDS = ['frustrated', 'angry', 'upset', 'annoyed', 'not helping', 'complaint', 'terrible', 'useless', 'confused', 'speak to manager', 'scam', 'fraud'];
 const PRODUCT_SEARCH_STOP_WORDS = new Set([
     'a', 'about', 'am', 'an', 'and', 'any', 'are', 'can', 'catalogue', 'cost', 'do', 'estimate', 'for',
@@ -782,6 +781,18 @@ function getPricedQuantity(product, requestedQty) {
     return requestedQty;
 }
 
+function getProductUnitPriceDescription(product) {
+    if (!product) return 'Price on request';
+    if (String(product.PriceType || '').trim().toLowerCase() === 'sqm') {
+        return `${formatCurrency(product.PricePerSqm)} per m²`;
+    }
+    const unitsPerPack = parseInt(product.UnitsPerProduct, 10) || 1;
+    const packPrice = formatCurrency(product.FixedPrice);
+    return unitsPerPack > 1
+        ? `${packPrice} per ${unitsPerPack.toLocaleString()} units`
+        : `${packPrice} per unit`;
+}
+
 function buildQuoteText(product, requestedQty, total) {
     const profile = getProductQuantityProfile(product);
     let quoteText = '';
@@ -797,6 +808,7 @@ function buildQuoteText(product, requestedQty, total) {
         quoteText = `💰 *Quote for ${requestedQty.toLocaleString()} ${pluralizeWord(profile.baseUnit, requestedQty)} of ${product.Name}*\n`;
     }
 
+    quoteText += `Price: *${getProductUnitPriceDescription(product)}*\n`;
     quoteText += `Estimated total: *${formatCurrency(total)}*${DISPLAY_TAX_RATE > 0 ? ' (incl. VAT)' : ''} (excl. delivery)\n\n1. Yes – add to cart\n2. No – cancel\n0. Back\n\n– ${BUSINESS_NAME} Team`;
     return quoteText;
 }
@@ -854,8 +866,7 @@ function greetUser(jid) {
 
 function buildServiceSelectionText() {
     return [
-        'Type 1. *Sales Consultant* (Can take up to 3 to 4 hours response)',
-        '2. *Express Service* (Using our Bot you can walk through all our Product Pricing, Order and Pay all in your WhatsApp)'
+        'Type 1. *Express Service* (Using our Bot you can walk through all our Product Pricing, Order and Pay all in your WhatsApp)'
     ].join('\n');
 }
 
@@ -894,7 +905,7 @@ function buildContactDetailsText() {
 }
 
 function buildTrackingText() {
-    return `🔍 *Track Your Order*\n\n🚧 *Coming Soon!*\n\nOrder tracking is currently being set up and will be available shortly.\n\nIn the meantime, type *human* to speak with a team member for an update on your order, or reply with *4* for our store contact details.\n\n${NAVIGATION_HINT}\n\n– ${BUSINESS_NAME} Team`;
+    return `🔍 *Track Your Order*\n\n🚧 *Coming Soon!*\n\nOrder tracking is currently being set up and will be available shortly.\n\nFor now, reply with *4* for our store contact details.\n\n${NAVIGATION_HINT}\n\n– ${BUSINESS_NAME} Team`;
 }
 
 function buildProductListText() {
@@ -1147,7 +1158,6 @@ function buildMenuText() {
     reply += '\nReply with a *number* to browse that category.';
     reply += '\nWhen a product list is shown, reply with the *number* of the item you want.';
     reply += '\nType *cart* to review your basket';
-    reply += '\nType *human* if you would like a team member to take over.';
     reply += `\n${NAVIGATION_HINT}`;
     return reply;
 }
@@ -1163,8 +1173,7 @@ function buildHelpText() {
         '- Send *cart* to see your basket',
         '- Send *checkout* to review your total and confirm the order',
         '- Send *back* to return to the previous step',
-        '- Send *home* or *main menu* to restart from the main menu',
-        '- Send *human* any time if you want a person to take over'
+        '- Send *home* or *main menu* to restart from the main menu'
     ].join('\n');
 }
 
@@ -1208,6 +1217,7 @@ function buildOrderSummary(cart, options = {}) {
         if (item.dimensions) summary += ` (${item.dimensions})`;
         if (item.qty > 1) summary += ` ×${item.qty}`;
         summary += '\n';
+        if (item.unitPriceDescription) summary += `   Unit price: ${item.unitPriceDescription}\n`;
         summary += `   Material: ${formatCurrency(item.total - (item.designFee || 0) - (item.polesCost || 0) - (item.installationFee || 0))}\n`;
         if (item.wholesaleDiscount > 0) summary += `   🏷️ Wholesale Discount (${settings.wholesaleDiscount}%): -${formatCurrency(item.wholesaleDiscount)}\n`;
         if (item.designFee > 0) summary += `   Design/Layout Fee: ${formatCurrency(item.designFee)}\n`;
@@ -1222,7 +1232,7 @@ function buildOrderSummary(cart, options = {}) {
     summary += `*Grand Total: ${formatCurrency(grandTotal)}*`;
 
     if (includeDisclaimer) {
-        summary += `\n\nReply *confirm* to accept the artwork disclaimer and submit your order, or send *human* if you want a person to assist.\n\n*Please review and accept before production:*\n${ARTWORK_DISCLAIMER}`;
+        summary += `\n\n*REPLY CONFIRM* to accept the artwork disclaimer and submit your order.\n\n*Please review and accept before production:*\n${ARTWORK_DISCLAIMER}`;
     }
 
     return { summary, grandTotal };
@@ -1407,10 +1417,6 @@ function isBackCommand(text) {
 
 function isHomeCommand(text) {
     return /^(home|main menu|main)$/i.test(text || '');
-}
-
-function isHumanRequest(text) {
-    return HUMAN_KEYWORDS.some((keyword) => text.includes(keyword));
 }
 
 function isFrustratedMessage(text) {
@@ -1871,25 +1877,6 @@ async function startBot() {
                             botSentMessageIds.delete(key.id);
                             continue;
                         }
-                        // Note: the pre-connection timestamp guard above already filtered out
-                        // any replayed fromMe messages that predate socketConnectedAt.
-                        const fromMeText = extractMessageText(messageContent)?.toLowerCase().trim() || '';
-                        // Typing "resume" in a customer chat resumes the bot for that chat
-                        if (fromMeText === 'resume') {
-                            if (handoverSessions[jid]?.active) {
-                                delete handoverSessions[jid];
-                                await sock.sendMessage(jid, {
-                                    text: '✅ A team member has finished helping. I can assist you again now — send *menu* or *cart* when you are ready.'
-                                }).catch(() => {});
-                            }
-                        } else if (!handoverSessions[jid]?.active) {
-                            // Any other outbound message from admin's phone auto-pauses the bot
-                            handoverSessions[jid] = {
-                                active: true,
-                                reason: 'Admin replied from mobile',
-                                requestedAt: new Date().toISOString()
-                            };
-                        }
                         continue; // do not process fromMe messages through normal bot logic
                     }
 
@@ -1971,43 +1958,17 @@ async function startBot() {
                     }
 
                     if (jid === ADMIN_JID && text === 'handovers') {
-                        const activeHandovers = Object.entries(handoverSessions).filter(([, session]) => session.active);
-                        if (activeHandovers.length === 0) {
-                            await sock.sendMessage(jid, { text: 'There are no active human handovers right now.' });
-                            continue;
-                        }
-
-                        const handoverList = activeHandovers
-                            .map(([customerJid, session], index) => `${index + 1}. ${customerJid} — ${session.reason}`)
-                            .join('\n');
-                        await sock.sendMessage(jid, { text: `*Active handovers:*\n\n${handoverList}` });
+                        await sock.sendMessage(jid, { text: 'Human handover is no longer available.' });
                         continue;
                     }
 
                     if (jid === ADMIN_JID && text.startsWith('resume ')) {
-                        const targetJid = toWhatsAppJid(rawText.slice('resume '.length));
-                        if (!targetJid) {
-                            await sock.sendMessage(jid, { text: 'Use *resume 27123456789* or *resume 27123456789@s.whatsapp.net*.' });
-                            continue;
-                        }
-                        if (!handoverSessions[targetJid]?.active) {
-                            await sock.sendMessage(jid, { text: `No active handover found for *${targetJid}*.` });
-                            continue;
-                        }
-
-                        delete handoverSessions[targetJid];
-                        await sock.sendMessage(targetJid, { text: '✅ A team member has finished helping. I can assist you again now — send *menu* or *cart* when you are ready.' });
-                        await sock.sendMessage(jid, { text: `Bot control restored for *${targetJid}*.` });
+                        await sock.sendMessage(jid, { text: 'Human handover is no longer available.' });
                         continue;
                     }
 
-                    if (handoverSessions[jid]?.active && jid !== ADMIN_JID) {
-                        // Bot is fully deactivated — only admin resume (mobile "resume", "resume <jid>", or dashboard button) can reactivate.
-                        continue;
-                    }
-
-                    if (jid !== ADMIN_JID && rawText && (isHumanRequest(text) || isFrustratedMessage(text))) {
-                        await requestHumanHandoverConfirmation(sock, jid, rawText);
+                    if (jid !== ADMIN_JID && rawText && isFrustratedMessage(text)) {
+                        await sock.sendMessage(jid, { text: `I'm sorry this has been frustrating. Please reply with *4* for our store contact details and we'll help you directly.\n\n${NAVIGATION_HINT}` });
                         continue;
                     }
 
@@ -2317,7 +2278,7 @@ async function startBot() {
                     const dims = parseDimensions(rawText);
                     if (!dims) {
                         await sock.sendMessage(jid, {
-                            text: `❓ I could not read a valid size from that message.\nPlease send *length x height in mm* (for example _${DIMENSION_FORMAT_EXAMPLE}_).\n\nType *cancel* to go back or *human* if you want a person to help.`
+                            text: `❓ I could not read a valid size from that message.\nPlease send *length x height in mm* (for example _${DIMENSION_FORMAT_EXAMPLE}_).\n\nType *cancel* to go back.`
                         });
                         continue;
                     }
@@ -2355,6 +2316,7 @@ async function startBot() {
                     const pendingItem = {
                         name: product.Name,
                         sku: product.SKU || product.ID,
+                        unitPriceDescription: getProductUnitPriceDescription(product),
                         dimensions: `${dims.length}×${dims.height}mm`,
                         dimLength: dims.length,
                         dimHeight: dims.height,
@@ -2753,6 +2715,7 @@ async function startBot() {
                         const item = {
                             name: product.Name,
                             sku: product.SKU || product.ID,
+                            unitPriceDescription: getProductUnitPriceDescription(product),
                             sqmPrice: discountedMaterial,
                             designFee,
                             polesCost: 0,
@@ -2822,7 +2785,7 @@ async function startBot() {
                     }
 
                         await sock.sendMessage(jid, {
-                        text: 'Please reply *confirm* to accept the artwork disclaimer and submit your order, or send *human* if you want a person to assist.'
+                        text: 'Please reply *CONFIRM* to accept the artwork disclaimer and submit your order.'
                     });
                         continue;
                     }
@@ -2887,6 +2850,7 @@ async function startBot() {
                             const item = {
                                 name: product.Name,
                                 sku: product.SKU || product.ID,
+                                unitPriceDescription: getProductUnitPriceDescription(product),
                                 sqmPrice: discountedMaterial,
                                 designFee,
                                 polesCost: 0,
@@ -3013,7 +2977,7 @@ async function startBot() {
                     if (product.PriceType === 'sqm') {
                         userStates[jid] = { step: 'awaiting_dimensions', pendingProduct: product };
                             await sock.sendMessage(jid, {
-                            text: `📐 *${product.Name}*\nPlease send the *length x height in mm*\nfor example _${DIMENSION_FORMAT_EXAMPLE}_.\n\nType *cancel* to go back or *human* for a team member.`
+                            text: `📐 *${product.Name}*\nPlease send the *length x height in mm*\nfor example _${DIMENSION_FORMAT_EXAMPLE}_.\n\nType *cancel* to go back.`
                         });
                             continue;
                     }
@@ -3033,6 +2997,7 @@ async function startBot() {
                         const item = {
                             name: product.Name,
                             sku: product.SKU || product.ID,
+                            unitPriceDescription: getProductUnitPriceDescription(product),
                             sqmPrice: discountedMaterial,
                             designFee,
                             polesCost: 0,
@@ -3132,7 +3097,7 @@ async function startBot() {
 
                 // ── Intent: complaint / issue ───────────────────────────────────────
                     if (/\bcomplaint\b|\bproblem with\b|\bissue with\b|\bwrong order\b|\bdamaged\b|\bfaulty\b|\bnot happy\b|\bdisappointed\b/.test(text) && jid !== ADMIN_JID) {
-                        await requestHumanHandoverConfirmation(sock, jid, rawText);
+                        await sock.sendMessage(jid, { text: `I'm sorry to hear that. Please reply with *4* for our store contact details so we can assist you directly.\n\n${NAVIGATION_HINT}` });
                         continue;
                     }
 
@@ -3224,11 +3189,13 @@ async function startBot() {
                     recordLearningLead(jid, rawText);
                     if (fallbackCounts[jid] >= 3 && jid !== ADMIN_JID) {
                         fallbackCounts[jid] = 0;
-                        await requestHumanHandoverConfirmation(sock, jid, `Bot could not understand repeated messages (last: "${rawText}")`);
+                        await sock.sendMessage(jid, {
+                            text: `I still couldn't understand that clearly. Please reply *menu* to continue, or *4* for our store contact details.\n\n${NAVIGATION_HINT}`
+                        });
                         continue;
                     }
                     await sock.sendMessage(jid, {
-                        text: `I didn't quite catch that 😅. You can ask me about *quotes*, adding items to your *cart*, or *order status*. Or type *human* to speak with a real person.\n\n– ${BUSINESS_NAME}`
+                        text: `I didn't quite catch that 😅. You can ask me about *quotes*, adding items to your *cart*, or *order status*.\n\n– ${BUSINESS_NAME}`
                     });
                 } catch (error) {
                     console.error('❌ Error while handling message:', {
@@ -3238,7 +3205,7 @@ async function startBot() {
                     if (jid && jid !== ADMIN_JID) {
                         try {
                             await sock.sendMessage(jid, {
-                                text: `⚠️ Sorry, I hit a problem while processing that message. Please send *menu* to try again, or send *human* if you want a ${BUSINESS_NAME} team member.`
+                                text: `⚠️ Sorry, I hit a problem while processing that message. Please send *menu* to try again, or reply *4* for our store contact details.`
                             });
                         } catch (sendError) {
                             console.error('❌ Failed to send fallback error message:', sendError);
@@ -3414,7 +3381,7 @@ app.post('/webhook/invoice-ninja', (req, res, next) => {
                 if (idx >= 0) { orders[idx].status = 'expired'; saveJsonFile(ORDERS_FILE, orders); }
 
                 await activeSock.sendMessage(jid, {
-                    text: `⚠️ Your quote *${order.invoiceNinjaQuoteNumber}* has expired. Please type *checkout* to generate a new one, or send *human* to speak with a team member.`
+                    text: `⚠️ Your quote *${order.invoiceNinjaQuoteNumber}* has expired. Please type *checkout* to generate a new one, or reply *4* for our store contact details.`
                 });
             }
         } catch (err) {
@@ -3685,7 +3652,7 @@ app.post('/webhook/payfast', express.urlencoded({ extended: false }), (req, res)
                         ? `\n\nYou can try again here: ${botOrigin}/pay/${orderId}`
                         : '';
                     await waSock.sendMessage(jid, {
-                        text: `⚠️ Your payment for order *${orderId}* could not be processed.${retryMsg}\n\nIf you need help, type *human* to speak with a team member.\n\n– ${BUSINESS_NAME} Team`
+                        text: `⚠️ Your payment for order *${orderId}* could not be processed.${retryMsg}\n\nIf you need help, reply *4* for our store contact details.\n\n– ${BUSINESS_NAME} Team`
                     });
                     await waSock.sendMessage(ADMIN_JID, {
                         text: `⚠️ *PayFast payment failed*\nCustomer: ${jid}\nOrder: ${orderId}`
@@ -3960,7 +3927,7 @@ app.get('/admin/api/conversations/:jid', adminRouteLimiter, adminAuthMiddleware,
     });
 });
 
-// POST /admin/api/send — send a message to a customer (triggers human handover automatically)
+// POST /admin/api/send — send a message to a customer
 app.post('/admin/api/send', adminRouteLimiter, adminAuthMiddleware, express.json(), async (req, res) => {
     const { jid, message } = req.body || {};
     if (!jid || typeof message !== 'string' || !message.trim()) {
@@ -3970,20 +3937,6 @@ app.post('/admin/api/send', adminRouteLimiter, adminAuthMiddleware, express.json
         return res.status(503).json({ error: 'WhatsApp is not connected' });
     }
     try {
-        // Silently activate handover without sending a customer notification — prevents double-message
-        if (!handoverSessions[jid]?.active) {
-            handoverSessions[jid] = {
-                active: true,
-                reason: 'Admin sent a message via the dashboard',
-                requestedAt: new Date().toISOString()
-            };
-            // Notify ADMIN_JID only (not the customer) so the admin is aware
-            if (ADMIN_JID) {
-                await activeSock.sendMessage(ADMIN_JID, {
-                    text: `🤝 Human handover activated for ${jid} (you replied via the dashboard).`
-                }).catch(() => {});
-            }
-        }
         await activeSock.sendMessage(jid, { text: message.trim() });
         // Log the admin message as a 'bot' entry (sent on behalf of the business)
         logChatEntry(jid, 'bot', `[Admin] ${message.trim()}`);
@@ -4457,14 +4410,6 @@ app.post('/admin/api/send-file', adminRouteLimiter, adminAuthMiddleware, adminFi
         return res.status(503).json({ error: 'WhatsApp is not connected' });
     }
     try {
-        // Silently activate handover if not already active
-        if (!handoverSessions[jid]?.active) {
-            handoverSessions[jid] = {
-                active: true,
-                reason: 'Admin sent a file via the dashboard',
-                requestedAt: new Date().toISOString()
-            };
-        }
         const mime = req.file.mimetype || 'application/octet-stream';
         const isImage = mime.startsWith('image/');
         if (isImage) {
@@ -4629,7 +4574,6 @@ app.get('/admin', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
     .dot-paid { background: #27ae60; }
     .dot-quoted { background: #2980b9; }
     .dot-in_progress { background: #f39c12; }
-    .dot-handover { background: #e74c3c; }
     .dot-idle { background: #aaa; }
     .conv-list { overflow-y: auto; flex: 1; }
     .conv-item { padding: 10px 14px; cursor: pointer; border-bottom: 1px solid #f0f2f5; display: flex; align-items: flex-start; gap: 10px; }
@@ -4650,7 +4594,6 @@ app.get('/admin', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
     .badge-paid { background: #d5f5e3; color: #1a7a47; }
     .badge-quoted { background: #d6eaf8; color: #1b5e8f; }
     .badge-in_progress { background: #fef9e7; color: #8a6200; }
-    .badge-handover { background: #fde8e8; color: #a93226; }
     .badge-idle { background: #f0f0f0; color: #666; }
 
     /* ── Chat area ── */
@@ -4742,7 +4685,6 @@ app.get('/admin', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
     <button class="tab-btn" data-tab="orders" onclick="switchTab('orders')">📋 Orders</button>
     <button class="tab-btn" data-tab="products" onclick="switchTab('products')">📦 Products</button>
     <button class="tab-btn" data-tab="leads" onclick="switchTab('leads')">💡 Leads</button>
-    <button class="tab-btn" data-tab="handovers" onclick="switchTab('handovers')">🤝 Handovers</button>
     <button class="tab-btn" data-tab="settings" onclick="switchTab('settings')">⚙️ Settings</button>
     <button class="tab-btn" data-tab="qr" onclick="switchTab('qr')">📱 QR</button>
   </div>
@@ -4773,7 +4715,6 @@ app.get('/admin', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
           <span><span class="dot dot-paid"></span>Paid</span>
           <span><span class="dot dot-quoted"></span>Quoted</span>
           <span><span class="dot dot-in_progress"></span>In Progress</span>
-          <span><span class="dot dot-handover"></span>Handover</span>
           <span><span class="dot dot-idle"></span>Idle</span>
         </div>
         <div class="conv-list" id="convList"><p style="padding:16px;color:#aaa;font-size:.82rem">Loading…</p></div>
@@ -4822,10 +4763,6 @@ app.get('/admin', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
     <div class="full-panel" id="leadsPanel"><p style="color:#aaa">Loading leads…</p></div>
   </div>
 
-  <!-- HANDOVERS TAB -->
-  <div id="panel-handovers" class="panel" style="flex-direction:column">
-    <div class="full-panel" id="handoversPanel"><p style="color:#aaa">Loading handovers…</p></div>
-  </div>
 
   <!-- CONTACTS TAB -->
   <div id="panel-contacts" class="panel" style="flex-direction:column">
@@ -4945,7 +4882,6 @@ function switchTab(name) {
   currentTab = name;
   if (name === 'orders') loadOrders();
   else if (name === 'leads') loadLeads();
-  else if (name === 'handovers') loadHandovers();
   else if (name === 'contacts') loadContacts();
   else if (name === 'settings') loadSettings();
   else if (name === 'qr') refreshQrPanel();
@@ -5196,7 +5132,7 @@ function buildChatFrame(data) {
       <button class="attach-btn" onclick="document.getElementById('fileInput').click()" title="Send file">📎</button>
       <input type="file" id="fileInput" style="display:none" onchange="sendFile(this)">
       <textarea class="chat-input" id="msgInput" rows="1"
-        placeholder="Type a message… (sending will activate human takeover)"
+        placeholder="Type a message…"
         oninput="autoResize(this)" onkeydown="handleKey(event)"></textarea>
       <button class="send-btn" onclick="sendMsg()" title="Send">➤</button>
     </div>
@@ -5223,8 +5159,7 @@ function updateChatContent(data) {
         <div class="chat-name">\${esc(label)}<button class="btn-rename" onclick="renameChatContact()" title="Rename contact">✏️</button> <span class="badge badge-\${data.status}">\${statusLabel(data.status)}</span></div>
         <div class="chat-sub">\${esc(sub)}</div>
       </div>
-      \${isHandover ? '<button class="btn-resume" onclick="resumeBot()">✅ Resume Bot</button>' : ''}
-      <div style="position:relative">
+      \      <div style="position:relative">
         <button class="btn-move" onclick="toggleMoveMenu(this)">📂 Move To ▾</button>
         <div class="move-menu" id="moveMenu">
           <button onclick="moveConv('paid')">✅ Paid Tab</button>
@@ -5239,8 +5174,7 @@ function updateChatContent(data) {
   // ── Handover notice ────────────────────────────────────────────────────────
   const noticeEl = document.getElementById('takeoverNotice');
   if (noticeEl) {
-    noticeEl.style.display = isHandover ? 'block' : 'none';
-    if (isHandover) noticeEl.innerHTML = '🤝 <strong>Human handover active.</strong> Messages you type go directly to the customer. Click <em>Resume Bot</em> to hand back.';
+    noticeEl.style.display = 'none';
   }
 
   // ── Messages ───────────────────────────────────────────────────────────────

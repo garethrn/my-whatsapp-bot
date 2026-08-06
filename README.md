@@ -11,7 +11,6 @@ This guide is for a beginner. Follow it step by step to run the bot on your comp
 - Adds design, pole, and installation costs where needed
 - Shows a cart and checkout summary
 - Shows the **Artwork Disclaimer** before final confirmation
-- Lets a customer ask for a **human takeover** at any time
 - Stores unanswered messages so the bot can be improved over time
 - Lets the admin teach the bot new replies with a simple learning command
 - Lets the admin send a new `products.csv` file to the bot on WhatsApp
@@ -165,7 +164,6 @@ Send these messages to the connected WhatsApp bot:
 - `cart` — shows the basket
 - `checkout` — shows the order summary and artwork disclaimer
 - `confirm` — confirms checkout and sends the order to admin review
-- `human` — requests a real person to take over
 - `help` — shows guidance
 - `clear` — empties the cart
 - `cancel` — exits the current step
@@ -176,12 +174,11 @@ Expected result:
 
 - the bot responds with clear next steps
 - `back` returns the customer to the previous prompt without losing the earlier flow state
-- customers who entered **Express Service** can use `back` from the welcome menu to return to the initial **Sales Consultant / Express Service** choice
+- customers who entered **Express Service** can use `back` from the welcome menu to return to the previous step
 - `home` or `main menu` restarts from the welcome menu
 - square-metre products ask for **length × height in mm** and return a price
 - design, poles, and installation are added correctly when applicable
 - `checkout` shows totals and the artwork disclaimer
-- `human` pauses the bot so a person can take over
 
 ## Step 9: Test the admin controls
 
@@ -190,14 +187,11 @@ From the admin WhatsApp account, test these commands:
 - send a new CSV file — updates products
 - `teach do you install signs => Yes, we can quote for installation where available.`
 - `leads` — shows the most common unanswered customer messages
-- `handovers` — shows customers currently waiting for a human
-- `resume 27123456789@s.whatsapp.net` — gives that customer back to the bot
 
 Expected result:
 
 - taught replies should be reused when customers ask similar questions
 - unanswered customer wording should appear in `leads`
-- customers who ask for `human` should stop getting automated replies until resumed
 
 ## Step 10: Edit your products
 
@@ -513,8 +507,7 @@ Check:
 - `/health` returns JSON with the current WhatsApp status
 - the bot responds to `menu`
 - the bot can price an sqm item
-- the bot can hand over to a human
-- the admin receives checkout and handover alerts
+- the admin receives checkout alerts
 
 ## How to keep customers from getting frustrated
 
@@ -523,7 +516,7 @@ To reduce frustration:
 - keep `storage/products.csv` clean and accurate
 - teach common questions with the `teach` command
 - review `leads` regularly and add new taught replies
-- use `human` handover quickly when a customer sounds upset or needs a special answer
+- route urgent customers to your store contact details quickly when special support is needed
 - test sqm pricing flows after every catalog change
 - keep Railway storage persistent so sessions and learned replies do not disappear
 
@@ -588,7 +581,6 @@ Check that:
 - `you@example.com` (email prompt when Invoice Ninja is configured)
 - `skip` (skip the email prompt)
 - `confirm`
-- `human`
 - `help`
 - `clear`
 - `cancel`
@@ -598,8 +590,6 @@ Check that:
 - send CSV file
 - `teach question => response`
 - `leads`
-- `handovers`
-- `resume customer_jid`
 
 ## Admin Dashboard
 
@@ -625,26 +615,13 @@ Sessions are stored server-side in memory with an 8-hour expiry.
 | 📋 **Orders** | Every order submitted by customers. Shows status, quote link, and downloadable design/artwork files. |
 | 📦 **Products** | Download or upload the products CSV without leaving the dashboard. |
 | 💡 **Leads** | Unanswered customer messages, sorted by frequency. Use these to teach the bot new replies. |
-| 🤝 **Handovers** | All currently active human handover sessions. Resume bot control for any customer from here. |
 | 📱 **QR** | WhatsApp connection status. Links to the QR code page when the bot is not yet linked. |
 
-### Taking over from the bot
-
-Type a message in the chat text box and press **Enter** or click **Send**. The first message you send will:
-
-1. Pause the bot for that customer.
-2. Notify the customer that a team member has taken over.
-3. Send your message to the customer.
-
-All subsequent messages you type also go to the customer while the handover is active.
 
 ### Organising chats
 
 Use the **Move To** menu in the chat header to move a conversation into **Paid**, **Idle**, or **Closed**. Only chats still in the main working queue appear in the **Active** sub-tab.
 
-### Handing back to the bot
-
-Click the **Resume Bot** button in the chat header (visible during a handover), or use the **Handovers** tab. The bot will take over again and notify the customer.
 
 ### Downloading design and artwork files
 
