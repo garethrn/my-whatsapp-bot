@@ -714,16 +714,11 @@ function calcFixedQuoteForQty(product, qty) {
     return packs * packPrice;
 }
 
-/**
- * Returns the design fee scaled by the number of sets/packs for pack-based products.
- * For single-unit products the fee is returned flat (charged once per order).
- */
 function calcScaledDesignFee(product, qty) {
     const baseFee = toNumber(product.DesignFee);
     if (baseFee === 0) return 0;
-    const profile = getProductQuantityProfile(product);
-    if (profile.mode === 'sets') return baseFee * qty;
-    return baseFee;
+    const safeQty = Number.isFinite(qty) && qty > 0 ? qty : 1;
+    return baseFee * safeQty;
 }
 
 /**
@@ -2667,6 +2662,7 @@ async function startBot() {
                         const labelProfile = getProductQuantityProfile(product);
                         const wholesaleMultiplier = getWholesaleMultiplier(jid, product);
                         const minPrice = toNumber(product.MinPrice);
+                        item.designFee = calcScaledDesignFee(product, qty);
                         if (labelProfile.mode === 'labels' && item.dimLength && item.dimHeight) {
                             // For labels: total area = L × B × Qty; apply min price to the full order
                             const totalSqm = (item.dimLength / MM_PER_METER) * (item.dimHeight / MM_PER_METER) * qty;
