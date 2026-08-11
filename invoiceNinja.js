@@ -146,6 +146,15 @@ function cartToLineItems(cart) {
 
         const noteParts = [label];
 
+        // Category hierarchy
+        const catParts = [
+            item.category,
+            item.subcategory,
+            item.subSubcategory,
+            item.subSubSubcategory
+        ].filter((v) => v && String(v).trim());
+        if (catParts.length > 0) noteParts.push(`Category: ${catParts.map((v) => String(v).trim()).join(' > ')}`);
+
         if (item.unitsPerProduct && String(item.unitsPerProduct).trim()) noteParts.push(`Units per product: ${String(item.unitsPerProduct).trim()}`);
         if (item.artworkReceived) noteParts.push('Artwork uploaded by customer');
         if (item.designNotes) noteParts.push(`Design requirements: ${item.designNotes}`);
