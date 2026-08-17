@@ -721,15 +721,40 @@ function calcScaledDesignFee(product, qty) {
     return baseFee * safeQty;
 }
 
+function appendItemArtwork(item, artworkFilename, fileRef) {
+    if (!item || !artworkFilename) return;
+    if (!Array.isArray(item.artworkFiles)) item.artworkFiles = [];
+    item.artworkFiles.push(artworkFilename);
+    if (!item.artworkFile) item.artworkFile = artworkFilename; // backward compatibility
+    if (fileRef) {
+        if (!Array.isArray(item.fileRefs)) item.fileRefs = [];
+        item.fileRefs.push(fileRef);
+        if (!item.fileRef) item.fileRef = fileRef; // backward compatibility
+    }
+}
+
+function getArtworkCount(item) {
+    if (!item) return 0;
+    if (Array.isArray(item.artworkFiles) && item.artworkFiles.length > 0) return item.artworkFiles.length;
+    return item.artworkFile ? 1 : 0;
+}
+
 /**
  * Returns the wholesale price multiplier for a given customer and product.
- * Products in the 'Supplies' or 'Large Format Printing' categories are excluded from the discount.
+ * Products in the Supplies, Large Format Printing, or Specials categories are excluded from discount.
  */
 function getWholesaleMultiplier(jid, product) {
     if (!wholesaleActiveSessions[jid]) return 1;
     const cat = (product?.Category || '').trim().toLowerCase();
+    const hierarchy = [
+        product?.Category,
+        product?.Subcategory,
+        product?.SubSubcategory,
+        product?.SubSubSubcategory
+    ].map((v) => String(v || '').trim().toLowerCase()).join(' ');
     if (cat === 'supplies') return 1;
     if (cat.startsWith('large format printing')) return 1;
+    if (/\bspecials?\b/.test(hierarchy)) return 1;
     const pct = settings.wholesaleDiscount; // e.g. 25 → 0.75 multiplier
     return 1 - pct / 100;
 }
@@ -821,7 +846,7 @@ async function promptForDesignChoiceIfNeeded(sock, jid, product, item) {
         // Always ask for artwork from wholesale clients
         userStates[jid] = { step: 'awaiting_artwork_upload', pendingItem: item, pendingProduct: product };
         await sock.sendMessage(jid, {
-            text: `📎 As a wholesale client, please upload your artwork now.\n\nSend the image or file directly in this chat.\n\n0. Back`
+            text: `📎 As a wholesale client, please upload your artwork now.\n\nYou can send multiple files/images. When done, reply *done*.\n\n0. Back`
         });
         return true;
     }
@@ -849,7 +874,7 @@ async function promptForWholesaleArtworkIfNeeded(sock, jid, product, item) {
     if (item.artworkReceived) return false;
     userStates[jid] = { step: 'awaiting_artwork_upload', pendingItem: item, pendingProduct: product };
     await sock.sendMessage(jid, {
-        text: `📎 As a wholesale client, please upload your artwork now.\n\nSend the image or file directly in this chat.\n\n0. Back`
+        text: `📎 As a wholesale client, please upload your artwork now.\n\nYou can send multiple files/images. When done, reply *done*.\n\n0. Back`
     });
     return true;
 }
@@ -1218,7 +1243,10 @@ function buildOrderSummary(cart, options = {}) {
         if (item.designFee > 0) summary += `   Design/Layout Fee: ${formatCurrency(item.designFee)}\n`;
         if (item.polesCost > 0) summary += `   Poles (×${item.poles}): ${formatCurrency(item.polesCost)}\n`;
         if (item.installationFee > 0) summary += `   Installation: ${formatCurrency(item.installationFee)}\n`;
-        if (item.artworkReceived) summary += `   📎 Artwork: Uploaded by customer\n`;
+        const artworkCount = getArtworkCount(item);
+        if (artworkCount > 0) summary += artworkCount > 1
+            ? `   📎 Artwork/References: ${artworkCount} files uploaded by customer\n`
+            : '   📎 Artwork/References: Uploaded by customer\n';
         if (item.designNotes) summary += `   ✏️ Design requirements: ${item.designNotes}\n`;
         summary += `   *Item Total: ${formatCurrency(item.total)}*\n\n`;
         grandTotal += item.total;
@@ -2446,7 +2474,7 @@ async function startBot() {
                                 // Ask customer to upload their artwork
                                 userStates[jid] = { step: 'awaiting_artwork_upload', pendingItem: item, pendingProduct: product };
                                 await sock.sendMessage(jid, {
-                                    text: `📎 Please upload your artwork now.\n\nSend the image or file directly in this chat.\n\nIf you don't have your artwork ready yet, reply *no artwork* and a design fee will apply.\n0. Back`
+                                    text: `📎 Please upload your artwork now.\n\nYou can send multiple files/images. When done, reply *done*.\n\nIf you don't have your artwork ready yet, reply *no artwork* and a design fee will apply.\n0. Back`
                                 });
                             }
                             continue;
@@ -2459,7 +2487,7 @@ async function startBot() {
                             }
                             userStates[jid] = { step: 'awaiting_design_info', pendingItem: item, pendingProduct: product };
                             await sock.sendMessage(jid, {
-                                text: `✏️ Please provide all the information needed for your design.\n\nInclude as much detail as possible:\n• Business or personal name\n• Text/copy to appear on the design\n• Preferred colors or branding\n• Any logos or reference images (you can upload them here)\n• Any other specific requirements\n\nType your requirements below:`
+                                text: `✏️ Please provide all the information needed for your design.\n\nInclude as much detail as possible:\n• Business or personal name\n• Text/copy to appear on the design\n• Preferred colors or branding\n• Any logos or reference images (you can upload them here)\n• Any other specific requirements\n\nYou can send multiple reference files/images before your text.\n\nType your requirements below:`
                             });
                             continue;
                         }
@@ -2487,8 +2515,7 @@ async function startBot() {
                                 const artworkPath = path.join(STORAGE_DIR, artworkFilename);
                                 fs.writeFileSync(artworkPath, buffer); // always write locally as backup
                                 const fileRef = await driveStorage.uploadFile(buffer, artworkFilename, mimeType, getPhoneFromJid(jid));
-                                item.artworkFile = artworkFilename;
-                                item.fileRef = fileRef;
+                                appendItemArtwork(item, artworkFilename, fileRef);
                                 // Log the artwork to the admin chat view so it can be previewed/downloaded
                                 const artLabel = messageContent.imageMessage ? '📷 Artwork image' : `📎 Artwork file: ${messageContent.documentMessage?.fileName || artworkFilename}`;
                                 logChatEntry(jid, 'user', artLabel, fileRef);
@@ -2496,16 +2523,33 @@ async function startBot() {
                                 console.error('⚠️ Failed to save customer artwork:', artErr.message);
                             }
                             item.artworkReceived = true;
+                            await sock.sendMessage(jid, {
+                                text: `✅ Artwork received for *${item.name}*.\nYou can upload more files/images, or reply *done* to continue.\n\n0. Back`
+                            });
+                            continue;
+                        }
+
+                        if (text === 'done' && item.artworkReceived) {
                             if (!userCarts[jid]) userCarts[jid] = [];
                             userCarts[jid].push(item);
                             userStates[jid] = { step: 'awaiting_post_cart_add' };
+                            const artworkCount = getArtworkCount(item);
+                            const artworkLine = artworkCount > 1
+                                ? `📎 ${artworkCount} artwork files received.\n`
+                                : '📎 Artwork received.\n';
                             await sock.sendMessage(jid, {
-                                text: `✅ Artwork received! Added *${item.name}* to your cart.\n*Total: ${formatCurrency(item.total)}*\n\n⚠️ *Design Disclaimer:* ${OWN_DESIGN_DISCLAIMER}\n\n${buildPostCartText(userCarts[jid].length)}`
+                                text: `✅ ${artworkLine}Added *${item.name}* to your cart.\n*Total: ${formatCurrency(item.total)}*\n\n⚠️ *Design Disclaimer:* ${OWN_DESIGN_DISCLAIMER}\n\n${buildPostCartText(userCarts[jid].length)}`
                             });
                             continue;
                         }
 
                         if (noArtwork) {
+                            if (wholesaleActiveSessions[jid]) {
+                                await sock.sendMessage(jid, {
+                                    text: '⚠️ As a wholesale client, please upload your artwork file/image to continue.\n\nYou can send multiple files/images, then reply *done*.\n0. Back'
+                                });
+                                continue;
+                            }
                             // Customer said they had their own design but doesn't have the artwork ready.
                             // Restore the design fee (scaled for pack products) — they will need design work done.
                             const product = userState.pendingProduct;
@@ -2525,7 +2569,9 @@ async function startBot() {
                         }
 
                         await sock.sendMessage(jid, {
-                            text: `📎 Please upload your artwork file or image.\n\nIf you don't have your artwork ready, reply *no artwork* and we'll collect your design requirements instead.\n0. Back`
+                            text: item.artworkReceived
+                                ? '📎 You can upload more artwork files/images, or reply *done* to continue.\n\n0. Back'
+                                : `📎 Please upload your artwork file or image.\n\nYou can send multiple files/images and reply *done* when finished.\n\nIf you don't have your artwork ready, reply *no artwork* and we'll collect your design requirements instead.\n0. Back`
                         });
                         continue;
                     }
@@ -2547,8 +2593,7 @@ async function startBot() {
                                 const refPath = path.join(STORAGE_DIR, refFilename);
                                 fs.writeFileSync(refPath, buffer);
                                 const fileRef = await driveStorage.uploadFile(buffer, refFilename, mimeType, getPhoneFromJid(jid));
-                                item.artworkFile = refFilename;
-                                item.fileRef = fileRef;
+                                appendItemArtwork(item, refFilename, fileRef);
                                 // Log the reference image so admin can preview/download it
                                 const refLabel = messageContent.imageMessage ? '📷 Design reference image' : `📎 Design reference file: ${messageContent.documentMessage?.fileName || refFilename}`;
                                 logChatEntry(jid, 'user', refLabel, fileRef);
@@ -2557,21 +2602,21 @@ async function startBot() {
                             }
                             userStates[jid] = { step: 'awaiting_design_info', pendingItem: item, pendingProduct: userState.pendingProduct };
                             await sock.sendMessage(jid, {
-                                text: `📎 Reference image received! Now please type the text and other details for your design:\n• Business or personal name\n• Text/copy to appear on the design\n• Preferred colors or branding\n• Any other specific requirements`
+                                text: `📎 Reference image received! You can send more reference files/images, then type your design details when ready:\n• Business or personal name\n• Text/copy to appear on the design\n• Preferred colors or branding\n• Any other specific requirements`
                             });
                             continue;
                         }
 
                         if (!rawText) {
                             await sock.sendMessage(jid, {
-                                text: `✏️ Please type your design requirements (business name, text, colors, etc.).\n\nYou can also attach a reference image along with your message.`
+                                text: `✏️ Please type your design requirements (business name, text, colors, etc.).\n\nYou can also attach reference files/images, and you may send multiple before your text.`
                             });
                             continue;
                         }
 
                         // Save text requirements; also save a reference image if attached
                         item.designNotes = rawText;
-                        if (hasMedia && !item.artworkFile) {
+                        if (hasMedia) {
                             try {
                                 const buffer = await downloadMediaMessage(msg, 'buffer', {});
                                 const mimeType = messageContent.imageMessage ? 'image/jpeg' : (messageContent.documentMessage?.mimetype || 'application/octet-stream');
@@ -2582,8 +2627,7 @@ async function startBot() {
                                 const refPath = path.join(STORAGE_DIR, refFilename);
                                 fs.writeFileSync(refPath, buffer);
                                 const fileRef = await driveStorage.uploadFile(buffer, refFilename, mimeType, getPhoneFromJid(jid));
-                                item.artworkFile = refFilename;
-                                item.fileRef = fileRef;
+                                appendItemArtwork(item, refFilename, fileRef);
                                 // Log the reference image so admin can preview/download it
                                 const refLabel = messageContent.imageMessage ? '📷 Design reference image' : `📎 Design reference file: ${messageContent.documentMessage?.fileName || refFilename}`;
                                 logChatEntry(jid, 'user', refLabel, fileRef);
@@ -5506,14 +5550,22 @@ async function loadOrders() {
           : (o.invoiceNinjaQuoteNumber ? esc(o.invoiceNinjaQuoteNumber) : '—');
         const files = (o.cart || []).flatMap(item => {
           const links = [];
-          if (item.fileRef) {
-            if (item.fileRef.provider === 'googledrive' && item.fileRef.driveFileId) {
-              links.push(\`<a href="/admin/api/drive/\${esc(item.fileRef.driveFileId)}/download" target="_blank">📎 Drive</a>\`);
-            } else if (item.fileRef.localFilename) {
-              links.push(\`<a href="/admin/api/files/\${esc(item.fileRef.localFilename)}" target="_blank">📎 Local</a>\`);
+          const fileRefs = Array.isArray(item.fileRefs)
+            ? item.fileRefs
+            : (item.fileRef ? [item.fileRef] : []);
+          fileRefs.forEach((ref, idx) => {
+            if (ref.provider === 'googledrive' && ref.driveFileId) {
+              links.push(\`<a href="/admin/api/drive/\${esc(ref.driveFileId)}/download" target="_blank">📎 File \${idx + 1}</a>\`);
+            } else if (ref.localFilename) {
+              links.push(\`<a href="/admin/api/files/\${esc(ref.localFilename)}" target="_blank">📎 File \${idx + 1}</a>\`);
             }
-          }
-          if (item.artworkFile) links.push(\`<a href="/admin/api/files/\${esc(item.artworkFile)}" target="_blank">🖼 Artwork</a>\`);
+          });
+          const artworkFiles = Array.isArray(item.artworkFiles)
+            ? item.artworkFiles
+            : (item.artworkFile ? [item.artworkFile] : []);
+          artworkFiles.forEach((filename, idx) => {
+            links.push(\`<a href="/admin/api/files/\${esc(filename)}" target="_blank">🖼 Artwork \${idx + 1}</a>\`);
+          });
           return links;
         }).join(' ');
         return \`<tr>
