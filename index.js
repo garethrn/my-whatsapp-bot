@@ -717,6 +717,8 @@ function calcFixedQuoteForQty(product, qty) {
 function calcScaledDesignFee(product, qty) {
     const baseFee = toNumber(product.DesignFee);
     if (baseFee === 0) return 0;
+    const profile = getProductQuantityProfile(product);
+    if (profile.mode === 'labels') return baseFee;
     const safeQty = Number.isFinite(qty) && qty > 0 ? qty : 1;
     return baseFee * safeQty;
 }
