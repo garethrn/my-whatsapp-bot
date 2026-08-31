@@ -711,7 +711,8 @@ function calcFixedQuoteForQty(product, qty) {
     const unitsPerPack = parseInt(product.UnitsPerProduct, 10) || 1;
     const packPrice = toNumber(product.FixedPrice);
     const packs = Math.ceil(qty / unitsPerPack);
-    return packs * packPrice;
+    const materialTotal = packs * packPrice;
+    return applyMinimumMaterialPrice(product, materialTotal);
 }
 
 function calcScaledDesignFee(product, qty) {
@@ -721,6 +722,12 @@ function calcScaledDesignFee(product, qty) {
     if (profile.mode === 'labels') return baseFee;
     const safeQty = Number.isFinite(qty) && qty > 0 ? qty : 1;
     return baseFee * safeQty;
+}
+
+function applyMinimumMaterialPrice(product, materialTotal) {
+    const minPrice = toNumber(product?.MinPrice);
+    if (minPrice <= 0) return materialTotal;
+    return materialTotal < minPrice ? minPrice : materialTotal;
 }
 
 function appendItemArtwork(item, artworkFilename, fileRef) {
@@ -2715,15 +2722,14 @@ async function startBot() {
                         item.qty = qty;
                         const labelProfile = getProductQuantityProfile(product);
                         const wholesaleMultiplier = getWholesaleMultiplier(jid, product);
-                        const minPrice = toNumber(product.MinPrice);
                         item.designFee = calcScaledDesignFee(product, qty);
                         if (labelProfile.mode === 'labels' && item.dimLength && item.dimHeight) {
                             // For labels: total area = L × B × Qty; apply min price to the full order
                             const totalSqm = (item.dimLength / MM_PER_METER) * (item.dimHeight / MM_PER_METER) * qty;
                             const rawCalcPrice = totalSqm * toNumber(product.PricePerSqm);
-                            const rawSqmPrice = Math.max(rawCalcPrice, minPrice);
+                            const rawSqmPrice = applyMinimumMaterialPrice(product, rawCalcPrice);
                             // Do NOT apply wholesale discount when the minimum price floor is in effect
-                            const atMinimum = rawCalcPrice < minPrice;
+                            const atMinimum = rawSqmPrice > rawCalcPrice;
                             const discountedSqmPrice = atMinimum ? rawSqmPrice : rawSqmPrice * wholesaleMultiplier;
                             if (wholesaleMultiplier < 1 && !atMinimum) item.wholesaleDiscount = rawSqmPrice - discountedSqmPrice;
                             item.sqmPrice = discountedSqmPrice;
@@ -2731,8 +2737,8 @@ async function startBot() {
                         } else {
                             // Multiply actual material first, then apply minimum floor to the full order.
                             const rawMaterial = item.sqmPrice * qty;
-                            const flooredMaterial = Math.max(rawMaterial, minPrice);
-                            const atMinimum = rawMaterial < minPrice;
+                            const flooredMaterial = applyMinimumMaterialPrice(product, rawMaterial);
+                            const atMinimum = flooredMaterial > rawMaterial;
                             const discountedMaterial = atMinimum ? flooredMaterial : flooredMaterial * wholesaleMultiplier;
                             if (wholesaleMultiplier < 1 && !atMinimum) item.wholesaleDiscount = flooredMaterial - discountedMaterial;
                             item.sqmPrice = discountedMaterial;
