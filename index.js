@@ -853,7 +853,15 @@ async function promptForDesignChoiceIfNeeded(sock, jid, product, item) {
         return true;
     }
 
-    if (designFee <= 0) return false;
+    if (designFee <= 0) {
+        const requiresArtwork = (product.RequiresArtwork || 'yes').toLowerCase();
+        if (requiresArtwork === 'no') return false;
+        userStates[jid] = { step: 'awaiting_artwork_upload', pendingItem: item, pendingProduct: product };
+        await sock.sendMessage(jid, {
+            text: `📎 Please upload your artwork now.\n\nYou can send multiple files/images. When done, reply *done*.\n\nIf you don't have your artwork ready yet, reply *no artwork* and we'll collect your design requirements.\n0. Back`
+        });
+        return true;
+    }
 
     if (item.designFee === 0) {
         item.designFee = designFee;
