@@ -764,6 +764,7 @@ function getWholesaleMultiplier(jid, product) {
     if (cat === 'supplies') return 1;
     if (cat.startsWith('large format printing')) return 1;
     if (/\bspecials?\b/.test(hierarchy)) return 1;
+    if (/\bcanvas\b/.test(hierarchy)) return 1;
     const pct = settings.wholesaleDiscount; // e.g. 25 → 0.75 multiplier
     return 1 - pct / 100;
 }
@@ -2101,7 +2102,7 @@ async function startBot() {
                         if (text === '5' || /wholesale/.test(text)) {
                             if (wholesaleActiveSessions[jid]) {
                                 await sock.sendMessage(jid, {
-                                    text: `✅ *Wholesale mode is already active* for your session.\n\nYou receive a *${settings.wholesaleDiscount}% discount* on all products (excluding Supplies and Large Format Printing).\n\n${NAVIGATION_HINT}`
+                                    text: `✅ *Wholesale mode is already active* for your session.\n\nYou receive a *${settings.wholesaleDiscount}% discount* on all products (excluding Supplies, Large Format Printing, Specials, and Canvas).\n\n${NAVIGATION_HINT}`
                                 });
                                 continue;
                             }
@@ -2134,7 +2135,7 @@ async function startBot() {
                             wholesaleActiveSessions[jid] = true;
                             userStates[jid] = { step: 'awaiting_main_menu' };
                             await sock.sendMessage(jid, {
-                                text: `✅ *Wholesale pricing activated!*\n\nYou now have a *${settings.wholesaleDiscount}% discount* on all products (excluding Supplies and Large Format Printing) for this session.\n\n${buildWelcomeText(jid)}`
+                                text: `✅ *Wholesale pricing activated!*\n\nYou now have a *${settings.wholesaleDiscount}% discount* on all products (excluding Supplies, Large Format Printing, Specials, and Canvas) for this session.\n\n${buildWelcomeText(jid)}`
                             });
                             continue;
                         }
@@ -3168,6 +3169,12 @@ async function startBot() {
                 // ── Intent: delivery / shipping ─────────────────────────────────────
                     if (/\bdeliver(y|ies|ed|ing)?\b|\bshipping\b|\bcourier\b|\bcollect(ion)?\b|\bhow (do|can) (i|we) get\b/.test(text)) {
                         await sock.sendMessage(jid, { text: `🚚 *Delivery*\n\nWe deliver across South Africa! Delivery cost depends on your location.\n\nTell me your suburb and I'll give you a rate, or you're welcome to *collect* from us. 😊\n\n– ${BUSINESS_NAME} Team` });
+                        continue;
+                    }
+
+                // ── Intent: store contact details shortcut ───────────────────────────
+                    if (userState.step === 'idle' && (text === '4' || /contact|address|store|location|phone|telephone/.test(text))) {
+                        await sock.sendMessage(jid, { text: buildContactDetailsText() });
                         continue;
                     }
 
