@@ -375,6 +375,37 @@ If quotes are not being created, check the following:
 
 Check Railway logs (`node index.js` output) for lines beginning with `❌ Invoice Ninja` for the full error details.
 
+#### Zoho Books (optional, setup mode for future integration)
+
+You can now choose **Zoho Books** as your billing provider so your bot is ready for a future Zoho quote/invoice sync update.
+
+> Current status: Zoho Books is available as a selectable integration mode and configuration option.  
+> Automatic quote + invoice sync is not yet active in this mode, so orders are still captured and flagged for manual follow-up.
+
+##### Step-by-step (simple) — switch from Invoice Ninja to Zoho Books
+
+1. Open your Railway project → **Variables**.
+2. Add this variable:
+   - `BILLING_PROVIDER=zoho_books`
+3. Add your Zoho variables:
+   - `ZOHO_BOOKS_ORG_ID` = your Zoho organization ID  
+   - `ZOHO_BOOKS_ACCESS_TOKEN` = your Zoho API OAuth access token
+4. Disable Invoice Ninja by removing (or leaving blank) these variables:
+   - `INVOICE_NINJA_URL`
+   - `INVOICE_NINJA_API_TOKEN`
+   - `INVOICE_NINJA_TAX_NAME`
+   - `INVOICE_NINJA_TAX_RATE`
+   - `INVOICE_NINJA_WEBHOOK_SECRET`
+5. Redeploy / restart the app.
+
+That’s it — the bot will now run in Zoho Books mode (setup mode), and you can keep using WhatsApp checkout while Zoho auto-sync is prepared in a future release.
+
+##### Switch back to Invoice Ninja
+
+1. Set `BILLING_PROVIDER=invoice_ninja` (or delete `BILLING_PROVIDER`, since Invoice Ninja is the default).
+2. Restore your Invoice Ninja variables (`INVOICE_NINJA_URL` and `INVOICE_NINJA_API_TOKEN` at minimum).
+3. Redeploy / restart.
+
 #### PayFast online payments (optional)
 
 PayFast is a South African payment gateway. When configured, the bot sends the customer a payment link immediately after they confirm their order.

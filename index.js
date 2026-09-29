@@ -10,6 +10,7 @@ const {
 const { Boom } = require('@hapi/boom');
 const crypto = require('crypto');
 const invoiceNinja = require('./invoiceNinja');
+const zohoBooks = require('./zohoBooks');
 const payfast = require('./payfast');
 const fs = require('fs');
 const csv = require('csv-parser');
@@ -79,11 +80,34 @@ const DEFAULT_RESTART_DELAY_MS = 5000;
 const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 10000;
 // Optional webhook secret for verifying Invoice Ninja webhook requests
 const INVOICE_NINJA_WEBHOOK_SECRET = process.env.INVOICE_NINJA_WEBHOOK_SECRET || '';
+const BILLING_PROVIDER_KEY = (process.env.BILLING_PROVIDER || 'invoice_ninja').trim().toLowerCase();
 // Mirror of invoiceNinja.js IN_TAX_RATE used to conditionally display VAT in quote messages
 const DISPLAY_TAX_RATE = (() => {
     const r = parseFloat(process.env.INVOICE_NINJA_TAX_RATE || '0');
     return Number.isFinite(r) ? r : 0;
 })();
+
+function getActiveBillingProvider() {
+    if (BILLING_PROVIDER_KEY === 'zoho_books') {
+        return {
+            key: 'zoho_books',
+            label: 'Zoho Books',
+            isConfigured: zohoBooks.isConfigured(),
+            supportsAutomatedQuotes: false
+        };
+    }
+    return {
+        key: 'invoice_ninja',
+        label: 'Invoice Ninja',
+        isConfigured: invoiceNinja.isConfigured(),
+        supportsAutomatedQuotes: true
+    };
+}
+
+function shouldCollectCheckoutEmail() {
+    const billingProvider = getActiveBillingProvider();
+    return billingProvider.isConfigured || payfast.isConfigured();
+}
 
 const whatsappRuntime = {
     phase: 'booting',
@@ -1670,36 +1694,49 @@ async function submitOrderForReview(sock, jid, cart) {
         invoiceNinjaQuoteNumber: null,
         invoiceNinjaInvitationKey: null,
         invoiceNinjaLink: null,
+        billingProvider: BILLING_PROVIDER_KEY,
+        billingQuoteId: null,
+        billingQuoteNumber: null,
+        billingQuoteLink: null,
         status: 'pending',
         error: null
     };
 
     let quoteInfo = null;
-    if (invoiceNinja.isConfigured()) {
-        try {
-            const client = await invoiceNinja.findOrCreateClient({
-                name: customerName,
-                phone: customerPhone,
-                email: customerEmail
-            });
-            const quote = await invoiceNinja.createQuote(client.id, cart, ARTWORK_DISCLAIMER);
-            const invitationKey = invoiceNinja.getQuoteInvitationKey(quote);
-            const portalUrl = invoiceNinja.getQuoteUrl(quote);
-            // Build a bot-side PDF proxy URL so the customer can view the PDF
-            // directly without needing to log in to the Invoice Ninja client portal.
-            const botOrigin = getBotPublicOrigin();
-            const pdfUrl = (botOrigin && invitationKey) ? `${botOrigin}/quote-pdf/${invitationKey}` : null;
-            const quoteUrl = pdfUrl || portalUrl;
-            quoteInfo = { id: quote.id, number: quote.number, url: quoteUrl, portalUrl };
-            orderRecord.invoiceNinjaQuoteId = quote.id;
-            orderRecord.invoiceNinjaQuoteNumber = quote.number;
-            orderRecord.invoiceNinjaInvitationKey = invitationKey;
-            orderRecord.invoiceNinjaLink = quoteUrl;
-            orderRecord.status = 'quoted';
-        } catch (inError) {
-            console.error('❌ Invoice Ninja quote creation failed:', inError.message);
+    const billingProvider = getActiveBillingProvider();
+    if (billingProvider.isConfigured) {
+        if (billingProvider.key === 'invoice_ninja' && billingProvider.supportsAutomatedQuotes) {
+            try {
+                const client = await invoiceNinja.findOrCreateClient({
+                    name: customerName,
+                    phone: customerPhone,
+                    email: customerEmail
+                });
+                const quote = await invoiceNinja.createQuote(client.id, cart, ARTWORK_DISCLAIMER);
+                const invitationKey = invoiceNinja.getQuoteInvitationKey(quote);
+                const portalUrl = invoiceNinja.getQuoteUrl(quote);
+                // Build a bot-side PDF proxy URL so the customer can view the PDF
+                // directly without needing to log in to the Invoice Ninja client portal.
+                const botOrigin = getBotPublicOrigin();
+                const pdfUrl = (botOrigin && invitationKey) ? `${botOrigin}/quote-pdf/${invitationKey}` : null;
+                const quoteUrl = pdfUrl || portalUrl;
+                quoteInfo = { id: quote.id, number: quote.number, url: quoteUrl, portalUrl };
+                orderRecord.invoiceNinjaQuoteId = quote.id;
+                orderRecord.invoiceNinjaQuoteNumber = quote.number;
+                orderRecord.invoiceNinjaInvitationKey = invitationKey;
+                orderRecord.invoiceNinjaLink = quoteUrl;
+                orderRecord.billingQuoteId = quote.id;
+                orderRecord.billingQuoteNumber = quote.number;
+                orderRecord.billingQuoteLink = quoteUrl;
+                orderRecord.status = 'quoted';
+            } catch (inError) {
+                console.error('❌ Invoice Ninja quote creation failed:', inError.message);
+                orderRecord.status = 'pending';
+                orderRecord.error = inError.message;
+            }
+        } else {
             orderRecord.status = 'pending';
-            orderRecord.error = inError.message;
+            orderRecord.error = `${billingProvider.label} integration is enabled in setup mode. Automatic quote and invoice sync will be added in a future update.`;
         }
     }
     saveOrder(orderRecord);
@@ -1717,7 +1754,7 @@ async function submitOrderForReview(sock, jid, cart) {
 
     const quoteNote = quoteInfo
         ? `\n\n📄 Quote *${quoteInfo.number}* created: ${quoteInfo.url || '(no link)'}`
-        : (invoiceNinja.isConfigured() ? `\n\n⚠️ Quote creation failed – manual follow-up needed.\nError: ${orderRecord.error || 'unknown'}` : '');
+        : (billingProvider.isConfigured ? `\n\n⚠️ ${billingProvider.label} quote creation not completed automatically – manual follow-up needed.\nError: ${orderRecord.error || 'unknown'}` : '');
     const paymentNote = paymentLink ? `\n\n💳 Payment link: ${paymentLink}` : '';
 
     const adminMessage = [
@@ -2688,7 +2725,7 @@ async function startBot() {
                                 await sock.sendMessage(jid, { text: '🛒 Your cart is empty.' });
                                 continue;
                             }
-                            if ((invoiceNinja.isConfigured() || payfast.isConfigured()) && !userEmails[jid]) {
+                            if (shouldCollectCheckoutEmail() && !userEmails[jid]) {
                                 userStates[jid] = { step: 'awaiting_customer_email', pendingCart: cart };
                                 await sock.sendMessage(jid, {
                                     text: `📧 Please send your *email address* so we can send your quote to you.`
@@ -3132,9 +3169,9 @@ async function startBot() {
                             continue;
                         }
 
-                        // When Invoice Ninja or PayFast is configured, collect an email address first
+                        // When the active billing provider or PayFast is configured, collect an email address first
                         // (skip if we already have one for this session)
-                        if ((invoiceNinja.isConfigured() || payfast.isConfigured()) && !userEmails[jid]) {
+                        if (shouldCollectCheckoutEmail() && !userEmails[jid]) {
                             userStates[jid] = { step: 'awaiting_customer_email', pendingCart: cart };
                             await sock.sendMessage(jid, {
                                 text: `📧 Please send your *email address* so we can send your quote to you.`
