@@ -3743,6 +3743,31 @@ app.post('/webhook/payfast', express.urlencoded({ extended: false }), (req, res)
                 if (idx >= 0) { orders[idx].status = 'paid'; saveJsonFile(ORDERS_FILE, orders); }
                 console.log(`✅ PayFast payment COMPLETE for order ${orderId}`);
 
+                // Project 3 is now the accounting/production backend. Once PayFast
+                // confirms payment, convert the existing quote into an invoice there
+                // and record the payment. Invoice creation remains the only trigger
+                // that creates the production tracking job.
+                const project3QuoteNumber = order.billingQuoteNumber || order.invoiceNinjaQuoteNumber || '';
+                if (project3QuoteNumber && invoiceNinja.isConfigured()) {
+                    try {
+                        const syncResult = await invoiceNinja.apiRequest(
+                            'POST',
+                            '/quotes/' + encodeURIComponent(project3QuoteNumber) + '/mark-paid',
+                            {
+                                amount,
+                                reference: req.body.pf_payment_id || orderId
+                            }
+                        );
+                        if (idx >= 0 && syncResult?.data?.invoice_number) {
+                            orders[idx].project3InvoiceNumber = String(syncResult.data.invoice_number);
+                            saveJsonFile(ORDERS_FILE, orders);
+                        }
+                        console.log(`✅ Project 3 synced paid quote ${project3QuoteNumber}`);
+                    } catch (syncError) {
+                        console.error(`❌ Project 3 payment sync failed for quote ${project3QuoteNumber}:`, syncError.message);
+                    }
+                }
+
                 // Notify any open admin dashboard browser sessions in real time
                 broadcastAdminEvent('payment_complete', {
                     orderId,
