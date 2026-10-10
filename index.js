@@ -9,7 +9,6 @@ const { Boom } = require('@hapi/boom');
 const fs = require('fs');
 const csv = require('csv-parser');
 const pino = require('pino');
-const nodemailer = require('nodemailer');
 const qrcodeImg = require('qrcode');
 const path = require('path');
 const express = require('express'); // Added for Health Check
@@ -23,19 +22,12 @@ const BROWSER_FINGERPRINTS = [
 
 // --- YOUR CONFIGURATION ---
 const ADMIN_JID = process.env.ADMIN_JID;
-const EMAIL_USER = process.env.EMAIL_USER;
-const EMAIL_PASS = process.env.EMAIL_PASS;
 
 const STORAGE_DIR = path.join(__dirname, 'storage');
 const CSV_FILE = path.join(STORAGE_DIR, 'products.csv');
 const AUTH_DIR = path.join(STORAGE_DIR, 'auth_info');
 
 if (!fs.existsSync(STORAGE_DIR)) fs.mkdirSync(STORAGE_DIR, { recursive: true });
-
-const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: { user: EMAIL_USER, pass: EMAIL_PASS }
-});
 
 let products = [];
 let userCarts = {};
@@ -91,23 +83,6 @@ async function startBot(fingerprintIndex = 0) {
                 console.error('❌ Failed to generate QR buffer:', qrErr);
             }
 
-            if (EMAIL_USER && EMAIL_PASS) {
-                const qrPath = path.join(STORAGE_DIR, 'bot-qr.png');
-                try {
-                    await qrcodeImg.toFile(qrPath, qr);
-                    transporter.sendMail({
-                        from: EMAIL_USER, to: EMAIL_USER,
-                        subject: 'WhatsApp Bot Login',
-                        text: 'Scan the attached QR code, or visit /qr on the bot server.',
-                        attachments: [{ filename: 'bot-qr.png', path: qrPath }]
-                    }, (mailErr) => {
-                        if (mailErr) console.error('❌ Failed to send QR email:', mailErr.message);
-                        else console.log('📧 QR code emailed successfully.');
-                    });
-                } catch (mailFileErr) {
-                    console.error('❌ Failed to write QR file for email:', mailFileErr);
-                }
-            }
         }
         
         if (connection === 'close') {
