@@ -156,6 +156,7 @@ function cartToLineItems(cart) {
         if (catParts.length > 0) noteParts.push(`Category: ${catParts.map((v) => String(v).trim()).join(' > ')}`);
 
         if (item.unitsPerProduct && String(item.unitsPerProduct).trim()) noteParts.push(`Units per product: ${String(item.unitsPerProduct).trim()}`);
+        if (item.size && String(item.size).trim()) noteParts.push(`Size: ${String(item.size).trim()}`);
         const artworkCount = Array.isArray(item.artworkFiles) && item.artworkFiles.length > 0
             ? item.artworkFiles.length
             : (item.artworkFile ? 1 : 0);
