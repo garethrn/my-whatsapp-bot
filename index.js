@@ -2050,6 +2050,40 @@ async function startBot() {
                         continue;
                     }
 
+                    // ── Short, human-like answers to straightforward customer questions ──
+                    // Run before the menu/state machine so direct questions receive direct answers.
+                    // Never claim an order has been confirmed or paid.
+                    if (jid !== ADMIN_JID && rawText) {
+                        const asksPayment = /\b(cash|card|swipe|eft|payment|pay)\b/i.test(rawText)
+                            && /\b(can|do|does|accept|take|pay|payment|cash|card|swipe)\b/i.test(rawText);
+                        const asksSaturday = /\b(saturday|sat)\b/i.test(rawText)
+                            && /\b(collect|collection|open|hours|come|pick\s*up)\b/i.test(rawText);
+                        const asksCollection = /\b(can\s+i\s+collect|can\s+we\s+collect|collection\s+on\s+saturday)\b/i.test(rawText);
+                        const asksBrushcutter = /\b(brush\s*cutter|brushcutter)\b/i.test(rawText)
+                            && /\b(looking|price|cost|much|have|sell|available|want)\b/i.test(rawText);
+                        if (asksPayment || asksSaturday || asksCollection || asksBrushcutter) {
+                            const isFirstGreeting = !serviceSelectedUsers.has(jid);
+                            if (isFirstGreeting) {
+                                serviceSelectedUsers.add(jid);
+                                saveJsonFile(SERVICE_SELECTED_FILE, [...serviceSelectedUsers]);
+                            }
+                            const replies = [];
+                            if (asksBrushcutter) replies.push('Our 52cc brushcutter is R1,299.');
+                            if (asksSaturday) {
+                                // Hours can be corrected without code changes via Railway environment.
+                                const satHours = (process.env.SATURDAY_OPENING_HOURS || '8am to 1pm').trim();
+                                replies.push('Yes, you can collect on Saturday from ' + satHours + '.');
+                            } else if (asksCollection) {
+                                replies.push('Yes, collection is available during our opening hours.');
+                            }
+                            if (asksPayment) replies.push('We accept cash and card payments, including card swipes.');
+                            const greeting = isFirstGreeting ? 'Good day! 😊 ' : '';
+                            await sock.sendMessage(jid, { text: greeting + replies.join(' ') });
+                            fallbackCounts[jid] = 0;
+                            continue;
+                        }
+                    }
+
                     // ── First-time welcome ─────────────────────────────────────────────────
                     // Go straight to the bot welcome menu for new customers.
                     const userState2 = userStates[jid] || { step: 'idle' };
