@@ -835,19 +835,29 @@ function getPricedQuantity(product, requestedQty) {
     return requestedQty;
 }
 
-function getProductUnitPriceDescription(product) {
+function formatDisplayPrice(baseAmount, jid, product) {
+    const base = toNumber(baseAmount);
+    const multiplier = getWholesaleMultiplier(jid, product);
+    if (multiplier < 1) {
+        const discounted = base * multiplier;
+        return `${formatCurrency(discounted)} (wholesale, was ${formatCurrency(base)})`;
+    }
+    return formatCurrency(base);
+}
+
+function getProductUnitPriceDescription(product, jid) {
     if (!product) return 'Price on request';
     if (String(product.PriceType || '').trim().toLowerCase() === 'sqm') {
-        return `${formatCurrency(product.PricePerSqm)} per m²`;
+        return `${formatDisplayPrice(product.PricePerSqm, jid, product)} per m²`;
     }
     const unitsPerPack = parseInt(product.UnitsPerProduct, 10) || 1;
-    const packPrice = formatCurrency(product.FixedPrice);
+    const packPrice = formatDisplayPrice(product.FixedPrice, jid, product);
     return unitsPerPack > 1
         ? `${packPrice} per ${unitsPerPack.toLocaleString()} units`
         : `${packPrice} per unit`;
 }
 
-function buildQuoteText(product, requestedQty, total) {
+function buildQuoteText(product, requestedQty, total, jid) {
     const profile = getProductQuantityProfile(product);
     let quoteText = '';
 
@@ -862,7 +872,9 @@ function buildQuoteText(product, requestedQty, total) {
         quoteText = `💰 *Quote for ${requestedQty.toLocaleString()} ${pluralizeWord(profile.baseUnit, requestedQty)} of ${product.Name}*\n`;
     }
 
-    quoteText += `Price: *${getProductUnitPriceDescription(product)}*\n`;
+    const wholesaleApplied = getWholesaleMultiplier(jid, product) < 1;
+    quoteText += `Price: *${getProductUnitPriceDescription(product, jid)}*\n`;
+    if (wholesaleApplied) quoteText += '✅ Wholesale pricing applied.\n';
     quoteText += `Estimated total: *${formatCurrency(total)}*${DISPLAY_TAX_RATE > 0 ? ' (incl. VAT)' : ''} (excl. delivery)\n\n1. Yes – add to cart\n2. No – cancel\n0. Back\n\n– ${BUSINESS_NAME} Team`;
     return quoteText;
 }
@@ -978,12 +990,18 @@ function buildProductListText() {
     return lines.join('\n');
 }
 
-function buildProductOptionSummary(product, index) {
+function buildProductOptionSummary(product, index, jid) {
     const hasSqmPrice = toNumber(product.PricePerSqm) > 0;
     const hasFixedPrice = toNumber(product.FixedPrice) > 0;
+    const wholesaleMultiplier = getWholesaleMultiplier(jid, product);
+    const wholesaleApplied = wholesaleMultiplier < 1;
+    const effectiveSqm = wholesaleApplied ? toNumber(product.PricePerSqm) * wholesaleMultiplier : toNumber(product.PricePerSqm);
+    const effectiveFixed = wholesaleApplied ? toNumber(product.FixedPrice) * wholesaleMultiplier : toNumber(product.FixedPrice);
     const pricing = product.PriceType === 'sqm' && hasSqmPrice
-        ? `${formatCurrency(product.PricePerSqm)}/m²${toNumber(product.MinPrice) > 0 ? ` (min ${formatCurrency(product.MinPrice)})` : ''}`
-        : (hasFixedPrice ? formatCurrency(product.FixedPrice) : (hasSqmPrice ? `${formatCurrency(product.PricePerSqm)}/m²` : 'Price on request'));
+        ? `${formatCurrency(effectiveSqm)}/m²${toNumber(product.MinPrice) > 0 ? ` (min ${formatCurrency(product.MinPrice)})` : ''}${wholesaleApplied ? ' wholesale' : ''}`
+        : (hasFixedPrice
+            ? `${formatCurrency(effectiveFixed)}${wholesaleApplied ? ' wholesale' : ''}`
+            : (hasSqmPrice ? `${formatCurrency(effectiveSqm)}/m²${wholesaleApplied ? ' wholesale' : ''}` : 'Price on request'));
 
     const qualifier = [];
     if (product.Size && product.Size.trim()) qualifier.push(product.Size.trim());
@@ -994,9 +1012,9 @@ function buildProductOptionSummary(product, index) {
     return `${index + 1}. ${displayName} - ${pricing}`;
 }
 
-function buildProductMatchesText(matches, intro, outro) {
+function buildProductMatchesText(matches, intro, outro, jid) {
     const lines = [intro, ''];
-    matches.forEach((product, index) => lines.push(buildProductOptionSummary(product, index)));
+    matches.forEach((product, index) => lines.push(buildProductOptionSummary(product, index, jid)));
     lines.push('0. Back');
     if (outro) lines.push('', outro);
     return lines.join('\n');
@@ -1073,10 +1091,10 @@ function buildSubSubSubcategoryMenuText(subSubcategoryName, subSubSubcategories)
     return reply;
 }
 
-function buildSubcategoryProductListText(subcategoryName, sortedProducts) {
+function buildSubcategoryProductListText(subcategoryName, sortedProducts, jid) {
     let reply = `*${subcategoryName.trim()} Products:*\n\n`;
     sortedProducts.forEach((p, i) => {
-        reply += `${buildProductOptionSummary(p, i)}\n`;
+        reply += `${buildProductOptionSummary(p, i, jid)}\n`;
     });
     reply += '\n0. Back\n';
     reply += '\nReply with the *number* of the product you want and I’ll help you price it or add it to your cart.';
@@ -2253,7 +2271,7 @@ async function startBot() {
                                 return priceA - priceB;
                             });
                             userStates[jid] = { step: 'awaiting_quote_product_selection', pendingMatches: sorted };
-                            await sock.sendMessage(jid, { text: buildSubcategoryProductListText(selectedCat, sorted) });
+                            await sock.sendMessage(jid, { text: buildSubcategoryProductListText(selectedCat, sorted, jid) });
                             continue;
                         }
                         // Input doesn't match a category number or name — reset and fall through to normal processing
@@ -2290,7 +2308,7 @@ async function startBot() {
                                 return priceA - priceB;
                             });
                             userStates[jid] = { step: 'awaiting_quote_product_selection', pendingMatches: sorted };
-                            await sock.sendMessage(jid, { text: buildSubcategoryProductListText(selectedSub, sorted) });
+                            await sock.sendMessage(jid, { text: buildSubcategoryProductListText(selectedSub, sorted, jid) });
                             continue;
                         }
                         // Invalid input — re-show the subcategory menu
@@ -2327,7 +2345,7 @@ async function startBot() {
                                 return priceA - priceB;
                             });
                             userStates[jid] = { step: 'awaiting_quote_product_selection', pendingMatches: sorted };
-                            await sock.sendMessage(jid, { text: buildSubcategoryProductListText(selectedSubSub, sorted) });
+                            await sock.sendMessage(jid, { text: buildSubcategoryProductListText(selectedSubSub, sorted, jid) });
                             continue;
                         }
                         // Invalid input — re-show the sub-sub-category menu
@@ -2362,7 +2380,7 @@ async function startBot() {
                                 return priceA - priceB;
                             });
                             userStates[jid] = { step: 'awaiting_quote_product_selection', pendingMatches: sorted };
-                            await sock.sendMessage(jid, { text: buildSubcategoryProductListText(selectedSubSubSub, sorted) });
+                            await sock.sendMessage(jid, { text: buildSubcategoryProductListText(selectedSubSubSub, sorted, jid) });
                             continue;
                         }
                         // Invalid input — re-show the sub-sub-sub-category menu
@@ -2428,7 +2446,7 @@ async function startBot() {
                     const pendingItem = {
                         name: product.Name,
                         sku: product.SKU || product.ID,
-                        unitPriceDescription: getProductUnitPriceDescription(product),
+                        unitPriceDescription: getProductUnitPriceDescription(product, jid),
                         size: product.Size || '',
                         unitsPerProduct: product.UnitsPerProduct || '',
                         category: product.Category || '',
@@ -2849,7 +2867,7 @@ async function startBot() {
                         const item = {
                             name: product.Name,
                             sku: product.SKU || product.ID,
-                            unitPriceDescription: getProductUnitPriceDescription(product),
+                            unitPriceDescription: getProductUnitPriceDescription(product, jid),
                             size: product.Size || '',
                             unitsPerProduct: product.UnitsPerProduct || '',
                             category: product.Category || '',
@@ -2970,7 +2988,7 @@ async function startBot() {
                         }
                         const materialTotal = calcFixedQuoteForQty(product, getPricedQuantity(product, qty));
                         const discountedTotal = materialTotal * getWholesaleMultiplier(jid, product);
-                        const quoteText = buildQuoteText(product, qty, discountedTotal);
+                        const quoteText = buildQuoteText(product, qty, discountedTotal, jid);
                         userProductContext[jid] = product;
                         userStates[jid] = { step: 'awaiting_quote_confirm', pendingProduct: product, pendingQty: qty, pendingTotal: discountedTotal };
                         await sock.sendMessage(jid, { text: quoteText });
@@ -2990,7 +3008,7 @@ async function startBot() {
                             const item = {
                                 name: product.Name,
                                 sku: product.SKU || product.ID,
-                                unitPriceDescription: getProductUnitPriceDescription(product),
+                                unitPriceDescription: getProductUnitPriceDescription(product, jid),
                                 size: product.Size || '',
                                 unitsPerProduct: product.UnitsPerProduct || '',
                                 category: product.Category || '',
@@ -3053,7 +3071,7 @@ async function startBot() {
                             const materialTotal = calcFixedQuoteForQty(product, getPricedQuantity(product, qty));
                             const discountedTotal = materialTotal * getWholesaleMultiplier(jid, product);
                             userStates[jid] = { step: 'awaiting_quote_confirm', pendingProduct: product, pendingQty: qty, pendingTotal: discountedTotal };
-                            await sock.sendMessage(jid, { text: buildQuoteText(product, qty, discountedTotal) });
+                            await sock.sendMessage(jid, { text: buildQuoteText(product, qty, discountedTotal, jid) });
                             continue;
                         }
                         userStates[jid] = { step: 'awaiting_quote_quantity', pendingProduct: product };
@@ -3101,7 +3119,7 @@ async function startBot() {
                     });
 
                         userStates[jid] = { step: 'awaiting_quote_product_selection', pendingMatches: sorted };
-                        await sock.sendMessage(jid, { text: buildSubcategoryProductListText(catName, sorted) });
+                        await sock.sendMessage(jid, { text: buildSubcategoryProductListText(catName, sorted, jid) });
                         continue;
                     }
 
@@ -3128,7 +3146,7 @@ async function startBot() {
                             continue;
                     }
 
-                    const price = toNumber(product.FixedPrice);
+                    const priceText = formatDisplayPrice(product.FixedPrice, jid, product);
                     if (parts.length > 2) {
                         const qty = parseInt(parts[2], 10);
                         if (Number.isNaN(qty) || qty < 1) {
@@ -3143,7 +3161,7 @@ async function startBot() {
                         const item = {
                             name: product.Name,
                             sku: product.SKU || product.ID,
-                            unitPriceDescription: getProductUnitPriceDescription(product),
+                            unitPriceDescription: getProductUnitPriceDescription(product, jid),
                             size: product.Size || '',
                             unitsPerProduct: product.UnitsPerProduct || '',
                             category: product.Category || '',
@@ -3169,13 +3187,13 @@ async function startBot() {
                         userCarts[jid].push(item);
                         userStates[jid] = { step: 'awaiting_post_cart_add' };
                             await sock.sendMessage(jid, {
-                            text: `✅ Added ${qty.toLocaleString()} × *${product.Name}* @ ${formatCurrency(price)} each.\n\n${buildPostCartText(userCarts[jid].length)}`
+                            text: `✅ Added ${qty.toLocaleString()} × *${product.Name}* @ ${priceText} each.\n\n${buildPostCartText(userCarts[jid].length)}`
                         });
                             continue;
                     }
                     userStates[jid] = { step: 'awaiting_buy_quantity', pendingProduct: product };
                         await sock.sendMessage(jid, {
-                        text: `*${product.Name}*\nPrice: ${formatCurrency(price)} per unit\n\n${getQuantityPrompt(product)}\n\nType *cancel* to go back.`
+                        text: `*${product.Name}*\nPrice: ${priceText} per unit\n\n${getQuantityPrompt(product)}\n\nType *cancel* to go back.`
                     });
                         continue;
                     }
@@ -3268,8 +3286,9 @@ async function startBot() {
                             if (previousProduct) {
                                 if (qty) {
                                     const total = calcFixedQuoteForQty(previousProduct, getPricedQuantity(previousProduct, qty));
-                                    const quoteText = buildQuoteText(previousProduct, qty, total);
-                                    userStates[jid] = { step: 'awaiting_quote_confirm', pendingProduct: previousProduct, pendingQty: qty, pendingTotal: total };
+                                    const discountedTotal = total * getWholesaleMultiplier(jid, previousProduct);
+                                    const quoteText = buildQuoteText(previousProduct, qty, discountedTotal, jid);
+                                    userStates[jid] = { step: 'awaiting_quote_confirm', pendingProduct: previousProduct, pendingQty: qty, pendingTotal: discountedTotal };
                                     await sock.sendMessage(jid, { text: `Still on *${previousProduct.Name}*.\n\n${quoteText}` });
                                     continue;
                                 }
