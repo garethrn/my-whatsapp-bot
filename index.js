@@ -10,6 +10,7 @@ const {
 const { Boom } = require('@hapi/boom');
 const crypto = require('crypto');
 const invoiceNinja = require('./invoiceNinja');
+const project3 = require('./project3');
 const zohoBooks = require('./zohoBooks');
 const payfast = require('./payfast');
 const fs = require('fs');
@@ -88,6 +89,10 @@ const DISPLAY_TAX_RATE = (() => {
 })();
 
 function getActiveBillingProvider() {
+    if (BILLING_PROVIDER_KEY === 'project3') {
+        return {key:'project3',label:'Duzi Signs Project 3',
+            isConfigured:project3.isConfigured(),supportsAutomatedQuotes:true};
+    }
     if (BILLING_PROVIDER_KEY === 'zoho_books') {
         return {
             key: 'zoho_books',
@@ -1710,6 +1715,9 @@ async function submitOrderForReview(sock, jid, cart) {
         createdAt: new Date().toISOString(),
         invoiceNinjaQuoteId: null,
         invoiceNinjaQuoteNumber: null,
+        project3QuoteNumber: null,
+        project3InvoiceNumber: null,
+        project3SyncStatus: 'NOT_STARTED',
         invoiceNinjaInvitationKey: null,
         invoiceNinjaLink: null,
         billingProvider: BILLING_PROVIDER_KEY,
@@ -1723,7 +1731,25 @@ async function submitOrderForReview(sock, jid, cart) {
     let quoteInfo = null;
     const billingProvider = getActiveBillingProvider();
     if (billingProvider.isConfigured) {
-        if (billingProvider.key === 'invoice_ninja' && billingProvider.supportsAutomatedQuotes) {
+        if (billingProvider.key === 'project3') {
+            try {
+                const created = await project3.createQuote(orderRecord, ARTWORK_DISCLAIMER);
+                const q = created.quote || {};
+                if (!q.number || !q.quoteUrl) throw Error('Project 3 quote response missing number or PDF link.');
+                quoteInfo = {id:q.id,number:q.number,url:q.quoteUrl};
+                orderRecord.project3QuoteNumber = String(q.number);
+                orderRecord.billingQuoteId = q.id;
+                orderRecord.billingQuoteNumber = String(q.number);
+                orderRecord.billingQuoteLink = q.quoteUrl;
+                orderRecord.status = 'quoted';
+                orderRecord.project3SyncStatus = 'QUOTE_CREATED';
+                console.log('[PROJECT3 QUOTE] Linked WhatsApp 2 order '+orderId+' to quote '+q.number);
+            } catch (err) {
+                orderRecord.error = String(err.message || err).slice(0,280);
+                orderRecord.project3SyncStatus = 'QUOTE_FAILED';
+                console.error('[PROJECT3 QUOTE] Order '+orderId+' failed:', orderRecord.error);
+            }
+        } else if (billingProvider.key === 'invoice_ninja' && billingProvider.supportsAutomatedQuotes) {
             try {
                 const client = await invoiceNinja.findOrCreateClient({
                     name: customerName,
@@ -1756,12 +1782,15 @@ async function submitOrderForReview(sock, jid, cart) {
             orderRecord.status = 'pending';
             orderRecord.error = `${billingProvider.label} integration is enabled in setup mode. Automatic quote and invoice sync will be added in a future update.`;
         }
+    } else if (billingProvider.key === 'project3') {
+        orderRecord.project3SyncStatus = 'NOT_CONFIGURED';
+        orderRecord.error = 'Project 3 connection is not configured. Payment link withheld.';
     }
     saveOrder(orderRecord);
 
     // Build a PayFast payment link only when PayFast has a valid public HTTPS origin.
     let paymentLink = null;
-    if (payfast.isConfigured()) {
+    if (payfast.isConfigured() && (billingProvider.key !== 'project3' || !!orderRecord.project3QuoteNumber)) {
         const { origin: payfastOrigin, error: payfastOriginError } = getConfiguredPayfastOrigin();
         if (payfastOrigin && !payfastOriginError) {
             paymentLink = `${payfastOrigin}/pay/${orderId}`;
@@ -3800,29 +3829,34 @@ app.post('/webhook/payfast', express.urlencoded({ extended: false }), (req, res)
                 if (idx >= 0) { orders[idx].status = 'paid'; saveJsonFile(ORDERS_FILE, orders); }
                 console.log(`✅ PayFast payment COMPLETE for order ${orderId}`);
 
-                // Project 3 is now the accounting/production backend. Once PayFast
-                // confirms payment, convert the existing quote into an invoice there
-                // and record the payment. Invoice creation remains the only trigger
-                // that creates the production tracking job.
-                const project3QuoteNumber = order.billingQuoteNumber || order.invoiceNinjaQuoteNumber || '';
-                if (project3QuoteNumber && invoiceNinja.isConfigured()) {
+                // Only a NEW order quoted by the Project 3 connector may
+                // automatically become an invoice. Staff already entered old
+                // sales; never backfill or recreate historical invoices.
+                let project3InvoiceReady = false;
+                if (order.billingProvider === 'project3' && order.project3QuoteNumber) {
                     try {
-                        const syncResult = await invoiceNinja.apiRequest(
-                            'POST',
-                            '/quotes/' + encodeURIComponent(project3QuoteNumber) + '/mark-paid',
-                            {
-                                amount,
-                                reference: req.body.pf_payment_id || orderId
-                            }
-                        );
-                        if (idx >= 0 && syncResult?.data?.invoice_number) {
-                            orders[idx].project3InvoiceNumber = String(syncResult.data.invoice_number);
+                        const syncResult = await project3.markPaid(order, amount, req.body.pf_payment_id);
+                        if (!syncResult?.invoice?.number) throw Error('Project 3 returned no invoice number.');
+                        project3InvoiceReady = true;
+                        if (idx >= 0) {
+                            orders[idx].project3InvoiceNumber = String(syncResult.invoice.number);
+                            orders[idx].project3SyncStatus = 'INVOICED';
+                            orders[idx].project3SyncError = '';
                             saveJsonFile(ORDERS_FILE, orders);
                         }
-                        console.log(`✅ Project 3 synced paid quote ${project3QuoteNumber}`);
+                        console.log('[PROJECT3 PAID] Order '+orderId+' -> invoice '+syncResult.invoice.number+
+                            (syncResult.idempotent?' (previously processed)':''));
                     } catch (syncError) {
-                        console.error(`❌ Project 3 payment sync failed for quote ${project3QuoteNumber}:`, syncError.message);
+                        if (idx >= 0) {
+                            orders[idx].project3SyncStatus = 'NEEDS_REVIEW';
+                            orders[idx].project3SyncError = String(syncError.message || syncError).slice(0,300);
+                            saveJsonFile(ORDERS_FILE, orders);
+                        }
+                        console.error('[PROJECT3 PAID] Invoice NOT confirmed for order '+orderId+':',syncError.message);
                     }
+                } else {
+                    console.warn('[PROJECT3 PAID] Legacy order '+orderId+
+                        ' requires manual reconciliation. No historic invoice created.');
                 }
 
                 // Notify any open admin dashboard browser sessions in real time
@@ -3835,10 +3869,10 @@ app.post('/webhook/payfast', express.urlencoded({ extended: false }), (req, res)
 
                 if (waSock && waConnected) {
                     await waSock.sendMessage(jid, {
-                        text: `💳 Payment received for your order *${orderId}*. Thank you! 🎉\n\nWe will begin production shortly.\n\n– ${BUSINESS_NAME} Team`
+                        text: `💳 Payment received for your order *${orderId}*. Thank you! 🎉\n\n${project3InvoiceReady ? 'Your invoice has been created and production is being arranged.' : 'Our team will confirm your order details shortly.'}\n\n– ${BUSINESS_NAME} Team`
                     });
                     await waSock.sendMessage(ADMIN_JID, {
-                        text: `💳 *PayFast payment received*\nCustomer: ${jid}\nOrder: ${orderId}\nAmount: R${amount.toFixed(2)}`
+                        text: `💳 *PayFast payment received*\nCustomer: ${jid}\nOrder: ${orderId}\nAmount: R${amount.toFixed(2)}\\n${project3InvoiceReady ? '✅ Project 3 invoice: '+orders[idx]?.project3InvoiceNumber : '⚠️ Invoice not confirmed — manual review required'}`
                     });
                 } else {
                     console.warn(`[PayFast] Order ${orderId} marked paid but WhatsApp not connected — confirmation messages not sent`);
@@ -5856,6 +5890,10 @@ const server = app.listen(PORT, () => {
     const railwayUrl = getRailwayQrUrl();
     console.log(`📡 Health check server listening on port ${PORT}`);
     console.log(`🔗 QR code will be available at: ${railwayUrl || `http://localhost:${PORT}/qr`}`);
+    if (BILLING_PROVIDER_KEY === 'project3') {
+        project3.health().then(() => console.log('[PROJECT3 CONNECTION] HEALTH OK'))
+            .catch(err => console.error('[PROJECT3 CONNECTION] HEALTH FAILED:', err.message));
+    }
     startBot(); // Start the bot after the server is up
 });
 
