@@ -4091,11 +4091,12 @@ function getStaffChatSession(req){
 }
 function staffChatRouteAllowed(req){
     const p=req.path,m=req.method;
-    if(m==='GET'&&(p==='/admin'||p==='/admin/api/conversations'||p==='/admin/events'))return true;
+    if(m==='GET'&&(p==='/admin'||p==='/admin/api/conversations'))return true;
     if(m==='GET'&&/^\/admin\/api\/conversations\/[^/]+$/.test(p))return true;
     if(m==='GET'&&/^\/admin\/api\/(files|drive)\/[^/]+(?:\/download)?$/.test(p))return true;
     if(m==='POST'&&['/admin/api/send','/admin/api/send-file','/admin/api/resume','/admin/logout'].includes(p))return true;
     if(m==='POST'&&/^\/admin\/api\/conversations\/[^/]+\/move$/.test(p))return true;
+    if(m==='POST'&&/^\/admin\/api\/contacts\/[^/]+\/rename$/.test(p))return true;
     return false;
 }
 app.get('/staff/sso',adminRouteLimiter,(req,res)=>{
@@ -5936,6 +5937,7 @@ function showAdminToast(msg) {
 }
 
 (function connectAdminEvents() {
+  if (${req.wa2Staff?'true':'false'}) return; // no billing notifications to chat-only staff
   const es = new EventSource('/admin/events');
   es.onmessage = (e) => {
     try {
