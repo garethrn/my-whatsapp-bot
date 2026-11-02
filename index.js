@@ -4071,6 +4071,61 @@ const adminRouteLimiter = rateLimit({
     message: '{"error":"Too many requests. Please wait a minute."}'
 });
 
+// Signed, short-lived Project 3 staff handoff. Never grant an Admin session
+// or permit these staff cookies to read WhatsApp 2 settings, QR or orders.
+const staffChatSessions=new Map();
+const staffSsoUsed=new Map();
+const STAFF_CHAT_SESSION_MS=8*60*60*1000;
+function staffChatSsoSecret(){return String(process.env.WHATSAPP_CHAT_SSO_SECRET||'');}
+function staffChatCookie(req){
+    const raw=String(req.get('cookie')||'');
+    const item=raw.split(';').map(x=>x.trim()).find(x=>x.startsWith('wa2StaffChat='));
+    return item?item.slice('wa2StaffChat='.length):'';
+}
+function getStaffChatSession(req){
+    const token=staffChatCookie(req);
+    const session=staffChatSessions.get(token);
+    if(!session)return null;
+    if(Date.now()>session.expires){staffChatSessions.delete(token);return null;}
+    return session;
+}
+function staffChatRouteAllowed(req){
+    const p=req.path,m=req.method;
+    if(m==='GET'&&(p==='/admin'||p==='/admin/api/conversations'||p==='/admin/events'))return true;
+    if(m==='GET'&&/^\/admin\/api\/conversations\/[^/]+$/.test(p))return true;
+    if(m==='GET'&&/^\/admin\/api\/(files|drive)\/[^/]+(?:\/download)?$/.test(p))return true;
+    if(m==='POST'&&['/admin/api/send','/admin/api/send-file','/admin/api/resume','/admin/logout'].includes(p))return true;
+    if(m==='POST'&&/^\/admin\/api\/conversations\/[^/]+\/move$/.test(p))return true;
+    return false;
+}
+app.get('/staff/sso',adminRouteLimiter,(req,res)=>{
+    const secret=staffChatSsoSecret(),raw=String(req.query.t||'');
+    res.setHeader('Cache-Control','no-store');
+    res.setHeader('Referrer-Policy','no-referrer');
+    if(secret.length<32||raw.length>2200)return res.status(403).send('Chat sign-in is unavailable.');
+    const [body,sig,...extra]=raw.split('.');
+    if(!body||!sig||extra.length||!/^[A-Za-z0-9_-]+$/.test(body)||!/^[A-Za-z0-9_-]+$/.test(sig))
+        return res.status(403).send('Invalid chat sign-in.');
+    const want=crypto.createHmac('sha256',secret).update('wa2-staff-sso:'+body).digest('base64url');
+    const a=Buffer.from(sig),b=Buffer.from(want);
+    if(a.length!==b.length||!crypto.timingSafeEqual(a,b))return res.status(403).send('Invalid chat sign-in.');
+    let p;try{p=JSON.parse(Buffer.from(body,'base64url').toString('utf8'));}catch{return res.status(403).send('Invalid chat sign-in.');}
+    const now=Date.now();
+    if(p.role!=='chat'||!p.sub||!p.nonce||typeof p.name!=='string'||
+      !Number.isFinite(p.iat)||!Number.isFinite(p.exp)||p.exp<now||
+      p.exp-p.iat>60000||p.iat>now+30000||p.iat<now-90000)
+        return res.status(403).send('This chat sign-in has expired. Open WhatsApp 2 from Project 3 again.');
+    // One-time handoff prevents reusing a shared/saved link.
+    for(const [nonce,expires] of staffSsoUsed){if(expires<now)staffSsoUsed.delete(nonce);}
+    if(staffSsoUsed.has(p.nonce))return res.status(403).send('Chat sign-in already used.');
+    staffSsoUsed.set(p.nonce,p.exp);
+    const token=crypto.randomBytes(32).toString('hex');
+    staffChatSessions.set(token,{id:String(p.sub),name:p.name.slice(0,80),expires:now+STAFF_CHAT_SESSION_MS});
+    for(const [old,session] of staffChatSessions){if(session.expires<now)staffChatSessions.delete(old);}
+    res.setHeader('Set-Cookie','wa2StaffChat='+token+'; Path=/admin; HttpOnly; SameSite=Lax; Secure; Max-Age='+Math.floor(STAFF_CHAT_SESSION_MS/1000));
+    res.redirect(302,'/admin');
+});
+
 function adminAuthMiddleware(req, res, next) {
     // 1. Valid session cookie
     const sessionToken = getAdminSessionToken(req);
@@ -4079,7 +4134,15 @@ function adminAuthMiddleware(req, res, next) {
     // 2. Fallback: QR_ACCESS_TOKEN (legacy / programmatic access)
     if (isAuthorizedQrRequest(getQrAccessToken(req))) return next();
 
-    // 3. Unauthorized — redirect browsers to the login page, return JSON for API calls
+    // 3. Project 3 staff sessions are chat-only; never satisfy admin APIs.
+    const staffSession=getStaffChatSession(req);
+    if(staffSession){
+        if(!staffChatRouteAllowed(req))return res.status(403).json({error:'Chat-only staff access: admin permission required.'});
+        req.wa2Staff=staffSession;
+        return next();
+    }
+
+    // 4. Unauthorized — redirect browsers to the login page, return JSON for API calls
     const acceptsHtml = (req.get('accept') || '').includes('text/html');
     if (acceptsHtml) {
         const loginUrl = `/admin/login?next=${encodeURIComponent(req.originalUrl)}`;
@@ -4761,7 +4824,12 @@ app.post('/admin/login', loginRateLimiter, express.urlencoded({ extended: false 
 app.post('/admin/logout', adminRouteLimiter, (req, res) => {
     const token = getAdminSessionToken(req);
     if (token) { deleteAdminSession(token); auditLog('LOGOUT', '', req.ip); }
-    res.setHeader('Set-Cookie', 'adminSession=; Path=/admin; HttpOnly; SameSite=Strict; Max-Age=0');
+    const staffToken=staffChatCookie(req);
+    if(staffToken)staffChatSessions.delete(staffToken);
+    res.setHeader('Set-Cookie', [
+      'adminSession=; Path=/admin; HttpOnly; SameSite=Strict; Max-Age=0',
+      'wa2StaffChat=; Path=/admin; HttpOnly; SameSite=Lax; Secure; Max-Age=0'
+    ]);
     res.redirect(302, '/admin/login');
 });
 
@@ -4777,6 +4845,8 @@ app.get('/admin', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f2f5; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 
+    body.wa2-staff-chat .tab-btn:not([data-tab="chats"]){display:none!important}
+    body.wa2-staff-chat .panel:not(#panel-chats){display:none!important}
     /* ── Top bar ── */
     .topbar { background: #075e54; color: #fff; padding: 0 16px; display: flex; align-items: center; gap: 12px; flex-shrink: 0; height: 52px; }
     .topbar h1 { font-size: 1rem; font-weight: 600; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -4905,14 +4975,14 @@ app.get('/admin', adminRouteLimiter, adminAuthMiddleware, (req, res) => {
     #adminToast.show { opacity: 1; }
   </style>
 </head>
-<body>
+<body class="${req.wa2Staff?'wa2-staff-chat':''}">
 
 <!-- ── Payment toast ── -->
 <div id="adminToast"></div>
 
 <!-- ── Top bar ── -->
 <div class="topbar">
-  <h1>💬 ${BUSINESS_NAME} – Admin</h1>
+  <h1>💬 ${BUSINESS_NAME} – ${req.wa2Staff?'Staff Chats':'Admin'}</h1>
   <span class="status-dot" id="waDot"></span>
   <span class="wa-status" id="waStatus">…</span>
   <div class="tabs">
@@ -5112,6 +5182,7 @@ function avatarColor(jid) {
 // ── Tab switching ─────────────────────────────────────────────────────────────
 let currentTab = 'chats';
 function switchTab(name) {
+  if (${req.wa2Staff?'true':'false'} && name!=='chats') return;
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
   document.getElementById('panel-' + name).classList.add('active');
