@@ -4065,7 +4065,9 @@ app.get('/products', productsRouteLimiter, productsAuthMiddleware, (req, res) =>
 
 const adminRouteLimiter = rateLimit({
     windowMs: 60 * 1000,
-    limit: 60,
+    // Six Project 3 staff may poll list + open conversations in parallel.
+    // Login itself keeps its stricter dedicated 10-attempt limiter.
+    limit: 360,
     standardHeaders: true,
     legacyHeaders: false,
     message: '{"error":"Too many requests. Please wait a minute."}'
@@ -4239,7 +4241,7 @@ app.post('/admin/api/send', adminRouteLimiter, adminAuthMiddleware, express.json
     try {
         await activeSock.sendMessage(jid, { text: message.trim() });
         // Log the admin message as a 'bot' entry (sent on behalf of the business)
-        logChatEntry(jid, 'bot', `[Admin] ${message.trim()}`);
+        logChatEntry(jid, 'bot', `[${req.wa2Staff?'Staff: '+req.wa2Staff.name:'Admin'}] ${message.trim()}`);
         auditLog('SEND_MSG', `to=${jid}`, req.ip);
         res.json({ ok: true });
     } catch (err) {
@@ -4722,7 +4724,7 @@ app.post('/admin/api/send-file', adminRouteLimiter, adminAuthMiddleware, adminFi
                 caption: req.body.caption || ''
             });
         }
-        logChatEntry(jid, 'bot', `[Admin] 📎 Sent file: ${req.file.originalname || 'file'}`);
+        logChatEntry(jid, 'bot', `[${req.wa2Staff?'Staff: '+req.wa2Staff.name:'Admin'}] 📎 Sent file: ${req.file.originalname || 'file'}`);
         auditLog('SEND_FILE', `to=${jid} file=${req.file.originalname}`, req.ip);
         res.json({ ok: true });
     } catch (err) {
