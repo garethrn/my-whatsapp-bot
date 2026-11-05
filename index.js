@@ -1292,8 +1292,7 @@ function buildCartText(cart) {
     return reply;
 }
 
-function buildOrderSummary(cart, options = {}) {
-    const includeDisclaimer = options.includeDisclaimer || false;
+function buildOrderSummary(cart) {
     let grandTotal = 0;
     let summary = '*📋 Order Summary:*\n\n';
 
@@ -1318,12 +1317,21 @@ function buildOrderSummary(cart, options = {}) {
     });
 
     summary += `*Grand Total: ${formatCurrency(grandTotal)}*`;
-
-    if (includeDisclaimer) {
-        summary += `\n\n*REPLY CONFIRM* to accept the artwork disclaimer and submit your order.\n\n*Please review and accept before production:*\n${ARTWORK_DISCLAIMER}`;
-    }
-
     return { summary, grandTotal };
+}
+
+function buildCheckoutSummary(cart) {
+    let total = 0;
+    let summary = '*🛒 Order Summary*\n\n';
+    cart.forEach((item, i) => {
+        summary += `${i + 1}. *${item.name}*\n`;
+        if (item.dimensions) summary += `Size: ${item.dimensions}\n`;
+        summary += `Quantity: ${item.qty || 1}\n`;
+        if (item.designFee > 0) summary += `Design/Layout Fee: ${formatCurrency(item.designFee)}\n`;
+        summary += `Item Total: ${formatCurrency(item.total)}\n\n`;
+        total += Number(item.total) || 0;
+    });
+    return summary + `*Total: ${formatCurrency(total)}*\n\nType *CONFIRM* to continue.`;
 }
 
 function normalizeText(text) {
@@ -1810,7 +1818,7 @@ async function submitOrderForReview(sock, jid, cart) {
         `Name: ${customerName || '(unknown)'}`,
         `Phone: ${customerPhone}`,
         `Email: ${customerEmail || '(not provided)'}`,
-        'Artwork disclaimer accepted: Yes',
+        'Order confirmed by customer: Yes',
         '',
         summary,
         quoteNote,
@@ -2814,7 +2822,7 @@ async function startBot() {
                                 });
                                 continue;
                             }
-                            const { summary } = buildOrderSummary(cart, { includeDisclaimer: true });
+                            const summary = buildCheckoutSummary(cart);
                             userStates[jid] = { step: 'awaiting_checkout_confirmation', pendingCart: cart };
                             await sock.sendMessage(jid, { text: summary });
                             continue;
@@ -2944,7 +2952,7 @@ async function startBot() {
                             });
                             continue;
                         }
-                        const { summary } = buildOrderSummary(cart, { includeDisclaimer: true });
+                        const summary = buildCheckoutSummary(cart);
                         userStates[jid] = { step: 'awaiting_checkout_confirmation', pendingCart: cart };
                         await sock.sendMessage(jid, { text: summary });
                         continue;
@@ -2952,7 +2960,7 @@ async function startBot() {
 
                 // ── State: awaiting_checkout_confirmation ───────────────────────────
                     if (userState.step === 'awaiting_checkout_confirmation') {
-                    if (['1', 'confirm', 'yes', 'submit', 'place order'].includes(text)) {
+                    if (text === 'confirm') {
                         const cart = userState.pendingCart || userCarts[jid] || [];
                         if (cart.length === 0) {
                             userStates[jid] = { step: 'idle' };
@@ -2972,7 +2980,7 @@ async function startBot() {
                     }
 
                         await sock.sendMessage(jid, {
-                        text: 'Please reply *CONFIRM* to accept the artwork disclaimer and submit your order.'
+                        text: 'Type *CONFIRM* to continue.'
                     });
                         continue;
                     }
@@ -3264,7 +3272,7 @@ async function startBot() {
                             continue;
                         }
 
-                        const { summary } = buildOrderSummary(cart, { includeDisclaimer: true });
+                        const summary = buildCheckoutSummary(cart);
                         userStates[jid] = { step: 'awaiting_checkout_confirmation', pendingCart: cart };
                         await sock.sendMessage(jid, { text: summary });
                         continue;
