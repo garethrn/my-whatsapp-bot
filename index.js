@@ -6064,13 +6064,13 @@ function showAdminToast(msg) {
 // Startup-only, read-only audit of bot sales to help staff locate orders paid
 // before the Project 3 integration. No invoice/payment is created by this scan.
 function reportBotPaidOrdersForReconciliation() {
-    const cutoff = Date.parse('2026-11-01T00:00:00+02:00');
+    const cutoff = Date.parse('2026-10-01T00:00:00+02:00');
     const records = orders
         .filter(o => o && o.status === 'paid' && Date.parse(o.createdAt || '') >= cutoff)
         .sort((a,b) => String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
     const unreconciled = records.filter(o => !o.project3InvoiceNumber);
     console.log('[BOT SALES AUDIT] ' + JSON.stringify({
-        since: '2026-11-01', paidOrders: records.length,
+        since: '2026-10-01', paidOrders: records.length,
         project3InvoiceLinked: records.length-unreconciled.length,
         requiresManualCrossCheck: unreconciled.length,
         unmatchedOrders: unreconciled.slice(0,65).map(o => ({
