@@ -6057,6 +6057,25 @@ setInterval(() => {
     reconcileVerifiedProject3Sales().catch(e => console.error('[PROJECT3 RECOVERY] Scheduled:', e.message));
 }, 5 * 60 * 1000);
 
+// Self-heal a stale WhatsApp 2 websocket without deleting its saved linked-device
+// session. Does not touch Project 3's independent WhatsApp 1 connection.
+let lastSocketWatchdogRestart = 0;
+setInterval(() => {
+    if (whatsappRuntime.phase !== 'connected') return;
+    const ws = activeSock?.ws;
+    const socketClosed = !activeSock ||
+        (ws && ((typeof ws.isOpen === 'boolean' && ws.isOpen === false) ||
+            (typeof ws.readyState === 'number' && ws.readyState !== 1)));
+    if (!socketClosed || Date.now() - lastSocketWatchdogRestart < 90 * 1000) return;
+    lastSocketWatchdogRestart = Date.now();
+    console.warn('[WHATSAPP2 WATCHDOG] Transport closed while marked connected; reconnecting with saved session.');
+    ++activeSocketGeneration;
+    const oldSocket = activeSock;
+    activeSock = null;
+    try { oldSocket?.ws?.close(); } catch { /* best effort */ }
+    scheduleBotRestart('WhatsApp 2 websocket no longer open', 2500);
+}, 60 * 1000);
+
 // ── Handover auto-resume timer (2 hours of idle) ─────────────────────────────
 const HANDOVER_AUTO_RESUME_MS = 2 * 60 * 60 * 1000; // 2 hours
 setInterval(async () => {
@@ -6084,12 +6103,13 @@ setInterval(async () => {
 
 process.on('unhandledRejection', (reason) => {
     console.error('❌ Unhandled promise rejection:', reason);
-    // Only trigger a restart when not already connected; stream errors while
-    // connected are already handled by the connection.update 'close' handler.
+    // An unrelated rejected promise must not flip a genuinely connected socket
+    // into the error phase: that disables bot replies and notifications.
     if (whatsappRuntime.phase !== 'connected') {
         scheduleBotRestart(reason);
     } else {
-        setWhatsAppPhase('error', reason);
+        whatsappRuntime.lastError = String(reason?.message || reason).slice(0, 250);
+        // The transport watchdog checks and repairs genuinely closed sockets.
     }
 });
 
