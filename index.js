@@ -5869,7 +5869,7 @@ async function loadOrders() {
     if (!orders.length) { el.innerHTML = '<h2>📋 Orders</h2><p class="empty-state">No orders yet.</p>'; return; }
     el.innerHTML = '<h2>📋 Orders</h2>' +
       '<table class="data-table"><thead><tr>' +
-      '<th>Date</th><th>Customer</th><th>Status</th><th>Total</th><th>Quote</th><th>Files</th>' +
+      '<th>Date</th><th>Customer</th><th>Order ref</th><th>Status</th><th>Total</th><th>Quote</th><th>Project 3</th><th>Files</th>' +
       '</tr></thead><tbody>' +
       orders.map(o => {
         const quoteLink = o.invoiceNinjaLink
@@ -5895,12 +5895,21 @@ async function loadOrders() {
           });
           return links;
         }).join(' ');
+        const p3Status = o.project3InvoiceNumber
+          ? '✅ Invoice #' + esc(o.project3InvoiceNumber)
+          : o.status === 'paid' && o.billingProvider === 'project3'
+            ? '⚠️ Paid — awaiting Project 3' + (o.project3SyncError ? ': ' + esc(o.project3SyncError) : '')
+            : o.status === 'paid' && o.billingProvider !== 'project3'
+              ? '⚠️ Historic paid order — check existing invoices'
+              : o.project3QuoteNumber ? 'Quote #' + esc(o.project3QuoteNumber) : '—';
         return \`<tr>
           <td>\${fmtTime(o.createdAt)}</td>
           <td>\${esc(o.customerName||o.customerPhone||o.jid)}</td>
+          <td>\${esc(o.id)}</td>
           <td><span class="badge badge-\${o.status}">\${statusLabel(o.status)}</span></td>
           <td>R\${(o.grandTotal||0).toFixed(2)}</td>
           <td>\${quoteLink}</td>
+          <td>\${p3Status}</td>
           <td>\${files||'—'}</td>
         </tr>\`;
       }).join('') +
