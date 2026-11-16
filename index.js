@@ -3604,6 +3604,67 @@ app.post('/webhook/invoice-ninja', (req, res, next) => {
     })();
 });
 
+// Reconcile only *PayFast-verified* Project 3 orders which already have a linked
+// Project 3 quote. Never synthesize invoices for old Invoice Ninja/manual orders.
+let reconcilingProject3Paid = false;
+async function reconcileVerifiedProject3Sales() {
+    if (reconcilingProject3Paid || !project3.isConfigured()) return;
+    reconcilingProject3Paid = true;
+    try {
+        const pending = orders.filter(o =>
+            o && o.billingProvider === 'project3' && o.project3QuoteNumber &&
+            o.status === 'paid' && o.payfastVerifiedAt && o.payfastVerifiedReference &&
+            Number.isFinite(Number(o.payfastVerifiedAmount)) && Number(o.payfastVerifiedAmount) > 0 &&
+            (o.project3SyncStatus !== 'INVOICED' || !o.project3InvoiceNumber)
+        ).slice(0, 15);
+        for (const order of pending) {
+            try {
+                // The Project 3 endpoint checks the registered quote, exact total and
+                // payment reference before it can create any invoice or payment.
+                const result = await project3.markPaid(
+                    order, Number(order.payfastVerifiedAmount), order.payfastVerifiedReference
+                );
+                if (!result?.invoice?.number) throw Error('Project 3 did not return an invoice number.');
+                order.project3InvoiceNumber = String(result.invoice.number);
+                order.project3SyncStatus = 'INVOICED';
+                order.project3SyncError = '';
+                order.project3LastReconciledAt = new Date().toISOString();
+                saveJsonFile(ORDERS_FILE, orders);
+                console.log('[PROJECT3 RECOVERY] Confirmed verified PayFast order ' +
+                    order.id + ' -> invoice ' + order.project3InvoiceNumber +
+                    (result.idempotent ? ' (existing)' : ''));
+            } catch (err) {
+                order.project3SyncStatus = 'NEEDS_REVIEW';
+                order.project3SyncError = String(err.message || err).slice(0, 300);
+                order.project3LastReconciledAt = new Date().toISOString();
+                saveJsonFile(ORDERS_FILE, orders);
+                console.error('[PROJECT3 RECOVERY] Pending order ' + order.id + ': ' + order.project3SyncError);
+            }
+        }
+    } finally {
+        reconcilingProject3Paid = false;
+    }
+}
+
+// The 16 November R360 payment is explicitly verified by the live PayFast ITN
+// logs (signature VALID and server-to-server VALID at 10:51:52Z). Its original
+// bot version did not retain the PayFast payment ID on settlement failure.
+// Recover *only this exact* paid order/quote/amount, with its immutable merchant
+// reference, and never recreate a historical/non-Project-3 order.
+function restoreVerifiedPayfastEvidenceForKnownMissedSale() {
+    const o = orders.find(x => x && x.id === '8dc88c110eca');
+    if (!o || o.billingProvider !== 'project3' || o.project3QuoteNumber !== '48745' ||
+        o.status !== 'paid' || Number(o.grandTotal) !== 360 ||
+        o.project3InvoiceNumber || o.payfastVerifiedAt ||
+        o.project3SyncStatus !== 'NEEDS_REVIEW') return;
+    o.payfastVerifiedAt = '2026-11-16T10:51:52.728Z';
+    o.payfastVerifiedAmount = 360;
+    o.payfastVerifiedReference = 'PAYFAST-M-8dc88c110eca';
+    o.project3RecoveryReason = 'Verified PayFast signature and server response in 2026-11-16 Railway logs';
+    saveJsonFile(ORDERS_FILE, orders);
+    console.log('[PROJECT3 RECOVERY] Restored verified evidence for R360 order 8dc88c110eca');
+}
+
 // --- PAYFAST PAYMENT ROUTES ---
 
 // GET /pay/:orderId — public page that auto-submits a payment form to PayFast.
@@ -3834,7 +3895,15 @@ app.post('/webhook/payfast', express.urlencoded({ extended: false }), (req, res)
 
             if (status === 'COMPLETE') {
                 const idx = orders.findIndex((o) => o && o.id === orderId);
-                if (idx >= 0) { orders[idx].status = 'paid'; saveJsonFile(ORDERS_FILE, orders); }
+                if (idx >= 0) {
+                    // Persist verified PayFast evidence before invoice sync or WhatsApp sends.
+                    // A lost network connection can now be recovered without replaying an ITN.
+                    orders[idx].status = 'paid';
+                    orders[idx].payfastVerifiedAt = orders[idx].payfastVerifiedAt || new Date().toISOString();
+                    orders[idx].payfastVerifiedAmount = amount;
+                    orders[idx].payfastVerifiedReference = String(req.body.pf_payment_id || ('PAYFAST-M-' + orderId));
+                    saveJsonFile(ORDERS_FILE, orders);
+                }
                 console.log(`✅ PayFast payment COMPLETE for order ${orderId}`);
 
                 // Only a NEW order quoted by the Project 3 connector may
@@ -3843,7 +3912,7 @@ app.post('/webhook/payfast', express.urlencoded({ extended: false }), (req, res)
                 let project3InvoiceReady = false;
                 if (order.billingProvider === 'project3' && order.project3QuoteNumber) {
                     try {
-                        const syncResult = await project3.markPaid(order, amount, req.body.pf_payment_id);
+                        const syncResult = await project3.markPaid(order, amount, orders[idx]?.payfastVerifiedReference);
                         if (!syncResult?.invoice?.number) throw Error('Project 3 returned no invoice number.');
                         project3InvoiceReady = true;
                         if (idx >= 0) {
@@ -5977,8 +6046,16 @@ const server = app.listen(PORT, () => {
         project3.health().then(() => console.log('[PROJECT3 CONNECTION] HEALTH OK'))
             .catch(err => console.error('[PROJECT3 CONNECTION] HEALTH FAILED:', err.message));
     }
+    restoreVerifiedPayfastEvidenceForKnownMissedSale();
+    reconcileVerifiedProject3Sales().catch(e => console.error('[PROJECT3 RECOVERY] Startup:', e.message));
     startBot(); // Start the bot after the server is up
 });
+
+// Retry verified but unposted Project 3 PayFast sales every five minutes.
+// Idempotent in Project 3, no re-charging or re-sending customer messages.
+setInterval(() => {
+    reconcileVerifiedProject3Sales().catch(e => console.error('[PROJECT3 RECOVERY] Scheduled:', e.message));
+}, 5 * 60 * 1000);
 
 // ── Handover auto-resume timer (2 hours of idle) ─────────────────────────────
 const HANDOVER_AUTO_RESUME_MS = 2 * 60 * 60 * 1000; // 2 hours
