@@ -3658,7 +3658,13 @@ function restoreVerifiedPayfastEvidenceForKnownMissedSale() {
         {id:'e6d600a4c52a',quote:'48161',amount:120,at:'2026-11-02T10:18:42Z',
             reason:'PayFast receipt email 2026-11-02: R120 received from Alvena Deepnarain; Payment ID e6d600a4c52a'},
         {id:'1d132f89c232',quote:'48252',amount:60,at:'2026-11-03T15:31:53Z',
-            reason:'PayFast receipt email 2026-11-03: R60 received from Alvena Deepnarain; Payment ID 1d132f89c232'}
+            reason:'PayFast receipt email 2026-11-03: R60 received from Alvena Deepnarain; Payment ID 1d132f89c232'},
+        {id:'e9607ab08e58',quote:'48038',amount:473.54,at:'2026-10-29T12:13:38Z',
+            reason:'PayFast receipt email 2026-10-29: R473.54 from Tasneem Jooma; Payment ID e9607ab08e58'},
+        {id:'52475aa88da6',quote:'47963',amount:180,at:'2026-10-28T09:54:03Z',
+            reason:'PayFast receipt email 2026-10-28: R180 from Custom Prints; Payment ID 52475aa88da6'},
+        {id:'994026ceb64b',quote:'47933',amount:356.25,at:'2026-10-28T06:05:09Z',
+            reason:'PayFast receipt email 2026-10-28: R356.25 from SVK Group; Payment ID 994026ceb64b'}
     ];
     for (const proof of evidence) {
         const o = orders.find(x => x && x.id === proof.id);
