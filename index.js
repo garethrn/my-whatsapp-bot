@@ -6047,6 +6047,30 @@ function showAdminToast(msg) {
 });
 
 
+// Startup-only, read-only audit of bot sales to help staff locate orders paid
+// before the Project 3 integration. No invoice/payment is created by this scan.
+function reportBotPaidOrdersForReconciliation() {
+    const cutoff = Date.parse('2026-11-01T00:00:00+02:00');
+    const records = orders
+        .filter(o => o && o.status === 'paid' && Date.parse(o.createdAt || '') >= cutoff)
+        .sort((a,b) => String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
+    const unreconciled = records.filter(o => !o.project3InvoiceNumber);
+    console.log('[BOT SALES AUDIT] ' + JSON.stringify({
+        since: '2026-11-01', paidOrders: records.length,
+        project3InvoiceLinked: records.length-unreconciled.length,
+        requiresManualCrossCheck: unreconciled.length,
+        unmatchedOrders: unreconciled.slice(0,65).map(o => ({
+            order: o.id, date: o.createdAt, customer: String(o.customerName||'').slice(0,80),
+            phoneEnding: String(o.customerPhone||'').replace(/\D/g,'').slice(-4),
+            amount: Number(o.grandTotal||0), billing: o.billingProvider,
+            project3Quote: o.project3QuoteNumber||'',
+            syncStatus: o.project3SyncStatus||'', syncError: String(o.project3SyncError||'').slice(0,150),
+            paidEvidenceSaved: !!o.payfastVerifiedAt,
+            items: Array.isArray(o.cart)?o.cart.slice(0,3).map(x => String(x.name||x.description||x.productName||x.sku||'').slice(0,55)):[]
+        }))
+    }));
+}
+
 const server = app.listen(PORT, () => {
     const railwayUrl = getRailwayQrUrl();
     console.log(`📡 Health check server listening on port ${PORT}`);
@@ -6055,6 +6079,7 @@ const server = app.listen(PORT, () => {
         project3.health().then(() => console.log('[PROJECT3 CONNECTION] HEALTH OK'))
             .catch(err => console.error('[PROJECT3 CONNECTION] HEALTH FAILED:', err.message));
     }
+    reportBotPaidOrdersForReconciliation();
     restoreVerifiedPayfastEvidenceForKnownMissedSale();
     reconcileVerifiedProject3Sales().catch(e => console.error('[PROJECT3 RECOVERY] Startup:', e.message));
     startBot(); // Start the bot after the server is up
