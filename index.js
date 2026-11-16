@@ -3652,17 +3652,31 @@ async function reconcileVerifiedProject3Sales() {
 // Recover *only this exact* paid order/quote/amount, with its immutable merchant
 // reference, and never recreate a historical/non-Project-3 order.
 function restoreVerifiedPayfastEvidenceForKnownMissedSale() {
-    const o = orders.find(x => x && x.id === '8dc88c110eca');
-    if (!o || o.billingProvider !== 'project3' || o.project3QuoteNumber !== '48745' ||
-        o.status !== 'paid' || Number(o.grandTotal) !== 360 ||
-        o.project3InvoiceNumber || o.payfastVerifiedAt ||
-        o.project3SyncStatus !== 'NEEDS_REVIEW') return;
-    o.payfastVerifiedAt = '2026-11-16T10:51:52.728Z';
-    o.payfastVerifiedAmount = 360;
-    o.payfastVerifiedReference = 'PAYFAST-M-8dc88c110eca';
-    o.project3RecoveryReason = 'Verified PayFast signature and server response in 2026-11-16 Railway logs';
-    saveJsonFile(ORDERS_FILE, orders);
-    console.log('[PROJECT3 RECOVERY] Restored verified evidence for R360 order 8dc88c110eca');
+    const evidence = [
+        {id:'8dc88c110eca',quote:'48745',amount:360,at:'2026-11-16T10:51:52.728Z',
+            reason:'Verified PayFast signature and server response in 2026-11-16 Railway logs'},
+        {id:'e6d600a4c52a',quote:'48161',amount:120,at:'2026-11-02T10:18:42Z',
+            reason:'PayFast receipt email 2026-11-02: R120 received from Alvena Deepnarain; Payment ID e6d600a4c52a'},
+        {id:'1d132f89c232',quote:'48252',amount:60,at:'2026-11-03T15:31:53Z',
+            reason:'PayFast receipt email 2026-11-03: R60 received from Alvena Deepnarain; Payment ID 1d132f89c232'}
+    ];
+    for (const proof of evidence) {
+        const o = orders.find(x => x && x.id === proof.id);
+        if (!o || o.billingProvider !== 'project3' ||
+            String(o.project3QuoteNumber||'') !== proof.quote ||
+            o.status !== 'paid' || Math.round(Number(o.grandTotal||0)*100) !== proof.amount*100 ||
+            o.project3InvoiceNumber || o.payfastVerifiedAt ||
+            o.project3SyncStatus !== 'NEEDS_REVIEW') continue;
+        // Reconcile a PayFast-confirmed, paid existing bot order only. The exact
+        // quote/amount, mapping, reference and payment ledger are revalidated
+        // by Project 3, which refuses existing payments and mismatched totals.
+        o.payfastVerifiedAt = proof.at;
+        o.payfastVerifiedAmount = proof.amount;
+        o.payfastVerifiedReference = 'PAYFAST-M-' + proof.id;
+        o.project3RecoveryReason = proof.reason;
+        saveJsonFile(ORDERS_FILE, orders);
+        console.log('[PROJECT3 RECOVERY] Restored external PayFast evidence for paid order ' + proof.id);
+    }
 }
 
 // --- PAYFAST PAYMENT ROUTES ---
