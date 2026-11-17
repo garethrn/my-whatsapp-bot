@@ -1521,18 +1521,26 @@ function logChatEntry(jid, role, text, fileRef, metadata={}) {
 }
 // Only log earlier messages received through WhatsApp history synchronization.
 // Do not run old messages through the chatbot, payments, or customer workflows.
-function rememberHistoricWhatsappMessage(msg) {
+async function rememberHistoricWhatsappMessage(msg,sock) {
     const key=msg?.key;
-    if(!key||!msg?.message)return;
-    const jid=resolveChatJid(key);
-    if(!isDirectUserJid(jid)||jid===ADMIN_JID||isIgnoredChatJid(jid))return;
+    if(!key||!msg?.message)return false;
+    const jid=await resolveWhatsAppCustomerJid(key,sock);
+    if(!isDirectConversationJid(jid)||jid===ADMIN_JID||isIgnoredChatJid(jid))return false;
     const content=extractMessageContent(msg);
-    const text=extractMessageText(content);
-    if(!text)return;
+    const text=extractMessageText(content) ||
+      (content?.imageMessage?'[Image]':
+       content?.videoMessage?'[Video]':
+       content?.documentMessage?'[Document]':
+       content?.audioMessage?'[Voice note]':'');
+    if(!text)return false;
     const timestamp=Number(msg.messageTimestamp||0);
-    if(!Number.isFinite(timestamp)||timestamp<=0)return;
+    if(!Number.isFinite(timestamp)||timestamp<=0)return false;
+    const before=(chatLog[jid]||[]).length;
     logChatEntry(jid,key.fromMe?'bot':'user',text,null,
        {messageId:key.id,timestamp});
+    // History is display-only. Never replay a customer's previous "confirm"
+    // or turn an old payment message into a second order.
+    return (chatLog[jid]||[]).length>before;
 }
 
 function getConversationPreview(jid) {
@@ -1682,6 +1690,12 @@ function extractMessageText(messageContent) {
 function isDirectUserJid(jid) {
     return typeof jid === 'string' && (jid.endsWith('@s.whatsapp.net') || jid.endsWith('@c.us'));
 }
+// WhatsApp's modern privacy-linked contacts may arrive with @lid instead of
+// their phone-number JID. They are direct customers, not groups or statuses.
+function isDirectConversationJid(jid) {
+    return isDirectUserJid(jid) ||
+        (typeof jid === 'string' && jid.endsWith('@lid'));
+}
 
 function isIgnoredChatJid(jid) {
     return typeof jid === 'string' && (
@@ -1694,12 +1708,25 @@ function isIgnoredChatJid(jid) {
 function resolveChatJid(key) {
     const primaryJid = key?.remoteJid || '';
     const alternateJid = key?.remoteJidAlt || '';
-
     if (isDirectUserJid(primaryJid)) return primaryJid;
     if (isDirectUserJid(alternateJid)) return alternateJid;
-    if (primaryJid) return primaryJid;
-    if (alternateJid) return alternateJid;
-    return null;
+    if (isDirectConversationJid(primaryJid)) return primaryJid;
+    if (isDirectConversationJid(alternateJid)) return alternateJid;
+    return primaryJid || alternateJid || null;
+}
+// Prefer the phone-number identity if WhatsApp supplies a reliable mapping.
+// If no mapping exists, retain the @lid chat rather than silently discard it
+// or pretend its LID digits are a real phone number.
+async function resolveWhatsAppCustomerJid(key,sock) {
+    const jid=resolveChatJid(key);
+    if (!jid?.endsWith('@lid')) return jid;
+    try {
+        const mapped=await sock?.signalRepository?.lidMapping?.getPNForLID?.(jid);
+        if (isDirectUserJid(mapped))return mapped;
+    } catch(e) {
+        console.warn('[WA2 CHAT] LID mapping unavailable; preserving contact under its linked identity.');
+    }
+    return jid;
 }
 
 function isAuthorizedQrRequest(token) {
@@ -1766,7 +1793,7 @@ function cleanBotCustomerName(value) {
     return n;
 }
 function rememberBotCustomerName(jid,value,{confirmed=false,source='whatsapp_profile'}={}){
-    if(!isDirectUserJid(jid) || jid===ADMIN_JID)return false;
+    if(!isDirectConversationJid(jid) || jid===ADMIN_JID)return false;
     const name=cleanBotCustomerName(value);
     if(!name)return false;
     const existing=botCustomerNames[jid];
@@ -2010,7 +2037,12 @@ async function startBot() {
         const sock = makeWASocket({
             auth: state,
             logger: pino({ level: 'error' }),
-            browser: Browsers.appropriate('Desktop'),
+            browser: Browsers.macOS('Desktop'),
+            // Request available WhatsApp phone history to rebuild the
+            // older chats where the prior bot only saved order records.
+            // Actual recovery depends on what WhatsApp will send to an
+            // already-paired device; it cannot manufacture missing messages.
+            syncFullHistory: true,
             ...(version ? { version } : {})
         });
         // Track the Unix-second timestamp of when this socket's connection opened.
@@ -2129,18 +2161,30 @@ async function startBot() {
 
         // WhatsApp may supply older messages during an authenticated history
         // sync. Import only as display history, never send bot replies to them.
-        sock.ev.on('messaging-history.set', ({messages}) => {
+        sock.ev.on('messaging-history.set', async ({messages,syncType}) => {
+            if(socketGeneration!==activeSocketGeneration)return;
+            let restored=0;
             for(const msg of Array.isArray(messages)?messages:[]) {
-                try{rememberHistoricWhatsappMessage(msg)}
-                catch(e){console.error('[WA2 CHAT STORAGE] History item failed:',e.message)}
+                if(socketGeneration!==activeSocketGeneration)break;
+                try{
+                    if(await rememberHistoricWhatsappMessage(msg,sock))restored++;
+                } catch(e){console.error('[WA2 CHAT STORAGE] History item failed:',e.message)}
             }
+            console.log('[WA2 CHAT STORAGE] Historical sync '+String(syncType||'unknown')+
+              ': received '+(messages?.length||0)+' messages; added '+restored+
+              ' to saved chat histories (no bot responses or payments replayed).');
         });
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
             // Historical append messages must not initiate new orders or payments.
             if (type !== 'notify') {
-                if(type==='append')for(const msg of Array.isArray(messages)?messages:[]) {
-                    try{rememberHistoricWhatsappMessage(msg)}
-                    catch(e){console.error('[WA2 CHAT STORAGE] Append item failed:',e.message)}
+                if(type==='append'){
+                    let saved=0;
+                    for(const msg of Array.isArray(messages)?messages:[]) {
+                        if(socketGeneration!==activeSocketGeneration)break;
+                        try{if(await rememberHistoricWhatsappMessage(msg,sock))saved++}
+                        catch(e){console.error('[WA2 CHAT STORAGE] Append item failed:',e.message)}
+                    }
+                    if(saved)console.log('[WA2 CHAT STORAGE] Saved '+saved+' appended historical chat messages.');
                 }
                 return;
             }
@@ -2155,8 +2199,8 @@ async function startBot() {
                     const messageContent = extractMessageContent(msg);
                     if (!key || !messageContent) continue;
 
-                    jid = resolveChatJid(key);
-                    if (!jid || isIgnoredChatJid(jid) || jid.endsWith('@lid')) continue;
+                    jid = await resolveWhatsAppCustomerJid(key,sock);
+                    if (!jid || isIgnoredChatJid(jid) || !isDirectConversationJid(jid)) continue;
 
                     // Ignore any message (from customers or admin) that pre-dates this
                     // connection's open time.  WhatsApp can replay unread/undelivered
@@ -2171,20 +2215,28 @@ async function startBot() {
                         if (socketConnectedAt === 0 || msgTs < socketConnectedAt){
                             // Preserve the chat record, but never re-run the bot
                             // for past incoming/outgoing WhatsApp messages.
-                            rememberHistoricWhatsappMessage(msg);
+                            await rememberHistoricWhatsappMessage(msg,sock);
                             continue;
                         }
                     }
 
                     // ── Mobile bot control: admin typed directly on the bot's phone ──
                     if (key.fromMe) {
-                        // Ignore echo events for messages the bot sent itself — these are
-                        // Baileys re-delivering our own outgoing messages as type 'notify'.
+                        // Bot sends are logged when sendMessage resolves; echoes
+                        // must not create duplicate entries.
                         if (key.id && botSentMessageIds.has(key.id)) {
                             botSentMessageIds.delete(key.id);
                             continue;
                         }
-                        continue; // do not process fromMe messages through normal bot logic
+                        // Replies typed directly on the linked WhatsApp phone
+                        // were previously discarded. Preserve them in the chat
+                        // without treating them as a fresh bot customer command.
+                        const phoneReply=extractMessageText(messageContent);
+                        if(phoneReply && jid!==ADMIN_JID){
+                            logChatEntry(jid,'bot','[Admin] Phone: '+phoneReply,null,
+                              {messageId:key.id,timestamp:Number(msg.messageTimestamp||0)});
+                        }
+                        continue;
                     }
 
                     const rawText = extractMessageText(messageContent);
