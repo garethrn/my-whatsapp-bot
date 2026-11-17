@@ -2037,12 +2037,10 @@ async function startBot() {
         const sock = makeWASocket({
             auth: state,
             logger: pino({ level: 'error' }),
-            browser: Browsers.macOS('Desktop'),
-            // Request available WhatsApp phone history to rebuild the
-            // older chats where the prior bot only saved order records.
-            // Actual recovery depends on what WhatsApp will send to an
-            // already-paired device; it cannot manufacture missing messages.
-            syncFullHistory: true,
+            // Keep the previously paired browser identity. Changing it or
+            // forcing a new full sync on this existing linked device caused
+            // repeated 428 terminations. Preserve session and normal traffic.
+            browser: Browsers.appropriate('Desktop'),
             ...(version ? { version } : {})
         });
         // Track the Unix-second timestamp of when this socket's connection opened.
