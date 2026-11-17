@@ -1337,6 +1337,28 @@ function buildCheckoutSummary(cart) {
     return summary + `*Total: ${formatCurrency(total)}*\n\nType *CONFIRM* to continue.`;
 }
 
+// Ask for the invoice/customer name once. Save it to the persistent volume
+// by WhatsApp number so customers do not need to re-enter it on later orders.
+async function beginCheckoutWithSavedName(sock,jid,cart){
+    if(!contactNames[jid] && !botCustomerNames[jid]?.confirmed){
+        userStates[jid]={step:'awaiting_customer_name',pendingCart:cart};
+        await sock.sendMessage(jid,{
+            text:'👤 Please send your *full name or business name* for your order/quotation.\n\nWe will save this name for future orders on this WhatsApp number.'
+        });
+        return;
+    }
+    if(shouldCollectCheckoutEmail() && !userEmails[jid]){
+        userStates[jid]={step:'awaiting_customer_email',pendingCart:cart};
+        await sock.sendMessage(jid,{
+            text:'📧 Please send your *email address* so we can send your quote to you.'
+        });
+        return;
+    }
+    userStates[jid]={step:'awaiting_checkout_confirmation',pendingCart:cart};
+    const customerName=getCustomerName(jid).replace(/[*_~]/g,'');
+    await sock.sendMessage(jid,{text:'*Customer:* '+customerName+'\n\n'+buildCheckoutSummary(cart)});
+}
+
 function normalizeText(text) {
     return (text || '')
         .toLowerCase()
@@ -2862,16 +2884,7 @@ async function startBot() {
                                 await sock.sendMessage(jid, { text: '🛒 Your cart is empty.' });
                                 continue;
                             }
-                            if (shouldCollectCheckoutEmail() && !userEmails[jid]) {
-                                userStates[jid] = { step: 'awaiting_customer_email', pendingCart: cart };
-                                await sock.sendMessage(jid, {
-                                    text: `📧 Please send your *email address* so we can send your quote to you.`
-                                });
-                                continue;
-                            }
-                            const summary = buildCheckoutSummary(cart);
-                            userStates[jid] = { step: 'awaiting_checkout_confirmation', pendingCart: cart };
-                            await sock.sendMessage(jid, { text: summary });
+                            await beginCheckoutWithSavedName(sock,jid,cart);
                             continue;
                         }
                         if (['no', 'n', 'done', 'nothing'].some((k) => text === k)) {
@@ -2983,6 +2996,26 @@ async function startBot() {
                         continue;
                     }
 
+                // ── State: awaiting_customer_name ──────────────────────────────────
+                    if (userState.step === 'awaiting_customer_name') {
+                        const cart = userState.pendingCart || userCarts[jid] || [];
+                        if (!cart.length) {
+                            userStates[jid]={step:'idle'};
+                            await sock.sendMessage(jid,{text:'🛒 Your cart is empty. Type *menu* to begin.'});
+                            continue;
+                        }
+                        const name = cleanBotCustomerName(rawText);
+                        if (!name || /^(?:confirm|yes|no|skip|customer|unknown|n\/a)$/i.test(name)) {
+                            await sock.sendMessage(jid,{
+                                text:'Please enter your actual *full name or business name* (2–100 characters) so we can save it on your quotation.'
+                            });
+                            continue;
+                        }
+                        rememberBotCustomerName(jid,name,{confirmed:true,source:'customer_checkout'});
+                        await beginCheckoutWithSavedName(sock,jid,cart);
+                        continue;
+                    }
+
                 // ── State: awaiting_customer_email ─────────────────────────────────
                     if (userState.step === 'awaiting_customer_email') {
                         const cart = userState.pendingCart || userCarts[jid] || [];
@@ -2999,9 +3032,7 @@ async function startBot() {
                             });
                             continue;
                         }
-                        const summary = buildCheckoutSummary(cart);
-                        userStates[jid] = { step: 'awaiting_checkout_confirmation', pendingCart: cart };
-                        await sock.sendMessage(jid, { text: summary });
+                        await beginCheckoutWithSavedName(sock,jid,cart);
                         continue;
                     }
 
@@ -3311,17 +3342,7 @@ async function startBot() {
 
                         // When the active billing provider or PayFast is configured, collect an email address first
                         // (skip if we already have one for this session)
-                        if (shouldCollectCheckoutEmail() && !userEmails[jid]) {
-                            userStates[jid] = { step: 'awaiting_customer_email', pendingCart: cart };
-                            await sock.sendMessage(jid, {
-                                text: `📧 Please send your *email address* so we can send your quote to you.`
-                            });
-                            continue;
-                        }
-
-                        const summary = buildCheckoutSummary(cart);
-                        userStates[jid] = { step: 'awaiting_checkout_confirmation', pendingCart: cart };
-                        await sock.sendMessage(jid, { text: summary });
+                        await beginCheckoutWithSavedName(sock,jid,cart);
                         continue;
                     }
 
