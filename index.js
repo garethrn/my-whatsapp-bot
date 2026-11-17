@@ -44,6 +44,7 @@ const AUDIT_LOG_FILE = path.join(STORAGE_DIR, 'admin_audit.log');
 const SETTINGS_FILE = path.join(STORAGE_DIR, 'settings.json');
 const CONTACTS_FILE = path.join(STORAGE_DIR, 'contacts.json');
 const CUSTOMER_NAMES_FILE = path.join(STORAGE_DIR, 'customer_names.json');
+const CHAT_HISTORY_DIR = path.join(STORAGE_DIR, 'chat_history');
 const CONTACT_PHONES_FILE = path.join(STORAGE_DIR, 'contact_phones.json');
 const TAB_OVERRIDES_FILE = path.join(STORAGE_DIR, 'tab_overrides.json');
 const SERVICE_SELECTED_FILE = path.join(STORAGE_DIR, 'service_selected.json');
@@ -360,10 +361,13 @@ if (typeof settings.wholesaleDiscount !== 'number' || settings.wholesaleDiscount
 }
 // Tracks which customer JIDs have authenticated as wholesale clients in this session.
 let wholesaleActiveSessions = {};
-// Full conversation log keyed by JID – stores both user and bot messages for the admin dashboard.
+// The admin conversation log was previously RAM-only, so every restart
+// erased all visible messages. Store each chat independently on the mounted
+// Railway volume; one busy chat no longer rewrites every conversation.
 const MAX_CHAT_LOG = 100;
-let chatLog = {}; // { [jid]: [{ role: 'user'|'bot', text: string, timestamp: string }] }
-let chatLogLastActivity = {}; // { [jid]: ISO timestamp of last message }
+const savedChats = loadPersistedChatHistory();
+let chatLog = savedChats.messages;
+let chatLogLastActivity = savedChats.lastActivity;
 
 // ── Admin dashboard sessions ──────────────────────────────────────────────────
 // In-memory session store: token → { ip, createdAt, expiresAt }
@@ -411,6 +415,58 @@ function getAdminSessionToken(req) {
     const auth = req.get('authorization') || '';
     if (auth.toLowerCase().startsWith('bearer ')) return auth.slice(7).trim();
     return null;
+}
+
+function chatHistoryPath(jid) {
+    const digest=crypto.createHash('sha256').update(String(jid)).digest('hex');
+    return path.join(CHAT_HISTORY_DIR,digest+'.json');
+}
+function loadPersistedChatHistory() {
+    const messages=Object.create(null),lastActivity=Object.create(null);
+    let loaded=0,restoredMessages=0,failures=0;
+    try {
+        fs.mkdirSync(CHAT_HISTORY_DIR,{recursive:true});
+        for(const file of fs.readdirSync(CHAT_HISTORY_DIR)) {
+            if(!/^[a-f0-9]{64}\.json$/.test(file))continue;
+            try {
+                const d=JSON.parse(fs.readFileSync(path.join(CHAT_HISTORY_DIR,file),'utf8'));
+                if(!d || typeof d.jid!=='string' || !Array.isArray(d.messages) ||
+                   chatHistoryPath(d.jid)!==path.join(CHAT_HISTORY_DIR,file))throw Error('Invalid chat history record');
+                const clean=d.messages.filter(m=>m&&['bot','user'].includes(m.role)&&
+                  typeof m.text==='string'&&typeof m.timestamp==='string').slice(-MAX_CHAT_LOG);
+                if(!clean.length)continue;
+                messages[d.jid]=clean;
+                lastActivity[d.jid]=clean.reduce((mx,m)=>m.timestamp>mx?m.timestamp:mx,'');
+                loaded++;
+                restoredMessages+=clean.length;
+            } catch(error) {
+                failures++;
+                // Never delete a file that cannot be read: it may be recoverable.
+                console.error('[WA2 CHAT STORAGE] Could not load '+file+': '+error.message);
+            }
+        }
+    } catch(error) {
+        console.error('[WA2 CHAT STORAGE] Failed to scan persistent history: '+error.message);
+    }
+    console.log('[WA2 CHAT STORAGE] Restored '+loaded+' conversations ('+restoredMessages+
+      ' messages) from volume; unreadable files: '+failures);
+    return{messages,lastActivity};
+}
+function persistChatHistoryFor(jid) {
+    if(!jid || !chatLog[jid])return;
+    let tmp='';
+    try {
+        fs.mkdirSync(CHAT_HISTORY_DIR,{recursive:true});
+        const file=chatHistoryPath(jid);
+        tmp=file+'.'+process.pid+'.'+crypto.randomBytes(4).toString('hex')+'.tmp';
+        // Atomic replacement: a restart cannot truncate an existing chat file
+        // while we are writing its latest messages.
+        fs.writeFileSync(tmp,JSON.stringify({jid,messages:chatLog[jid]}),'utf8');
+        fs.renameSync(tmp,file);
+    } catch(error) {
+        console.error('[WA2 CHAT STORAGE] Could not persist conversation: '+error.message);
+        if(tmp)try{fs.unlinkSync(tmp)}catch{/* file may not exist */}
+    }
 }
 
 function loadJsonFile(filePath, fallbackValue) {
@@ -1434,23 +1490,47 @@ function recordLearningLead(jid, message) {
     saveJsonFile(LEARNING_LEADS_FILE, learningLeads);
 }
 
-function rememberConversation(jid, text) {
+function rememberConversation(jid, text, metadata={}) {
     if (!text) return;
     if (!conversationHistory[jid]) conversationHistory[jid] = [];
     conversationHistory[jid].push(text.trim());
     conversationHistory[jid] = conversationHistory[jid].slice(-MAX_HISTORY);
-    logChatEntry(jid, 'user', text);
+    logChatEntry(jid, 'user', text, null, metadata);
 }
 
-function logChatEntry(jid, role, text, fileRef) {
+function logChatEntry(jid, role, text, fileRef, metadata={}) {
     if (!jid || (!text && !fileRef)) return;
     if (!chatLog[jid]) chatLog[jid] = [];
-    const ts = new Date().toISOString();
-    const entry = { role, text: String(text || '').trim(), timestamp: ts };
-    if (fileRef) entry.fileRef = fileRef;
+    const rawTimestamp=Number(metadata?.timestamp||0);
+    const ts=Number.isFinite(rawTimestamp)&&rawTimestamp>0 ?
+        new Date(rawTimestamp*1000).toISOString():new Date().toISOString();
+    const messageId=String(metadata?.messageId||'').slice(0,150);
+    if(messageId && chatLog[jid].some(m=>m.messageId===messageId))return;
+    const entry={role,text:String(text||'').trim(),timestamp:ts};
+    if(messageId)entry.messageId=messageId;
+    if(fileRef)entry.fileRef=fileRef;
     chatLog[jid].push(entry);
-    chatLog[jid] = chatLog[jid].slice(-MAX_CHAT_LOG);
-    chatLogLastActivity[jid] = ts;
+    // Historical replay can arrive after newer messages; retain correct order.
+    chatLog[jid].sort((a,b)=>String(a.timestamp).localeCompare(String(b.timestamp)));
+    chatLog[jid]=chatLog[jid].slice(-MAX_CHAT_LOG);
+    const previous=chatLogLastActivity[jid]||'';
+    if(ts>previous)chatLogLastActivity[jid]=ts;
+    persistChatHistoryFor(jid);
+}
+// Only log earlier messages received through WhatsApp history synchronization.
+// Do not run old messages through the chatbot, payments, or customer workflows.
+function rememberHistoricWhatsappMessage(msg) {
+    const key=msg?.key;
+    if(!key||!msg?.message)return;
+    const jid=resolveChatJid(key);
+    if(!isDirectUserJid(jid)||jid===ADMIN_JID||isIgnoredChatJid(jid))return;
+    const content=extractMessageContent(msg);
+    const text=extractMessageText(content);
+    if(!text)return;
+    const timestamp=Number(msg.messageTimestamp||0);
+    if(!Number.isFinite(timestamp)||timestamp<=0)return;
+    logChatEntry(jid,key.fromMe?'bot':'user',text,null,
+       {messageId:key.id,timestamp});
 }
 
 function getConversationPreview(jid) {
@@ -2039,9 +2119,23 @@ async function startBot() {
             }
         });
 
+        // WhatsApp may supply older messages during an authenticated history
+        // sync. Import only as display history, never send bot replies to them.
+        sock.ev.on('messaging-history.set', ({messages}) => {
+            for(const msg of Array.isArray(messages)?messages:[]) {
+                try{rememberHistoricWhatsappMessage(msg)}
+                catch(e){console.error('[WA2 CHAT STORAGE] History item failed:',e.message)}
+            }
+        });
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
-            // 'append' carries historical messages replayed on reconnect; only 'notify' is a live incoming message
-            if (type !== 'notify') return;
+            // Historical append messages must not initiate new orders or payments.
+            if (type !== 'notify') {
+                if(type==='append')for(const msg of Array.isArray(messages)?messages:[]) {
+                    try{rememberHistoricWhatsappMessage(msg)}
+                    catch(e){console.error('[WA2 CHAT STORAGE] Append item failed:',e.message)}
+                }
+                return;
+            }
             for (const msg of Array.isArray(messages) ? messages : []) {
                 if (socketGeneration !== activeSocketGeneration) return;
                 let jid = null;
@@ -2066,7 +2160,12 @@ async function startBot() {
                         const msgTs = typeof msg.messageTimestamp === 'number'
                             ? msg.messageTimestamp
                             : Number(msg.messageTimestamp) || 0;
-                        if (socketConnectedAt === 0 || msgTs < socketConnectedAt) continue;
+                        if (socketConnectedAt === 0 || msgTs < socketConnectedAt){
+                            // Preserve the chat record, but never re-run the bot
+                            // for past incoming/outgoing WhatsApp messages.
+                            rememberHistoricWhatsappMessage(msg);
+                            continue;
+                        }
                     }
 
                     // ── Mobile bot control: admin typed directly on the bot's phone ──
@@ -2085,7 +2184,7 @@ async function startBot() {
 
                     const isMediaMessage = !!(messageContent.imageMessage || messageContent.documentMessage);
                     if (!rawText && !isMediaMessage) continue;
-                    if (rawText) rememberConversation(jid, rawText);
+                    if (rawText) rememberConversation(jid, rawText, {messageId:key.id,timestamp:Number(msg.messageTimestamp||0)});
                     // Ensure last-activity is tracked for media-only messages (used for idle detection).
                     // The chatLog entry with fileRef is added inside state handlers after the file is saved.
                     if (isMediaMessage && !rawText) {
