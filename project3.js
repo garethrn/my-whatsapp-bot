@@ -4,6 +4,35 @@ const BASE=String(process.env.PROJECT3_BASE_URL||'').trim().replace(/\/+$/,'');
 const TOKEN=String(process.env.PROJECT3_API_KEY||'').trim();
 const isConfigured=()=>/^https:\/\//i.test(BASE)&&Boolean(TOKEN);
 function cents(v){const n=Number(v);if(!Number.isFinite(n)||n<0)throw Error('Invalid WhatsApp cart price.');return Math.round(n*100);}
+// Invoice totals are cents, but label-area calculations can produce half
+// cents (e.g. R118.125 + R61.875 = R180.00). Assign the exact grand total
+// across lines using largest fractional remainders instead of individually
+// rounding each line up and rejecting an otherwise valid order.
+function normalizeCart(cart, expectedTotal) {
+ if(!Array.isArray(cart)||!cart.length)throw Error('Cannot send empty order to Project 3.');
+ const raw=cart.map(x=>{
+   const n=Number(x?.total);
+   if(!Number.isFinite(n)||n<0)throw Error('Invalid WhatsApp cart line total.');
+   return n*100;
+ });
+ const rawSum=raw.reduce((sum,n)=>sum+n,0);
+ const actualTotal=Math.round(rawSum);
+ const desired=expectedTotal===undefined?actualTotal:cents(expectedTotal);
+ // A difference larger than rounding cannot be silently "corrected": the
+ // customer may have paid a different amount or a cart line may have changed.
+ if(actualTotal!==desired)throw Error('Cart total does not match the quoted amount; manual review required.');
+ const floor=raw.map(n=>Math.floor(n+1e-8));
+ let remainder=desired-floor.reduce((sum,n)=>sum+n,0);
+ if(!Number.isInteger(remainder)||remainder<0||remainder>cart.length)
+   throw Error('Cart amounts cannot be reconciled to cents.');
+ const indices=raw.map((n,i)=>i).sort((a,b)=>{
+   const diff=(raw[b]-floor[b])-(raw[a]-floor[a]);
+   return Math.abs(diff)>1e-8?diff:a-b;
+ });
+ const rounded=[...floor];
+ for(const idx of indices.slice(0,remainder))rounded[idx]++;
+ return cart.map((x,i)=>({...x,total:rounded[i]/100}));
+}
 function cartToItems(cart){
  if(!Array.isArray(cart)||!cart.length)throw Error('Cannot send empty order to Project 3.');
  const rows=[];
@@ -38,7 +67,8 @@ async function request(apiPath,method='GET',body){
 }
 async function health(){return request('/health');}
 async function createQuote(order,notes=''){
- const items=cartToItems(order.cart),total=cents(order.grandTotal)/100;
+ const total=cents(order.grandTotal)/100;
+ const items=cartToItems(normalizeCart(order.cart,total));
  const computed=Math.round(items.reduce((sum,x)=>sum+(x.qty/(x.unitsPerProduct||1))*x.unitPrice+Number(x.designFee||0),0)*100)/100;
  if(Math.abs(computed-total)>=0.009)throw Error('Order total and line items differ. Payment link withheld.');
  return request('/quote','POST',{
@@ -55,4 +85,4 @@ async function markPaid(order,amount,paymentReference){
    quoteNumber:String(order.project3QuoteNumber),amount,paymentReference:String(paymentReference).trim()
  });
 }
-module.exports={isConfigured,health,cartToItems,createQuote,markPaid};
+module.exports={isConfigured,health,normalizeCart,cartToItems,createQuote,markPaid};
