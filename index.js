@@ -43,6 +43,7 @@ const ORDERS_FILE = path.join(STORAGE_DIR, 'orders.json');
 const AUDIT_LOG_FILE = path.join(STORAGE_DIR, 'admin_audit.log');
 const SETTINGS_FILE = path.join(STORAGE_DIR, 'settings.json');
 const CONTACTS_FILE = path.join(STORAGE_DIR, 'contacts.json');
+const CUSTOMER_NAMES_FILE = path.join(STORAGE_DIR, 'customer_names.json');
 const CONTACT_PHONES_FILE = path.join(STORAGE_DIR, 'contact_phones.json');
 const TAB_OVERRIDES_FILE = path.join(STORAGE_DIR, 'tab_overrides.json');
 const SERVICE_SELECTED_FILE = path.join(STORAGE_DIR, 'service_selected.json');
@@ -343,6 +344,8 @@ let settings = loadJsonFile(SETTINGS_FILE, { wholesalePassword: '', wholesaleDis
 // Persisted admin-assigned contact names (override WhatsApp pushName).
 // { [jid]: string }
 let contactNames = loadJsonFile(CONTACTS_FILE, {});
+// Customer/profile names persist independently of staff-renamed contact overrides.
+let botCustomerNames = loadJsonFile(CUSTOMER_NAMES_FILE, {});
 // Persisted admin/imported contact phones by JID (digits only, no plus).
 // { [jid]: string }
 let contactPhones = loadJsonFile(CONTACT_PHONES_FILE, {});
@@ -939,7 +942,7 @@ async function promptForWholesaleArtworkIfNeeded(sock, jid, product, item) {
 }
 
 function greetUser(jid) {
-    const name = userNames[jid];
+    const name = getCustomerName(jid);
     return name ? `Hi there ${name}! 👋` : 'Hi there! 👋';
 }
 
@@ -1643,12 +1646,54 @@ function getPhoneFromJid(jid) {
 }
 
 /**
- * Returns the best available display name for a JID:
- * admin-set contactName > WhatsApp pushName > phone number.
+ * Name preference: staff-edited/imported contact name > saved bot customer
+ * name (confirmed by customer or their WhatsApp profile) > transient pushName.
  */
-function getDisplayName(jid) {
-    return contactNames[jid] || userNames[jid] || getPhoneFromJid(jid);
+function getCustomerName(jid) {
+    return contactNames[jid] || botCustomerNames[jid]?.name || userNames[jid] || '';
 }
+function getDisplayName(jid) {
+    return getCustomerName(jid) || getPhoneFromJid(jid);
+}
+function cleanBotCustomerName(value) {
+    const n=String(value||'').replace(/[\u0000-\u001f\u007f]/g,' ').replace(/\s+/g,' ').trim();
+    if(n.length<2 || n.length>100 || /^[-+\d\s()]+$/.test(n) ||
+        /@|https?:\/\/|www\./i.test(n))return '';
+    return n;
+}
+function rememberBotCustomerName(jid,value,{confirmed=false,source='whatsapp_profile'}={}){
+    if(!isDirectUserJid(jid) || jid===ADMIN_JID)return false;
+    const name=cleanBotCustomerName(value);
+    if(!name)return false;
+    const existing=botCustomerNames[jid];
+    if(!confirmed&&existing?.name)return false;
+    if(existing?.name===name&&existing.confirmed===confirmed)return false;
+    botCustomerNames[jid]={
+        name,confirmed:!!confirmed,source:String(source),updatedAt:new Date().toISOString()
+    };
+    saveJsonFile(CUSTOMER_NAMES_FILE,botCustomerNames);
+    return true;
+}
+// Recover names already recorded against past orders so existing customers
+// appear by name after deployment, without changing orders or invoices.
+function restoreNamesFromPastOrders(){
+    let changed=0;
+    for(const order of [...orders].reverse()){
+        const jid=String(order?.jid||'');
+        if(!isDirectUserJid(jid)||jid===ADMIN_JID||contactNames[jid]||botCustomerNames[jid]?.name)continue;
+        const name=cleanBotCustomerName(order.customerName);
+        if(!name)continue;
+        botCustomerNames[jid]={
+            name,confirmed:false,source:'past_order',updatedAt:new Date().toISOString()
+        };
+        changed++;
+    }
+    if(changed){
+        saveJsonFile(CUSTOMER_NAMES_FILE,botCustomerNames);
+        console.log('[WHATSAPP2 NAMES] Restored '+changed+' customer name(s) from existing order history.');
+    }
+}
+
 
 /**
  * Append an order record to the persistent orders store.
@@ -1707,7 +1752,7 @@ async function requestHumanHandoverConfirmation(sock, jid, reason) {
 
 async function submitOrderForReview(sock, jid, cart) {
     const { summary, grandTotal } = buildOrderSummary(cart);
-    const customerName = userNames[jid] || '';
+    const customerName = getCustomerName(jid) || '';
     const customerPhone = getPhoneFromJid(jid);
     const customerEmail = userEmails[jid] || '';
 
@@ -2025,9 +2070,11 @@ async function startBot() {
                         if (!chatLogLastActivity[jid]) chatLogLastActivity[jid] = new Date().toISOString();
                     }
 
-                    // Capture WhatsApp display name for personalised greetings
-                    if (msg.pushName && !userNames[jid]) {
-                        userNames[jid] = msg.pushName;
+                    // Persist WhatsApp profile name against the sender's JID/phone.
+                    // Never overwrite a staff-selected contact display name.
+                    if (msg.pushName) {
+                        if (!userNames[jid]) userNames[jid] = msg.pushName;
+                        rememberBotCustomerName(jid,msg.pushName);
                     }
 
                     // Admin: upload new CSV via document message
@@ -4275,6 +4322,7 @@ app.get('/admin/api/conversations', adminRouteLimiter, adminAuthMiddleware, (req
         ...Object.keys(userCarts),
         ...Object.keys(handoverSessions),
         ...Object.keys(contactPhones),
+        ...Object.keys(botCustomerNames),
         ...orders.filter((o) => o).map((o) => o.jid)
     ]);
     jidSet.delete(ADMIN_JID);
@@ -4285,7 +4333,7 @@ app.get('/admin/api/conversations', adminRouteLimiter, adminAuthMiddleware, (req
         return {
             jid,
             phone: getPhoneFromJid(jid),
-            name: contactNames[jid] || userNames[jid] || null,
+            name: getCustomerName(jid) || null,
             status: getConversationStatus(jid),
             step: userStates[jid]?.step || 'idle',
             cartItemCount: (userCarts[jid] || []).length,
@@ -4315,7 +4363,7 @@ app.get('/admin/api/conversations/:jid', adminRouteLimiter, adminAuthMiddleware,
         ok: true,
         jid,
         phone: getPhoneFromJid(jid),
-        name: contactNames[jid] || userNames[jid] || null,
+        name: getCustomerName(jid) || null,
         status: getConversationStatus(jid),
         step: userStates[jid]?.step || 'idle',
         cart: userCarts[jid] || [],
@@ -4462,7 +4510,7 @@ app.get('/admin/api/handovers', adminRouteLimiter, adminAuthMiddleware, (req, re
         .map(([jid, s]) => ({
             jid,
             phone: getPhoneFromJid(jid),
-            name: contactNames[jid] || userNames[jid] || null,
+            name: getCustomerName(jid) || null,
             reason: s.reason || null,
             requestedAt: s.requestedAt
         }));
@@ -4488,13 +4536,14 @@ app.get('/admin/api/contacts', adminRouteLimiter, adminAuthMiddleware, (req, res
         ...Object.keys(userCarts),
         ...Object.keys(handoverSessions),
         ...Object.keys(contactNames),
+        ...Object.keys(botCustomerNames),
         ...orders.filter((o) => o).map((o) => o.jid)
     ]);
     jidSet.delete(ADMIN_JID);
     const contacts = [...jidSet].map((jid) => ({
         jid,
         phone: getPhoneFromJid(jid),
-        name: contactNames[jid] || userNames[jid] || null,
+        name: getCustomerName(jid) || null,
         isCustomName: Boolean(contactNames[jid])
     })).sort((a, b) => (a.name || a.phone).localeCompare(b.name || b.phone));
     res.json({ ok: true, contacts });
@@ -4712,6 +4761,7 @@ function mergeImportedContacts(parsedContacts) {
         ...Object.keys(userNames),
         ...Object.keys(contactNames),
         ...Object.keys(contactPhones),
+        ...Object.keys(botCustomerNames),
         ...orders.filter((o) => o).map((o) => o.jid)
     ]);
 
@@ -4731,7 +4781,7 @@ function mergeImportedContacts(parsedContacts) {
 
         const normalizedName = normalizeContactName(name);
         for (const jid of knownJids) {
-            const existingName = normalizeContactName(contactNames[jid] || userNames[jid] || '');
+            const existingName = normalizeContactName(getCustomerName(jid));
             if (!existingName || existingName !== normalizedName) continue;
             if (contactNames[jid] !== name || contactPhones[jid] !== phone) {
                 contactNames[jid] = name;
@@ -6099,6 +6149,7 @@ const server = app.listen(PORT, () => {
         project3.health().then(() => console.log('[PROJECT3 CONNECTION] HEALTH OK'))
             .catch(err => console.error('[PROJECT3 CONNECTION] HEALTH FAILED:', err.message));
     }
+    restoreNamesFromPastOrders();
     reportBotPaidOrdersForReconciliation();
     restoreVerifiedPayfastEvidenceForKnownMissedSale();
     reconcileVerifiedProject3Sales().catch(e => console.error('[PROJECT3 RECOVERY] Startup:', e.message));
