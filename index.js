@@ -1380,9 +1380,11 @@ function buildOrderSummary(cart) {
 }
 
 function buildCheckoutSummary(cart) {
+    // Match the cent-rounded prices that Project 3 will actually invoice.
+    const displayedCart=BILLING_PROVIDER_KEY==='project3'?project3.normalizeCart(cart):cart;
     let total = 0;
     let summary = '*🛒 Order Summary*\n\n';
-    cart.forEach((item, i) => {
+    displayedCart.forEach((item, i) => {
         summary += `${i + 1}. *${item.name}*\n`;
         if (item.dimensions) summary += `Size: ${item.dimensions}\n`;
         summary += `Quantity: ${item.qty || 1}\n`;
@@ -1853,7 +1855,8 @@ async function requestHumanHandoverConfirmation(sock, jid, reason) {
 }
 
 async function submitOrderForReview(sock, jid, cart) {
-    const { summary, grandTotal } = buildOrderSummary(cart);
+    const pricedCart=BILLING_PROVIDER_KEY==='project3'?project3.normalizeCart(cart):cart;
+    const { summary, grandTotal } = buildOrderSummary(pricedCart);
     const customerName = getCustomerName(jid) || '';
     const customerPhone = getPhoneFromJid(jid);
     const customerEmail = userEmails[jid] || '';
@@ -1865,7 +1868,7 @@ async function submitOrderForReview(sock, jid, cart) {
         customerName,
         customerPhone,
         customerEmail,
-        cart: JSON.parse(JSON.stringify(cart)),
+        cart: JSON.parse(JSON.stringify(pricedCart)),
         grandTotal,
         createdAt: new Date().toISOString(),
         invoiceNinjaQuoteId: null,
@@ -1986,7 +1989,7 @@ async function submitOrderForReview(sock, jid, cart) {
         });
     }
 
-    return { quoteCreated: !!(quoteInfo?.url), paymentSent: !!(paymentLink) };
+    return { quoteCreated: !!(quoteInfo?.url), paymentSent: !!(paymentLink), orderId };
 }
 
 async function startBot() {
@@ -2116,6 +2119,7 @@ async function startBot() {
                     clearBotRestartTimer();
                     setWhatsAppPhase('connected');
                     console.log('🚀 BOT IS CONNECTED AND LIVE!');
+                    recoverWaterLabCheckout(sock).catch(e=>console.error('[PROJECT3 CHECKOUT RECOVERY] '+e.message));
                 }
             } catch (error) {
                 console.error('❌ Error while handling WhatsApp connection update:', error);
@@ -3149,12 +3153,12 @@ async function startBot() {
                             continue;
                         }
 
-                        const { quoteCreated, paymentSent } = await submitOrderForReview(sock, jid, cart);
+                        const { quoteCreated, paymentSent, orderId } = await submitOrderForReview(sock, jid, cart);
                         delete userCarts[jid];
                         userStates[jid] = { step: 'idle' };
                         if (!quoteCreated && !paymentSent) {
                             await sock.sendMessage(jid, {
-                                text: `✅ Thank you. Your quote/request has been sent to ${BUSINESS_NAME} for follow-up. A team member will contact you if anything needs clarification.`
+                                text: `⚠️ We received your order request, but could not automatically create the quotation or PayFast payment link. Please do not pay until you receive a valid link from us. Our staff have been notified. Order reference: ${orderId || 'pending'}.`
                             });
                         }
                         continue;
@@ -6281,6 +6285,71 @@ const server = app.listen(PORT, () => {
     reconcileVerifiedProject3Sales().catch(e => console.error('[PROJECT3 RECOVERY] Startup:', e.message));
     startBot(); // Start the bot after the server is up
 });
+
+// Reattempt one fully identified, unpaid quote which was rejected solely due
+// to the half-cent label rounding bug. Project 3 maps externalOrderId to the
+// same quotation, so a retry cannot create duplicate quotes. No payment or
+// invoice is created here; the PayFast link is only offered after a valid quote.
+let roundingRecoveryRunning=false;
+async function recoverWaterLabCheckout(sock) {
+    if(roundingRecoveryRunning||!project3.isConfigured())return;
+    const order=orders.find(o=>o?.id==='1650d5e4ad0b');
+    if(!order||order.billingProvider!=='project3'||
+       order.status==='paid'||order.payfastVerifiedAt||order.project3InvoiceNumber||
+       Math.round(Number(order.grandTotal||0)*100)!==18000||
+       !/water\s*lab/i.test(String(order.customerName||''))||
+       !['QUOTE_FAILED','QUOTE_CREATED'].includes(String(order.project3SyncStatus||''))||
+       (order.project3SyncStatus==='QUOTE_FAILED' &&
+         !/Order total and line items differ/.test(String(order.error||'')))||
+       order.roundingRecoveryNotificationAttemptedAt)return;
+    roundingRecoveryRunning=true;
+    try{
+        let quoteUrl=order.billingQuoteLink||'';
+        if(!order.project3QuoteNumber){
+            const result=await project3.createQuote(order,ARTWORK_DISCLAIMER);
+            const q=result.quote||{};
+            if(!q.number||!q.quoteUrl)throw Error('Project 3 did not return a valid quotation.');
+            order.project3QuoteNumber=String(q.number);
+            order.billingQuoteId=q.id;
+            order.billingQuoteNumber=String(q.number);
+            order.billingQuoteLink=q.quoteUrl;
+            quoteUrl=q.quoteUrl;
+            order.status='quoted';
+            order.error=null;
+            order.project3SyncStatus='QUOTE_CREATED';
+            saveJsonFile(ORDERS_FILE,orders);
+            console.log('[PROJECT3 CHECKOUT RECOVERY] Recovered existing order '+order.id+' quote '+q.number);
+        }
+        const {origin,error}=getConfiguredPayfastOrigin();
+        if(!payfast.isConfigured()||!origin||error){
+            console.error('[PROJECT3 CHECKOUT RECOVERY] No valid PayFast configuration: '+(error||'not configured'));
+            return;
+        }
+        if(!quoteUrl)throw Error('Recovered quotation link is unavailable.');
+        if(whatsappRuntime.phase!=='connected'||sock!==activeSock)return;
+        // Mark attempt BEFORE sending to avoid duplicate PayFast prompts when a
+        // Railway deployment or connection restarts while WhatsApp sends.
+        order.roundingRecoveryNotificationAttemptedAt=new Date().toISOString();
+        saveJsonFile(ORDERS_FILE,orders);
+        const link=origin+'/pay/'+encodeURIComponent(order.id);
+        const text='✅ Your order quotation is ready. We corrected a checkout issue which previously prevented the payment link.\n\n'+
+          'Order reference: '+order.id+'\nQuotation: '+order.project3QuoteNumber+'\nTotal: R180.00\n\n'+
+          '📄 View your quotation:\n'+quoteUrl+'\n\n💳 Pay securely with PayFast:\n'+link+
+          '\n\n⚠️ If you have ALREADY paid for this particular order, please do not pay again. Send your payment proof so we can allocate it correctly.';
+        try{
+            await sock.sendMessage(order.jid,{text});
+            order.roundingRecoveryNotificationStatus='SENT';
+            order.roundingRecoveryNotificationSentAt=new Date().toISOString();
+            console.log('[PROJECT3 CHECKOUT RECOVERY] PayFast link sent for original order '+order.id+' quote '+order.project3QuoteNumber);
+        }catch(err){
+            order.roundingRecoveryNotificationStatus='SEND_FAILED';
+            console.error('[PROJECT3 CHECKOUT RECOVERY] Quote recovered but WhatsApp delivery failed: '+err.message);
+        }
+        saveJsonFile(ORDERS_FILE,orders);
+    }catch(err){
+        console.error('[PROJECT3 CHECKOUT RECOVERY] Original order 1650d5e4ad0b: '+err.message);
+    }finally{roundingRecoveryRunning=false;}
+}
 
 // Retry verified but unposted Project 3 PayFast sales every five minutes.
 // Idempotent in Project 3, no re-charging or re-sending customer messages.
