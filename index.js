@@ -2017,18 +2017,22 @@ async function startBot() {
         sock.sendMessage = async (targetJid, content, options) => {
             const payload = content && typeof content === 'object' ? { ...content } : content;
             const skipNavigation = Boolean(payload?.__skipNavigation);
-            if (payload && typeof payload === 'object' && '__skipNavigation' in payload) delete payload.__skipNavigation;
+            const skipChatHistory = Boolean(payload?.__skipChatHistory);
+            if (payload && typeof payload === 'object'){
+                if('__skipNavigation' in payload)delete payload.__skipNavigation;
+                if('__skipChatHistory' in payload)delete payload.__skipChatHistory;
+            }
 
             if (!skipNavigation && targetJid !== ADMIN_JID && typeof payload?.text === 'string' && payload.text.trim()) {
                 pushNavigationSnapshot(targetJid, payload.text);
             }
 
             // Log bot replies for the admin dashboard (skip messages sent to the admin's own JID)
-            if (targetJid !== ADMIN_JID && typeof payload?.text === 'string' && payload.text.trim()) {
-                logChatEntry(targetJid, 'bot', payload.text);
-            }
-
             const result = await rawSendMessage(targetJid, payload, options);
+            if (!skipChatHistory && targetJid !== ADMIN_JID && typeof payload?.text === 'string' && payload.text.trim()) {
+                // Persist only after WhatsApp confirms the send operation.
+                logChatEntry(targetJid, 'bot', payload.text, null, {messageId:result?.key?.id});
+            }
             // Record the message ID so the messages.upsert handler can
             // distinguish bot-sent echoes (fromMe: true) from real admin-phone replies.
             if (result?.key?.id) {
@@ -4504,7 +4508,7 @@ app.post('/admin/api/send', adminRouteLimiter, adminAuthMiddleware, express.json
         return res.status(503).json({ error: 'WhatsApp is not connected' });
     }
     try {
-        await activeSock.sendMessage(jid, { text: message.trim() });
+        await activeSock.sendMessage(jid, { text: message.trim(), __skipChatHistory:true });
         // Log the admin message as a 'bot' entry (sent on behalf of the business)
         logChatEntry(jid, 'bot', `[${req.wa2Staff?'Staff: '+req.wa2Staff.name:'Admin'}] ${message.trim()}`);
         auditLog('SEND_MSG', `to=${jid}`, req.ip);
@@ -5623,12 +5627,13 @@ let pollInterval = null;
 let convDataHash = '';
 let chatFrameBuilt = false; // true once the static chat area frame has been rendered
 let lastMsgCount = 0;
+let lastMsgTailKey = '';
 let chatHeaderHash = ''; // tracks last-rendered header state to avoid disrupting open menus
 
 function renderConversations(list) {
   allConversations = list;
   const filtered = filterBySubTab(list);
-  const hash = JSON.stringify(filtered.map(c => c.jid + c.status + (c.lastActivity||'') + (c.tabOverride||'')));
+  const hash = JSON.stringify(filtered.map(c => [c.jid,c.name,c.status,c.lastActivity,c.tabOverride,c.lastMessage?.text,c.orderCount]));
   if (hash === convDataHash) return; // nothing changed — skip re-render
   convDataHash = hash;
 
@@ -5640,7 +5645,8 @@ function renderConversations(list) {
   el.innerHTML = filtered.map(c => {
     const isActive = c.jid === activeJid;
     const label = c.name || c.phone || c.jid;
-    const preview = c.lastMessage ? (c.lastMessage.role === 'user' ? '' : '🤖 ') + c.lastMessage.text : 'No messages yet';
+    const preview = c.lastMessage ? (c.lastMessage.role === 'user' ? '' : '🤖 ') + c.lastMessage.text :
+      c.orderCount ? '🧾 '+c.orderCount+' saved order(s) · chat history unavailable' : 'No saved chat history';
     const enc = encodeURIComponent(c.jid);
     return \`<div class="conv-item\${isActive?' active':''}" onclick="selectConv('\${enc}')">
       <div class="conv-avatar" style="background:\${avatarColor(c.jid)}">\${avatarLetter(c.name,c.phone)}</div>
@@ -5671,6 +5677,7 @@ async function selectConv(encodedJid) {
   activeJid = decodeURIComponent(encodedJid);
   chatFrameBuilt = false;
   lastMsgCount = 0;
+  lastMsgTailKey = '';
   chatHeaderHash = ''; // reset so header always builds fresh for new conversation
 
   document.querySelectorAll('.conv-item').forEach(el => {
@@ -5759,32 +5766,31 @@ function updateChatContent(data) {
   if (!msgContainer) return;
 
   const msgs = data.messages || [];
-  if (msgs.length === lastMsgCount) return; // nothing new
-
+  if (!msgs.length) {
+    if(!msgContainer.querySelector('.chat-history-empty')){
+      msgContainer.innerHTML = '<div class="chat-history-empty" style="margin:22px auto;padding:16px;max-width:430px;text-align:center;color:#778d9a;font-size:13px">' +
+        (data.orders?.length
+          ? 'Older conversation messages were not retained by the previous bot version. This customer has '+data.orders.length+' saved order(s); check the Orders tab for the original sale details.'
+          : 'No saved messages for this customer yet. New messages will be retained after bot restarts.') +
+        '</div>';
+    }
+    lastMsgCount=0;lastMsgTailKey='';return;
+  }
+  const tail=msgs[msgs.length-1];
+  const tailKey=String(tail.messageId||'')+'|'+String(tail.timestamp||'')+'|'+String(tail.text||'');
+  if(msgs.length===lastMsgCount&&tailKey===lastMsgTailKey)return;
   const wasAtBottom = msgContainer.scrollHeight - msgContainer.scrollTop - msgContainer.clientHeight < 50;
-
-  if (msgs.length < lastMsgCount) {
-    // Rare case (e.g. log trimmed): full re-render
-    msgContainer.innerHTML = '';
-  }
-
-  // Append only new messages
-  const startIdx = Math.max(0, lastMsgCount);
-  const fragment = document.createDocumentFragment();
-  for (let i = startIdx; i < msgs.length; i++) {
-    fragment.appendChild(buildMsgEl(msgs[i]));
-  }
-  if (msgs.length < lastMsgCount) {
-    // After full clear, add all messages
-    const fragment2 = document.createDocumentFragment();
-    for (const m of msgs) fragment2.appendChild(buildMsgEl(m));
-    msgContainer.appendChild(fragment2);
-  } else {
-    msgContainer.appendChild(fragment);
-  }
-  lastMsgCount = msgs.length;
-
-  if (wasAtBottom) msgContainer.scrollTop = msgContainer.scrollHeight;
+  // When old entries are trimmed or historical WhatsApp messages are synced,
+  // rebuild so the latest actual conversation never appears frozen.
+  const rerender=msgs.length<=lastMsgCount||msgContainer.querySelector('.chat-history-empty');
+  if(rerender)msgContainer.innerHTML='';
+  const startIdx=rerender?0:lastMsgCount;
+  const fragment=document.createDocumentFragment();
+  for(let i=startIdx;i<msgs.length;i++)fragment.appendChild(buildMsgEl(msgs[i]));
+  msgContainer.appendChild(fragment);
+  lastMsgCount=msgs.length;
+  lastMsgTailKey=tailKey;
+  if(wasAtBottom)msgContainer.scrollTop=msgContainer.scrollHeight;
 }
 
 function buildMsgEl(m) {
